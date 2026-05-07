@@ -68,6 +68,12 @@ When blocked: try a different approach → decompose the problem → challenge a
 - After any file edit: restate what changed, where, and what validation follows
 - Prefer tools over guessing whenever you need specific data (files, configs, patterns)
 - ALWAYS use tools over internal knowledge for file contents, project state, and verification
+<file_read_guidance>
+<!-- READ-SIZE-HINT: Prevents small-slice reads that waste turns. DO NOT REMOVE. -->
+- When reading files, default to limit=2000 (the tool maximum). Read the WHOLE file in one call.
+- Use smaller limits (200-500) ONLY when you know the target is in a specific region.
+- NEVER use tiny slices (30-80 lines) for initial reads — they miss imports, types, and context.
+</file_read_guidance>
 </tool_usage_rules>
 
 ${buildAntiDuplicationSection()}

@@ -24,6 +24,25 @@ function shouldAllowActivityProgress(modelID: string | undefined): boolean {
   return !modelID.toLowerCase().includes("codex")
 }
 
+// Models like GPT-5.5 can return "stop" with 0 output tokens, producing only
+// step-start/step-finish parts. Without this check the enforcer records activity
+// on every assistant message and resets stagnation, creating an infinite loop.
+function isLastAssistantMessageEmpty(messages: MessageWithInfo[]): boolean {
+  if (!messages || messages.length === 0) return false
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]
+    const role = msg.info?.role
+    if (role === "assistant") {
+      if (!msg.parts || msg.parts.length === 0) return true
+      return !msg.parts.some(
+        (part) => part.type !== "step-start" && part.type !== "step-finish",
+      )
+    }
+    if (role === "user") return false
+  }
+  return false
+}
+
 export async function handleSessionIdle(args: {
   ctx: PluginInput
   sessionID: string
@@ -92,6 +111,14 @@ export async function handleSessionIdle(args: {
     }
     if (hasUnansweredQuestion(prefetchedMessages)) {
       log(`[${HOOK_NAME}] Skipped: pending question awaiting user response`, { sessionID })
+      return
+    }
+    if (isLastAssistantMessageEmpty(prefetchedMessages)) {
+      state.consecutiveFailures = (state.consecutiveFailures ?? 0) + 1
+      log(`[${HOOK_NAME}] Skipped: last assistant response was empty (no output), treating as failure`, {
+        sessionID,
+        consecutiveFailures: state.consecutiveFailures,
+      })
       return
     }
   } catch (error) {

@@ -21,18 +21,13 @@ export async function getSdkMainSessions(
   client: PluginInput["client"],
   directory?: string,
 ): Promise<SessionMetadata[]> {
-  const response = await client.session.list()
+  // Server-side directory filter avoids the default limit of 100 excluding target sessions.
+  const response = await client.session.list(directory ? { query: { directory } } : undefined)
   const error = unwrapSdkResponseError(response)
   if (error) throw error
 
   const sessions = normalizeSDKResponse(response, [] as SessionMetadata[])
   const mainSessions = sessions.filter((session) => !session.parentID)
-  if (directory) {
-    return mainSessions
-      .filter((session) => session.directory === directory)
-      .sort((a, b) => b.time.updated - a.time.updated)
-  }
-
   return mainSessions.sort((a, b) => b.time.updated - a.time.updated)
 }
 

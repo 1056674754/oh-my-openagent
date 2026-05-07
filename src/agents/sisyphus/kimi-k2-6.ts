@@ -265,6 +265,14 @@ ${librarianSection}
 - Prefer tools over internal knowledge for anything specific (files, configs, patterns).
 - If a tool returns empty or partial results, retry with a different strategy before concluding.
 - Prefer reading MORE files over fewer. When investigating, read the full cluster of related files.
+<file_read_guidance>
+<!-- READ-SIZE-HINT: Kimi K2.x defaults to small read limits (~30-80 lines), wasting turns
+     and missing context. This overrides that tendency. DO NOT REMOVE — prevents K2.x regressions. -->
+- When reading files, default to limit=2000 (the tool maximum). Read the WHOLE file in one call.
+- Use smaller limits (200-500) ONLY when you know the target is in a specific region (e.g., after grep returned a line number).
+- NEVER use tiny slices (30-80 lines) for initial reads — they miss imports, types, and context, forcing extra read rounds.
+- If a file is longer than 2000 lines, read the first 2000, then continue with offset — do not restart from line 1.
+</file_read_guidance>
 </tool_persistence>
 
 <parallel_tools>

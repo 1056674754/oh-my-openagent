@@ -241,6 +241,15 @@ ${librarianSection}
 - Parallelize independent file reads - don't read files one at a time
 - After any write/edit tool call, briefly restate what changed, where, and what validation follows
 - Prefer tools over internal knowledge whenever you need specific data (files, configs, patterns)
+<file_read_guidance>
+<!-- READ-SIZE-HINT: Models that default to small read limits (GLM, Kimi) waste turns reading
+     30-50 line slices. This guidance overrides that tendency. GPT/Claude already read generously
+     and are unaffected. DO NOT REMOVE — prevents regressions on GLM-5.x and Kimi K2.x. -->
+- When reading files, default to limit=2000 (the tool maximum). Read the WHOLE file in one call.
+- Use smaller limits (200-500) ONLY when you know the target is in a specific region (e.g., after grep returned a line number).
+- NEVER use tiny slices (30-80 lines) for initial reads — they miss imports, types, and context, forcing extra read rounds.
+- If a file is longer than 2000 lines, read the first 2000, then continue with offset — do not restart from line 1.
+</file_read_guidance>
 </tool_usage_rules>
 
 **Explore/Librarian = Grep, not consultants.
