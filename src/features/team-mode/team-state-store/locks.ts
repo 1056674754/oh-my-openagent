@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto"
 import { open, readFile, rename, rm, unlink, writeFile } from "node:fs/promises"
 
+import { tolerantFsync } from "../../../shared/tolerant-fsync"
+
 type LockOptions = {
   staleAfterMs?: number
   ownerTag?: string
@@ -51,7 +53,7 @@ async function acquireLock(lockPath: string, ownerTag: string, staleAfterMs: num
       const fileHandle = await open(lockPath, "wx")
       try {
         await fileHandle.writeFile(buildOwnerContent(ownerTag))
-        await fileHandle.sync()
+        await tolerantFsync(fileHandle, `acquireLock:${lockPath}`)
       } finally {
         await fileHandle.close()
       }
@@ -108,6 +110,7 @@ export async function reapStaleLock(lockPath: string): Promise<void> {
 export async function atomicWrite(
   filePath: string,
   content: string | Buffer,
+  deps: { rename: typeof rename } = { rename },
 ): Promise<void> {
   const tmpPath = `${filePath}.tmp.${randomUUID()}`
 
@@ -115,11 +118,11 @@ export async function atomicWrite(
     await writeFile(tmpPath, content)
     const fileHandle = await open(tmpPath, "r")
     try {
-      await fileHandle.sync()
+      await tolerantFsync(fileHandle, `atomicWrite:${filePath}`)
     } finally {
       await fileHandle.close()
     }
-    await rename(tmpPath, filePath)
+    await deps.rename(tmpPath, filePath)
   } catch (error) {
     await rm(tmpPath, { force: true })
     throw error
