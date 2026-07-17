@@ -10,6 +10,17 @@ import {
 } from "./aggregate-plugin-fixture.mjs";
 import { listSkillFiles } from "./sync-skills-test-support.mjs";
 
+function readFrontmatterDescription(content) {
+	const frontmatter = content.match(/^---\s*\n([\s\S]*?)\n---/)?.[1];
+	const rawDescription = frontmatter?.match(/^description:\s*(.+)$/m)?.[1]?.trim();
+	if (!rawDescription) return null;
+	if (rawDescription.startsWith('"')) return JSON.parse(rawDescription);
+	if (rawDescription.startsWith("'") && rawDescription.endsWith("'")) {
+		return rawDescription.slice(1, -1).replaceAll("''", "'");
+	}
+	return rawDescription;
+}
+
 test("#given synced skills with Codex compatibility guidance #when spawn_agent is documented #then invalid role parameters are absent", async () => {
 	const skillsDir = join(root, "skills");
 	const skillEntries = await readdir(skillsDir, { withFileTypes: true });
@@ -26,6 +37,23 @@ test("#given synced skills with Codex compatibility guidance #when spawn_agent i
 	}
 
 	assert.deepEqual(invalidCalls, []);
+});
+
+test("#given synced Codex skills #when frontmatter is inspected #then descriptions fit the Codex limit", async () => {
+	const skillsDir = join(root, "skills");
+	const skillEntries = await readdir(skillsDir, { withFileTypes: true });
+	const oversizedDescriptions = [];
+
+	for (const entry of skillEntries) {
+		if (!entry.isDirectory()) continue;
+		const skillPath = join(skillsDir, entry.name, "SKILL.md");
+		const description = readFrontmatterDescription(await readFile(skillPath, "utf8"));
+		if (description && description.length > 1024) {
+			oversizedDescriptions.push(`${entry.name}: ${description.length}`);
+		}
+	}
+
+	assert.deepEqual(oversizedDescriptions, []);
 });
 
 test('#given synced skills and bundled rules #when role-specific agents are spawned #then they set fork_context=false', async () => {
