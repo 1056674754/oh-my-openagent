@@ -1,6 +1,5 @@
-import { writeFileSync } from "node:fs";
-
 import { afterEach, describe, expect, it } from "bun:test";
+import { writeFileSync } from "node:fs";
 
 import {
 	createWorkspaceEditTestHarness,
@@ -16,6 +15,24 @@ afterEach(async () => {
 });
 
 describe("LspClient diagnostics freshness", () => {
+	it("#given a cold project whose first diagnostics arrive after three seconds #when diagnostics use the default freshness deadline #then the first call waits for the current result", async () => {
+		const context = await harness.makeClient({
+			publishDiagnostics: [
+				{
+					trigger: "didOpen",
+					delayMs: 3_100,
+					version: 1,
+					diagnostics: [diagnostic("cold-project-ready")],
+				},
+			],
+		});
+
+		const result = await context.client.diagnostics(context.source);
+
+		expect(result.items).toEqual([diagnostic("cold-project-ready")]);
+		expect(result.transientError).toBeUndefined();
+	});
+
 	it("#given concurrent diagnostics on a cold file and an exact didOpen publish #when pull is not advertised #then one didOpen opens the file and both requests receive the current diagnostics", async () => {
 		const context = await harness.makeClient(
 			{

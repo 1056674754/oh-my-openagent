@@ -2,6 +2,8 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { LspClientConnection } from "./connection.js";
+import { REQUEST_TIMEOUT_MS } from "./constants.js";
+import { LspRequestTimeoutError } from "./errors.js";
 import type { LspClientTimeoutOptions } from "./transport.js";
 import type {
 	Diagnostic,
@@ -15,12 +17,11 @@ import type {
 	SymbolInfo,
 	WorkspaceEdit,
 } from "./types.js";
-import { LspRequestTimeoutError } from "./errors.js";
 import { WorkspaceDocumentState } from "./workspace-document-state.js";
 import type { LspRenameResult, WorkspaceEditCommitIo } from "./workspace-edit-types.js";
 import { WorkspaceMutationController } from "./workspace-mutation-controller.js";
 
-const DIAGNOSTICS_FRESHNESS_TIMEOUT_MS = 3_000;
+const DIAGNOSTICS_FRESHNESS_TIMEOUT_MS = REQUEST_TIMEOUT_MS;
 const VERSIONLESS_PUBLISH_QUIESCENCE_MS = 250;
 
 export interface LspDiagnosticsResult {
