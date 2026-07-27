@@ -83,6 +83,8 @@ import {
 import { ParentWakeNotifier, type ParentWakePromptContext } from "./parent-wake-notifier"
 import type { PendingParentWake } from "./parent-wake-dedupe"
 import { registerManagerForCleanup, unregisterManagerForCleanup } from "./process-cleanup"
+import { BackgroundQuotaRouter, type QuotaUsageLoader } from "./quota-routing"
+import { ProviderQuotaUsageLoader } from "./quota-usage-loader"
 import { removeTaskToastTracking } from "./remove-task-toast-tracking"
 import {
   MIN_SESSION_GONE_POLLS,
@@ -239,6 +241,7 @@ export interface BackgroundManagerConfig {
   onShutdown?: () => void | Promise<void>
   enableParentSessionNotifications?: boolean
   modelFallbackControllerAccessor?: ModelFallbackControllerAccessor
+  quotaUsageLoader?: QuotaUsageLoader
   log?: typeof log
 }
 
@@ -278,6 +281,8 @@ export class BackgroundManager {
   private enableParentSessionNotifications: boolean
   private modelFallbackControllerAccessor?: ModelFallbackControllerAccessor
   private logger: typeof log
+  private quotaRouter?: BackgroundQuotaRouter
+  private readonly quotaUsageLoader: QuotaUsageLoader
   private loggedSessionStatusUnavailable = false
   readonly taskHistory = new TaskHistory()
   private cachedCircuitBreakerSettings?: CircuitBreakerSettings
@@ -304,6 +309,9 @@ export class BackgroundManager {
     this.enableParentSessionNotifications = options?.enableParentSessionNotifications ?? true
     this.modelFallbackControllerAccessor = options?.modelFallbackControllerAccessor
     this.logger = options?.log ?? log
+    this.quotaUsageLoader = options.quotaUsageLoader
+      ?? new ProviderQuotaUsageLoader({ client: this.client, log: this.logger }).load
+    this.configureQuotaRouter(options.config)
     this.parentWakeNotifier = new ParentWakeNotifier(
       {
         client: this.client,
@@ -322,6 +330,16 @@ export class BackgroundManager {
       },
     )
     this.registerProcessCleanup()
+  }
+
+  private configureQuotaRouter(config?: BackgroundTaskConfig): void {
+    this.quotaRouter = config?.quotaRouting
+      ? new BackgroundQuotaRouter({
+          rules: config.quotaRouting,
+          loadQuotaUsage: this.quotaUsageLoader,
+          log: this.logger,
+        })
+      : undefined
   }
 
   private async abortSessionWithLogging(sessionID: string, reason: string): Promise<boolean> {
@@ -572,6 +590,10 @@ export class BackgroundManager {
 
     if (!input.agent) {
       throw new Error("Agent parameter is required after sanitization")
+    }
+
+    if (this.quotaRouter) {
+      input = await this.quotaRouter.route(input)
     }
 
     const spawnReservation = await this.reserveSubagentSpawn(input.parentSessionId)

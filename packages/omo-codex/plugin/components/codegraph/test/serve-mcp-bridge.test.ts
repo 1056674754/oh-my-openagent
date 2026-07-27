@@ -41,6 +41,7 @@ describe("runCodegraphServe MCP protocol bridge", () => {
 			writeFakeNewlineCodegraph(fakeCodegraph);
 
 			const run = runCodegraphServe({
+				config: { codegraph: { auto_init: true }, sources: [], warnings: [] },
 				cwd: pluginCacheRoot,
 				env: {
 					CODEGRAPH_ALLOW_UNSAFE_NODE: "1",
@@ -126,6 +127,7 @@ describe("runCodegraphServe MCP protocol bridge", () => {
 			writeFakeContractCodegraph(fakeCodegraph);
 
 			const run = runCodegraphServe({
+				config: { codegraph: { auto_init: true }, sources: [], warnings: [] },
 				cwd: tempRoot,
 				env: {
 					CODEGRAPH_ALLOW_UNSAFE_NODE: "1",
@@ -210,6 +212,7 @@ describe("runCodegraphServe MCP protocol bridge", () => {
 			mkdirSync(projectRoot, { recursive: true });
 			writeFakeHeldOpenCodegraph(fakeCodegraph);
 			const run = runCodegraphServe({
+				config: { codegraph: { auto_init: true }, sources: [], warnings: [] },
 				cwd: tempRoot,
 				env: {
 					CODEGRAPH_ALLOW_UNSAFE_NODE: "1",

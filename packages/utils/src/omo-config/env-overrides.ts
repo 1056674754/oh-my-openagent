@@ -5,10 +5,14 @@ type MutableCodegraphConfig = {
   -readonly [Key in keyof CodegraphConfig]?: CodegraphConfig[Key]
 }
 
-const CODEGRAPH_ENV_KEYS: readonly [CodegraphSettingKey, string, "boolean" | "number" | "string"][] = [
+type EnvValueKind = "auto_init" | "boolean" | "number" | "positive_integer" | "string"
+
+const CODEGRAPH_ENV_KEYS: readonly [CodegraphSettingKey, string, EnvValueKind][] = [
+  ["auto_init", "AUTO_INIT", "auto_init"],
   ["auto_provision", "AUTO_PROVISION", "boolean"],
   ["enabled", "ENABLED", "boolean"],
   ["install_dir", "INSTALL_DIR", "string"],
+  ["max_index_db_bytes", "MAX_INDEX_DB_BYTES", "positive_integer"],
   ["telemetry", "TELEMETRY", "boolean"],
   ["watch_debounce_ms", "WATCH_DEBOUNCE_MS", "number"],
 ]
@@ -20,8 +24,13 @@ function parseBooleanEnv(value: string): boolean | null {
   return null
 }
 
-function parseEnvValue(value: string, kind: "boolean" | "number" | "string"): boolean | number | string | null {
+function parseEnvValue(value: string, kind: EnvValueKind): boolean | number | string | null {
+  if (kind === "auto_init") return value.trim().toLowerCase() === "safe" ? "safe" : parseBooleanEnv(value)
   if (kind === "boolean") return parseBooleanEnv(value)
+  if (kind === "positive_integer") {
+    const parsed = Number(value)
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
+  }
   if (kind === "number") {
     const parsed = Number(value)
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
@@ -31,6 +40,9 @@ function parseEnvValue(value: string, kind: "boolean" | "number" | "string"): bo
 
 function setCodegraphSetting(config: MutableCodegraphConfig, key: CodegraphSettingKey, value: unknown): void {
   switch (key) {
+    case "auto_init":
+      if (value === "safe" || typeof value === "boolean") config.auto_init = value
+      return
     case "auto_provision":
       if (typeof value === "boolean") config.auto_provision = value
       return
@@ -44,6 +56,9 @@ function setCodegraphSetting(config: MutableCodegraphConfig, key: CodegraphSetti
       return
     case "install_dir":
       if (typeof value === "string") config.install_dir = value
+      return
+    case "max_index_db_bytes":
+      if (typeof value === "number") config.max_index_db_bytes = value
       return
     case "telemetry":
       if (typeof value === "boolean") config.telemetry = value

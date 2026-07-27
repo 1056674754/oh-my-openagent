@@ -16,6 +16,7 @@ describe("CodeGraph SessionStart worker availability", () => {
 		try {
 			// when
 			const result = await runCodegraphSessionStartWorker({
+				config: { codegraph: { auto_init: true }, sources: [], warnings: [] },
 				cwd: workspace,
 				env: { HOME: homeDir },
 				nodeVersion: "22.14.0",

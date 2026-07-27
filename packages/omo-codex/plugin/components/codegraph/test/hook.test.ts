@@ -35,6 +35,7 @@ describe("CodeGraph SessionStart hook", () => {
 			// when
 			const exitCode = await runCodegraphCli({
 				argv: ["node", "cli.js", "hook", "session-start"],
+				config: { codegraph: { auto_init: true }, sources: [], warnings: [] },
 				cwd: createAllowedWorkspace("codegraph-hook-workspace"),
 				env: { HOME: homeDir },
 				stdin: Readable.from(["{}"]),

@@ -12,6 +12,7 @@ describe("runCodegraphServe node support", () => {
 
 		// when
 		const exitCode = await runCodegraphServe({
+			config: { codegraph: { auto_init: true }, sources: [], warnings: [] },
 			...closedMcpStdio(),
 			env: { PATH: "/bin" },
 			nodeVersion: "26.3.0",

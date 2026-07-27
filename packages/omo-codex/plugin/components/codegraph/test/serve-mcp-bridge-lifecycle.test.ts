@@ -38,6 +38,7 @@ describe("runCodegraphServe MCP bridge lifecycle", () => {
 			mkdirSync(projectRoot, { recursive: true });
 			writeFakeExitingCodegraph(fakeCodegraph);
 			const run = runCodegraphServe({
+				config: { codegraph: { auto_init: true }, sources: [], warnings: [] },
 				cwd: tempRoot,
 				env: {
 					CODEGRAPH_ALLOW_UNSAFE_NODE: "1",

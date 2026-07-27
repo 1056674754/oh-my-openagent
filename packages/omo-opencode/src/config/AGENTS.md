@@ -42,7 +42,7 @@ config/schema/
 ├── keyword-detector.ts         # disabled_keywords (ultrawork|search|analyze|team)
 ├── default-mode.ts             # DefaultModeConfigSchema (auto-inject ultrawork / auto-create goal on session start)
 ├── i18n.ts                     # I18nConfigSchema (locale override; falls back to LANG env var)
-├── codegraph.ts                # CodegraphConfigSchema (auto_init, auto_provision, enabled, telemetry, watch_debounce_ms)
+├── codegraph.ts                # CodegraphConfigSchema (safe auto_init, auto_provision, enabled, max_index_db_bytes, telemetry, watch_debounce_ms)
 ├── monitor.ts                  # MonitorConfigSchema (live_mode_enabled, allowed_commands, batch/ring limits, flush_interval_ms)
 ├── tui.ts                      # TuiConfigSchema + TuiSidebarConfigSchema (sidebar.enabled)
 └── team-mode.ts                # TeamModeConfigSchema (enabled, max_parallel_members, max_members, tmux_visualization)

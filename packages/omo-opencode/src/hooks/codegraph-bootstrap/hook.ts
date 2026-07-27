@@ -4,13 +4,16 @@ import { join } from "node:path"
 
 import {
   buildCodegraphEnv,
+  decideCodegraphWorkspaceUse,
   ensureCodegraphGitignored,
   ensureCodegraphProvisioned,
+  inspectCodegraphWorkspace,
   prepareCodegraphWorkspace,
   resolveCodegraphCommand,
   resolveCodegraphNodeSupport,
   type BuildCodegraphEnvOptions,
   type CodegraphCommandResolution,
+  type CodegraphWorkspaceInspection,
   type CodegraphNodeSupport,
   type CodegraphProvisionResult,
   type CodegraphWorkspacePreparation,
@@ -45,6 +48,7 @@ export interface CodegraphBootstrapDeps {
     readonly version: "1.0.1"
   }) => Promise<CodegraphProvisionResult>
   readonly log: (message: string, data?: Record<string, unknown>) => void
+  readonly inspectWorkspace: (projectRoot: string, maxIndexDbBytes?: number) => CodegraphWorkspaceInspection
   readonly nodeSupport: () => CodegraphNodeSupport
   readonly prepareWorkspace: (
     projectRoot: string,
@@ -61,7 +65,8 @@ export interface CodegraphBootstrapDeps {
 }
 
 const CODEGRAPH_VERSION = "1.0.1"
-const COMMAND_TIMEOUT_MS = 60_000
+const STATUS_TIMEOUT_MS = 5_000
+const ACTION_TIMEOUT_MS = 60_000
 const bootstrappedProjects = new Set<string>()
 
 function defaultSchedule(task: () => Promise<void>): void {
@@ -84,9 +89,12 @@ function provisionedBinFromInstallDir(installDir: string | undefined): string | 
 
 function codegraphEnv(deps: CodegraphBootstrapDeps, config: Partial<CodegraphConfig>): Record<string, string> {
   const env = deps.buildEnv()
-  return config.install_dir === undefined
+  const configuredInstallEnv = config.install_dir === undefined
     ? env
     : { ...env, CODEGRAPH_INSTALL_DIR: config.install_dir }
+  return config.watch_debounce_ms === undefined
+    ? configuredInstallEnv
+    : { ...configuredInstallEnv, CODEGRAPH_WATCH_DEBOUNCE_MS: String(config.watch_debounce_ms) }
 }
 
 function resolveInitialCommand(
@@ -138,11 +146,14 @@ async function runBootstrap(
   deps: CodegraphBootstrapDeps,
 ): Promise<void> {
   try {
-    const autoInit = config.auto_init !== false
-    const codegraphPath = join(projectRoot, ".codegraph")
-    if (!autoInit && !existsSync(codegraphPath)) {
-      deps.log("[codegraph-bootstrap] CodeGraph auto_init disabled and .codegraph not present; skipping bootstrap", {
+    const inspection = deps.inspectWorkspace(projectRoot, config.max_index_db_bytes)
+    const workspaceDecision = decideCodegraphWorkspaceUse(inspection, config.auto_init ?? "safe")
+    if (!workspaceDecision.allowed) {
+      deps.log("[codegraph-bootstrap] CodeGraph workspace blocked by safety policy; skipping bootstrap", {
+        indexBytes: inspection.indexBytes,
+        indexState: inspection.indexState,
         projectRoot,
+        reason: workspaceDecision.reason,
       })
       return
     }
@@ -167,7 +178,7 @@ async function runBootstrap(
     const env = codegraphEnv(deps, config)
     const status = await deps.runCommand(projectRoot, command.command, [...command.argsPrefix, "status", "--json"], {
       env,
-      timeoutMs: COMMAND_TIMEOUT_MS,
+      timeoutMs: STATUS_TIMEOUT_MS,
     })
     const decision = decideCodegraphStartupAction(status)
     if (decision.kind === "skip") {
@@ -176,7 +187,7 @@ async function runBootstrap(
     }
 
     const actionArgs = command.argsPrefix.concat(decision.kind === "init" ? ["init"] : ["sync"])
-    const action = await deps.runCommand(projectRoot, command.command, actionArgs, { env, timeoutMs: COMMAND_TIMEOUT_MS })
+    const action = await deps.runCommand(projectRoot, command.command, actionArgs, { env, timeoutMs: ACTION_TIMEOUT_MS })
     deps.log("[codegraph-bootstrap] CodeGraph bootstrap finished", {
       action: decision.kind,
       exitCode: action.exitCode,
@@ -197,6 +208,10 @@ const defaultDeps: CodegraphBootstrapDeps = {
   buildEnv: buildCodegraphEnv,
   ensureGitignored: ensureCodegraphGitignored,
   ensureProvisioned: ensureCodegraphProvisioned,
+  inspectWorkspace: (projectRoot, maxIndexDbBytes) => inspectCodegraphWorkspace(
+    projectRoot,
+    maxIndexDbBytes === undefined ? {} : { maxIndexDbBytes },
+  ),
   log,
   nodeSupport: resolveCodegraphNodeSupport,
   prepareWorkspace: prepareCodegraphWorkspace,

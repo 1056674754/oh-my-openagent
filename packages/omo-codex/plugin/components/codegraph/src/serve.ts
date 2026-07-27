@@ -37,6 +37,7 @@ import type { CodegraphConfig } from "./hook.js";
 import { runBridgedCodegraphProcess } from "./mcp-bridge.js";
 import { runUnavailableCodegraphMcpServer } from "./mcp-unavailable.js";
 import { SESSION_START_CWD_ENV } from "./session-start-worker.js";
+import { decideCodexCodegraphWorkspaceUse } from "./workspace-safety.js";
 export { resolveServeProcessInvocation } from "./serve-invocation.js";
 
 export type ServeStdio = "pipe";
@@ -105,6 +106,14 @@ export async function runCodegraphServe(options: RunCodegraphServeOptions = {}):
 	if (exclusion.excluded) {
 		return runUnavailableMcp(CODEGRAPH_EXCLUDED_HINT, options);
 	}
+	const autoInitPolicy = codegraphConfig.auto_init ?? (options.config === undefined ? "safe" : true);
+	const workspaceDecision = decideCodexCodegraphWorkspaceUse(projectCwd, codegraphConfig, autoInitPolicy);
+	if (!workspaceDecision.allowed) {
+		return runUnavailableMcp(
+			`CodeGraph MCP skipped: workspace blocked by safety policy (${workspaceDecision.reason}).\n`,
+			options,
+		);
+	}
 
 	const trustedInstallDir = config.trustedCodegraphInstallDir;
 	const resolutionOptions = {
@@ -136,7 +145,7 @@ export async function runCodegraphServe(options: RunCodegraphServeOptions = {}):
 	}
 
 	const runProcess = options.runProcess ?? runBridgedCodegraphProcess;
-	const codegraphEnv = codegraphEnvForConfig(trustedInstallDir, homeDir, options.buildEnv);
+	const codegraphEnv = codegraphEnvForConfig(codegraphConfig, trustedInstallDir, homeDir, options.buildEnv);
 	const mergedEnv = buildCodegraphChildEnv({ ambientEnv: env, codegraphEnv, runtimeEnv: env });
 	return runProcess(resolution.command, [...resolution.argsPrefix, "serve", "--mcp"], {
 		cwd: projectCwd,
@@ -193,12 +202,16 @@ function looksLikePath(command: string): boolean {
 }
 
 function codegraphEnvForConfig(
+	config: CodegraphConfig,
 	trustedInstallDir: string | undefined,
 	homeDir: string,
 	buildEnv: ((options: { readonly homeDir: string }) => Record<string, string>) | undefined,
 ): Record<string, string> {
 	const env = { ...(buildEnv?.({ homeDir }) ?? buildCodegraphEnv({ homeDir })), [CODEGRAPH_NO_DAEMON_ENV]: "1" };
-	return trustedInstallDir === undefined ? env : { ...env, CODEGRAPH_INSTALL_DIR: trustedInstallDir };
+	const installEnv = trustedInstallDir === undefined ? env : { ...env, CODEGRAPH_INSTALL_DIR: trustedInstallDir };
+	return config.watch_debounce_ms === undefined
+		? installEnv
+		: { ...installEnv, CODEGRAPH_WATCH_DEBOUNCE_MS: String(config.watch_debounce_ms) };
 }
 
 function resolveProjectCwd(env: Record<string, string | undefined>, fallback: string): string {

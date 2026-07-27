@@ -369,7 +369,7 @@ Capability data comes from provider runtime metadata first. OmO also ships bundl
 
 | Agent                 | Default Model       | Provider Priority                                                            |
 | --------------------- | ------------------- | ---------------------------------------------------------------------------- |
-|| **Sisyphus**          | `claude-opus-4-7`   | `anthropic\|github-copilot\|opencode\|vercel/claude-opus-4-7 (max)` → `opencode-go\|kimi-for-coding\|moonshotai\|opencode\|vercel/kimi-k3` → `opencode-go\|vercel/kimi-k2.6` → `kimi-for-coding/k2p5` → `opencode\|bailian-coding-plan\|moonshotai\|moonshotai-cn\|firmware\|ollama-cloud\|aihubmix\|vercel/kimi-k2.5` → `openai\|github-copilot\|opencode\|vercel/gpt-5.5 (medium)` → `zai-coding-plan\|opencode\|bailian-coding-plan\|vercel/glm-5` → `opencode/big-pickle` |
+|| **Sisyphus**          | `claude-opus-4-7`   | `anthropic\|github-copilot\|opencode\|vercel/claude-opus-4-7 (max)` → `opencode-go\|vercel/kimi-k2.6` → `kimi-for-coding/k2p5` → `opencode\|bailian-coding-plan\|moonshotai\|moonshotai-cn\|firmware\|ollama-cloud\|aihubmix\|vercel/kimi-k2.5` → `openai\|github-copilot\|opencode\|vercel/gpt-5.5 (medium)` → `zai-coding-plan\|opencode\|bailian-coding-plan\|vercel/glm-5` → `opencode/big-pickle` |
 | **Hephaestus**        | `gpt-5.6-sol`       | `openai\|vercel/gpt-5.6-sol (medium)` → `openai\|github-copilot\|opencode\|vercel/gpt-5.5 (medium)` |
 | **oracle**            | `gpt-5.5`           | `openai\|github-copilot\|opencode\|vercel/gpt-5.5 (high)` → `google\|github-copilot\|opencode\|vercel/gemini-3.1-pro (high)` → `anthropic\|github-copilot\|opencode\|vercel/claude-opus-4-7 (max)` → `opencode-go\|vercel/glm-5.2` |
 | **librarian**         | `gpt-5.4-mini-fast` | `openai/gpt-5.4-mini-fast` → `opencode-go\|bailian-coding-plan/qwen3.5-plus` → `vercel/minimax-m2.7-highspeed` → `opencode-go\|vercel/minimax-m3` → `minimax-coding-plan\|minimax-cn-coding-plan/MiniMax-M3` → `opencode-go\|vercel/minimax-m2.7` → `anthropic\|github-copilot\|vercel/claude-haiku-4-5` → `openai\|vercel/gpt-5.4-nano` |
@@ -412,7 +412,19 @@ Control parallel agent execution and concurrency limits.
     "defaultConcurrency": 5,
     "staleTimeoutMs": 180000,
     "providerConcurrency": { "anthropic": 3, "openai": 5, "google": 10 },
-    "modelConcurrency": { "anthropic/claude-opus-4-7": 2 }
+    "modelConcurrency": { "anthropic/claude-opus-4-7": 2 },
+    "quotaRouting": {
+      "kimi-for-coding/k3": {
+        "quotaProvider": "kimi-for-coding",
+        "windows": [
+          { "windowSeconds": 18000, "gracePeriodSeconds": 3600, "paceThresholdRatio": 0.95 },
+          { "windowSeconds": 604800, "gracePeriodSeconds": 3600, "paceThresholdRatio": 0.95 }
+        ],
+        "refreshIntervalSeconds": 60,
+        "requestTimeoutMs": 5000,
+        "fallbackModels": ["openai/gpt-5.6-sol"]
+      }
+    }
   }
 }
 ```
@@ -423,8 +435,11 @@ Control parallel agent execution and concurrency limits.
 | `staleTimeoutMs`      | `180000` | Interrupt tasks with no activity (min: 60000)                         |
 | `providerConcurrency` | -        | Per-provider limits (key = provider name)                             |
 | `modelConcurrency`    | -        | Per-model limits (key = `provider/model`). Overrides provider limits. |
+| `quotaRouting`        | -        | Paces newly launched background tasks against provider quota windows and substitutes configured fallback models when usage reaches the elapsed-budget line. |
 
 Priority: `modelConcurrency` > `providerConcurrency` > `defaultConcurrency`
+
+Quota routing is evaluated only when a new background task launches. Each configured window has a grace period, then computes `elapsed / window × 100 × paceThresholdRatio`; reaching the line routes the new task. All configured windows must be present and valid, and lookup/timeout errors fail open. Configuration is read when OpenCode starts, so restart OpenCode after changing these rules.
 
 ### Sisyphus Agent
 

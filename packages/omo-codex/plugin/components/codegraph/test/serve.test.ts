@@ -23,6 +23,7 @@ describe("runCodegraphServe", () => {
 
 		// when
 		const exitCode = await runCodegraphServe({
+			config: { codegraph: { auto_init: true, watch_debounce_ms: 500 }, sources: [], warnings: [] },
 			cwd: runCwd,
 			env: { CUSTOM: "drop", HOME: "/tmp/home", OPENAI_API_KEY: "sk-test-secret" },
 			nodeVersion: "22.14.0",
@@ -57,6 +58,7 @@ describe("runCodegraphServe", () => {
 					CODEGRAPH_NO_DAEMON: "1",
 					CODEGRAPH_NO_DOWNLOAD: "1",
 					CODEGRAPH_TELEMETRY: "0",
+					CODEGRAPH_WATCH_DEBOUNCE_MS: "500",
 					DO_NOT_TRACK: "1",
 					HOME: "/tmp/home",
 				},
@@ -73,6 +75,7 @@ describe("runCodegraphServe", () => {
 
 		// when
 		const exitCode = await runCodegraphServe({
+			config: { codegraph: { auto_init: true }, sources: [], warnings: [] },
 			env: { CODEGRAPH_ALLOW_UNSAFE_NODE: "1" },
 			nodeVersion: "26.3.0",
 			buildEnv: () => ({}),
@@ -96,6 +99,7 @@ describe("runCodegraphServe", () => {
 
 		// when
 		const exitCode = await runCodegraphServe({
+			config: { codegraph: { auto_init: true }, sources: [], warnings: [] },
 			env: { CODEGRAPH_NODE_BIN: nodeBin },
 			nodeVersion: "26.3.0",
 			buildEnv: () => ({}),
@@ -119,6 +123,7 @@ describe("runCodegraphServe", () => {
 
 		// when
 		const exitCode = await runCodegraphServe({
+			config: { codegraph: { auto_init: true }, sources: [], warnings: [] },
 			env: { OMO_CODEGRAPH_BIN: commandPath },
 			nodeVersion: "26.3.0",
 			buildEnv: () => ({}),

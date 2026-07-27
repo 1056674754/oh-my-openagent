@@ -1,9 +1,11 @@
 /// <reference types="bun-types" />
 
 import { afterEach, describe, expect, test } from "bun:test"
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+
+import { inspectCodegraphWorkspace } from "@oh-my-opencode/utils"
 
 import {
   clearCodegraphBootstrapProjectsForTesting,
@@ -29,6 +31,15 @@ function createDeps(
     },
     log: (message) => {
       events.push(`log:${message}`)
+    },
+    inspectWorkspace: (projectRoot) => {
+      const indexPath = join(projectRoot, ".codegraph", "codegraph.db")
+      return {
+        indexPath,
+        indexState: existsSync(indexPath) ? "ready" : "absent",
+        ownsGitRoot: true,
+        workspace: projectRoot,
+      }
     },
     prepareWorkspace: (projectRoot) => {
       events.push(`prepare:${projectRoot}`)
@@ -101,6 +112,7 @@ describe("codegraph-bootstrap auto_init", () => {
     // given
     workspace = mkdtempSync(join(tmpdir(), "omo-codegraph-auto-init-existing-"))
     mkdirSync(join(workspace, ".codegraph"), { recursive: true })
+    writeFileSync(join(workspace, ".codegraph", "codegraph.db"), "ready")
     expect(existsSync(join(workspace, ".codegraph"))).toBe(true)
     const events: string[] = []
     const scheduledTasks: Promise<void>[] = []
@@ -139,6 +151,86 @@ describe("codegraph-bootstrap auto_init", () => {
 
     // then
     expect(events.some((event) => event.startsWith("prepare:"))).toBe(true)
+  })
+
+  test("#given default safe auto_init and a non-Git collection root #when bootstrap runs #then it skips before provisioning or workspace mutation", async () => {
+    // given
+    workspace = mkdtempSync(join(tmpdir(), "omo-codegraph-safe-collection-"))
+    mkdirSync(join(workspace, "repo-a", ".git"), { recursive: true })
+    mkdirSync(join(workspace, "repo-b", ".git"), { recursive: true })
+    const events: string[] = []
+    const scheduledTasks: Promise<void>[] = []
+    const hook = createCodegraphBootstrapHook(
+      { directory: workspace },
+      { enabled: true },
+      createDeps(events, {
+        inspectWorkspace: (projectRoot, maxIndexDbBytes) => inspectCodegraphWorkspace(
+          projectRoot,
+          maxIndexDbBytes === undefined ? {} : { maxIndexDbBytes },
+        ),
+      }, scheduledTasks),
+    )
+
+    // when
+    hook.event?.(sessionCreatedInput("ses_safe_collection"))
+    await Promise.all(scheduledTasks)
+
+    // then
+    expect(events).not.toContain("provision")
+    expect(events.some((event) => event.startsWith("prepare:"))).toBe(false)
+    expect(events.some((event) => event.startsWith("run:"))).toBe(false)
+    expect(existsSync(join(workspace, ".codegraph"))).toBe(false)
+  })
+
+  test("#given an oversized existing index #when bootstrap runs #then it skips before invoking CodeGraph", async () => {
+    // given
+    workspace = mkdtempSync(join(tmpdir(), "omo-codegraph-oversized-index-"))
+    mkdirSync(join(workspace, ".codegraph"), { recursive: true })
+    writeFileSync(join(workspace, ".codegraph", "codegraph.db"), "too large")
+    const events: string[] = []
+    const scheduledTasks: Promise<void>[] = []
+    const hook = createCodegraphBootstrapHook(
+      { directory: workspace },
+      { auto_init: false, enabled: true, max_index_db_bytes: 4 },
+      createDeps(events, {
+        inspectWorkspace: (projectRoot, maxIndexDbBytes) => inspectCodegraphWorkspace(
+          projectRoot,
+          maxIndexDbBytes === undefined ? {} : { maxIndexDbBytes },
+        ),
+      }, scheduledTasks),
+    )
+
+    // when
+    hook.event?.(sessionCreatedInput("ses_oversized_index"))
+    await Promise.all(scheduledTasks)
+
+    // then
+    expect(events.some((event) => event.startsWith("prepare:"))).toBe(false)
+    expect(events.some((event) => event.startsWith("run:"))).toBe(false)
+  })
+
+  test("#given watch debounce is configured #when bootstrap checks status #then it forwards debounce and uses the short preflight timeout", async () => {
+    // given
+    workspace = mkdtempSync(join(tmpdir(), "omo-codegraph-bootstrap-env-"))
+    const observations: Array<{ readonly debounce: string | undefined; readonly timeoutMs: number }> = []
+    const scheduledTasks: Promise<void>[] = []
+    const hook = createCodegraphBootstrapHook(
+      { directory: workspace },
+      { auto_init: true, auto_provision: false, enabled: true, watch_debounce_ms: 750 },
+      createDeps([], {
+        runCommand: async (_projectRoot, _command, args, options) => {
+          observations.push({ debounce: options.env.CODEGRAPH_WATCH_DEBOUNCE_MS, timeoutMs: options.timeoutMs })
+          return { exitCode: 0, stdout: args[0] === "status" ? "initialized" : "", timedOut: false }
+        },
+      }, scheduledTasks),
+    )
+
+    // when
+    hook.event?.(sessionCreatedInput("ses_bootstrap_env"))
+    await Promise.all(scheduledTasks)
+
+    // then
+    expect(observations[0]).toEqual({ debounce: "750", timeoutMs: 5_000 })
   })
 
   // #given auto_init is false and auto_provision defaults to true

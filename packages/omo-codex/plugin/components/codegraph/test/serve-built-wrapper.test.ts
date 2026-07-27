@@ -65,6 +65,7 @@ function runBuiltWrapper(entryPath: string, tempRoot: string): ReturnType<typeof
 			...process.env,
 			CODEGRAPH_ALLOW_UNSAFE_NODE: "1",
 			CODEGRAPH_FAKE_LOG: join(tempRoot, "invocations.log"),
+			OMO_CODEGRAPH_AUTO_INIT: "true",
 			OMO_CODEGRAPH_BIN: join(tempRoot, "codegraph-fake.cjs"),
 		},
 		timeout: 5000,

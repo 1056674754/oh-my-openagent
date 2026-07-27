@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs"
 
 import { isPlainObject, isUnsafeObjectKey } from "../deep-merge"
 import { parseJsoncSafe } from "../jsonc-parser"
+import { DEFAULT_CODEGRAPH_MAX_INDEX_DB_BYTES } from "../codegraph/workspace-policy"
 import {
   HARNESS_IDS,
   SETTING_HARNESS_SUPPORT,
@@ -12,8 +13,10 @@ import {
 
 export const BUILT_IN_DEFAULTS: OmoConfig = {
   codegraph: {
+    auto_init: "safe",
     auto_provision: true,
     enabled: true,
+    max_index_db_bytes: DEFAULT_CODEGRAPH_MAX_INDEX_DB_BYTES,
     telemetry: false,
   },
 }
@@ -30,10 +33,12 @@ type MutableOmoConfig = {
 }
 
 const CODEGRAPH_SETTING_KEYS: readonly CodegraphSettingKey[] = [
+  "auto_init",
   "auto_provision",
   "enabled",
   "excluded_roots",
   "install_dir",
+  "max_index_db_bytes",
   "telemetry",
   "watch_debounce_ms",
 ]
@@ -97,6 +102,9 @@ function isKnownHarnessBlockKey(key: string): boolean {
 }
 
 function validateCodegraphValue(key: CodegraphSettingKey, value: unknown): string | null {
+  if (key === "auto_init") {
+    return value === "safe" || typeof value === "boolean" ? null : 'must be "safe" or a boolean'
+  }
   if (key === "excluded_roots") {
     return Array.isArray(value) && value.every((entry) => typeof entry === "string")
       ? null
@@ -108,11 +116,19 @@ function validateCodegraphValue(key: CodegraphSettingKey, value: unknown): strin
       ? null
       : "must be a non-negative finite number"
   }
+  if (key === "max_index_db_bytes") {
+    return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+      ? null
+      : "must be a positive safe integer"
+  }
   return typeof value === "boolean" ? null : "must be a boolean"
 }
 
 function setCodegraphSetting(config: MutableCodegraphConfig, key: CodegraphSettingKey, value: unknown): void {
   switch (key) {
+    case "auto_init":
+      if (value === "safe" || typeof value === "boolean") config.auto_init = value
+      return
     case "auto_provision":
       if (typeof value === "boolean") config.auto_provision = value
       return
@@ -126,6 +142,9 @@ function setCodegraphSetting(config: MutableCodegraphConfig, key: CodegraphSetti
       return
     case "install_dir":
       if (typeof value === "string") config.install_dir = value
+      return
+    case "max_index_db_bytes":
+      if (typeof value === "number") config.max_index_db_bytes = value
       return
     case "telemetry":
       if (typeof value === "boolean") config.telemetry = value

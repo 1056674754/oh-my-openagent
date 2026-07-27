@@ -4,12 +4,18 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { clearVisionCapableModelsCache, setVisionCapableModelsCache } from "../../shared/vision-capable-models-cache"
+import { clearSessionModel, setSessionModel } from "../../shared/session-model-state"
 import { normalizeArgs, validateArgs, createLookAt } from "./tools"
 import type { LookAtArgs } from "./types"
 import { unsafeTestValue } from "../../../../../test-support/unsafe-test-value"
 
 type LookAtPart = { type: string; url: string; mime: string; filename: string; text: string }
 type LookAtPromptBody = { model?: unknown; tools: Record<string, boolean>; parts: LookAtPart[] }
+type LookAtToolResult = string | { output: string }
+
+function getToolOutput(result: LookAtToolResult): string {
+  return typeof result === "string" ? result : result.output
+}
 
 function createToolContext(): ToolContext {
   return {
@@ -58,6 +64,7 @@ function createPromptCaptureHarness() {
 describe("look-at tool", () => {
   afterEach(() => {
     clearVisionCapableModelsCache()
+    clearSessionModel("parent-session")
   })
 
   describe("normalizeArgs", () => {
@@ -227,8 +234,8 @@ describe("look-at tool", () => {
         { file_path: "/test/file.png", goal: "analyze image" },
         toolContext,
       )
-      expect(result).toContain("Error")
-      expect(result).toContain("multimodal-looker")
+      expect(getToolOutput(result)).toContain("Error")
+      expect(getToolOutput(result)).toContain("multimodal-looker")
     })
 
     // given sync prompt succeeds
@@ -264,8 +271,8 @@ describe("look-at tool", () => {
         { file_path: "/test/file.pdf", goal: "extract text" },
         toolContext,
       )
-      expect(result).toContain("Error")
-      expect(result).toContain("multimodal-looker")
+      expect(getToolOutput(result)).toContain("Error")
+      expect(getToolOutput(result)).toContain("multimodal-looker")
     })
 
     // given session creation fails
@@ -301,8 +308,8 @@ describe("look-at tool", () => {
         { file_path: "/test/file.png", goal: "analyze" },
         toolContext,
       )
-      expect(result).toContain("Error")
-      expect(result).toContain("session")
+      expect(getToolOutput(result)).toContain("Error")
+      expect(getToolOutput(result)).toContain("session")
     })
   })
 
@@ -370,6 +377,80 @@ describe("look-at tool", () => {
     })
   })
 
+  describe("createLookAt capability-aware routing", () => {
+    test("returns the media to a vision-capable caller without creating a child session", async () => {
+      const tempDirectory = mkdtempSync(join(tmpdir(), "look-at-direct-"))
+      const filePath = join(tempDirectory, "image.png")
+      writeFileSync(filePath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==", "base64"))
+
+      setSessionModel("parent-session", { providerID: "openai", modelID: "gpt-5.6" })
+      setVisionCapableModelsCache(new Map([
+        ["openai/gpt-5.6", { providerID: "openai", modelID: "gpt-5.6" }],
+      ]))
+
+      const createChildSession = mock(async () => ({ data: { id: "ses_should_not_exist" } }))
+      const lookAtTool = createLookAt(unsafeTestValue({
+        client: {
+          app: { agents: async () => ({ data: [] }) },
+          session: {
+            get: async () => ({ data: { directory: tempDirectory } }),
+            create: createChildSession,
+            prompt: async () => ({ data: {} }),
+            messages: async () => ({ data: [] }),
+          },
+        },
+        directory: tempDirectory,
+      }))
+
+      try {
+        const result = await lookAtTool.execute(
+          { file_path: filePath, goal: "describe the image" },
+          createToolContext(),
+        )
+
+        expect(createChildSession).toHaveBeenCalledTimes(0)
+        expect(typeof result).toBe("object")
+        if (typeof result === "string") throw new Error("Expected structured direct-media result")
+        expect(result.metadata).toMatchObject({
+          route: "direct",
+          model: "openai/gpt-5.6",
+        })
+        expect(result.title).toBe("Media Summary")
+        expect(result.attachments).toHaveLength(1)
+        expect(result.attachments?.[0]).toMatchObject({
+          type: "file",
+          mime: "image/png",
+          filename: "image.png",
+        })
+        expect(result.attachments?.[0]?.url.startsWith("data:image/png;base64,")).toBe(true)
+      } finally {
+        rmSync(tempDirectory, { recursive: true, force: true })
+      }
+    })
+
+    test("delegates to the multimodal looker when the caller cannot accept images", async () => {
+      setSessionModel("parent-session", { providerID: "zhipuai-coding-plan", modelID: "glm-5.2" })
+      setVisionCapableModelsCache(new Map([
+        ["google/gemini-3-flash", { providerID: "google", modelID: "gemini-3-flash" }],
+      ]))
+      const harness = createPromptCaptureHarness()
+
+      const result = await harness.lookAtTool.execute(
+        { file_path: "/test/file.png", goal: "describe the image" },
+        createToolContext(),
+      )
+
+      expect(harness.getPromptBody()).toBeDefined()
+      expect(typeof result).toBe("object")
+      if (typeof result === "string") throw new Error("Expected structured delegated result")
+      expect(result.metadata).toMatchObject({
+        route: "delegated",
+        model: "zhipuai-coding-plan/glm-5.2",
+      })
+      expect(result.title).toBe("Media Summary")
+    })
+  })
+
   describe("createLookAt sync prompt (race condition fix)", () => {
     // given look_at needs response immediately after prompt returns
     // when tool is executed
@@ -418,7 +499,7 @@ describe("look-at tool", () => {
         toolContext,
       )
 
-      expect(result).toBe("result")
+      expect(getToolOutput(result)).toBe("result")
       expect(syncPrompt).toHaveBeenCalledTimes(1)
       expect(asyncPrompt).not.toHaveBeenCalled()
       expect(statusFn).toHaveBeenCalledTimes(1)
@@ -475,7 +556,7 @@ describe("look-at tool", () => {
         toolContext,
       )
 
-      expect(result).toBe("result despite error")
+      expect(getToolOutput(result)).toBe("result despite error")
       expect(callOrder).toEqual(["prompt", "status", "messages"])
     })
 
@@ -518,8 +599,8 @@ describe("look-at tool", () => {
         toolContext,
       )
 
-      expect(result).toContain("Error")
-      expect(result).toContain("multimodal-looker")
+      expect(getToolOutput(result)).toContain("Error")
+      expect(getToolOutput(result)).toContain("multimodal-looker")
     })
   })
 
@@ -555,8 +636,8 @@ describe("look-at tool", () => {
         { file_path: "/test/file.png", goal: "analyze" },
         createToolContext(),
       )
-      expect(result).toContain("Error")
-      expect(result).toContain("ECONNREFUSED")
+      expect(getToolOutput(result)).toContain("Error")
+      expect(getToolOutput(result)).toContain("ECONNREFUSED")
     })
 
     // given session.messages throws unexpectedly
@@ -590,8 +671,8 @@ describe("look-at tool", () => {
         { file_path: "/test/file.png", goal: "analyze" },
         createToolContext(),
       )
-      expect(result).toContain("Error")
-      expect(result).toContain("Unexpected server error")
+      expect(getToolOutput(result)).toContain("Error")
+      expect(getToolOutput(result)).toContain("Unexpected server error")
     }, { timeout: 15000 })
 
     // given a non-Error object is thrown
@@ -614,8 +695,8 @@ describe("look-at tool", () => {
         { file_path: "/test/file.png", goal: "analyze" },
         createToolContext(),
       )
-      expect(result).toContain("Error")
-      expect(result).toContain("string error thrown")
+      expect(getToolOutput(result)).toContain("Error")
+      expect(getToolOutput(result)).toContain("string error thrown")
     })
 
     test("sends JSON files as text instead of unsupported application/json file parts", async () => {
@@ -654,7 +735,7 @@ describe("look-at tool", () => {
           createToolContext(),
         )
 
-        expect(result).toBe("ok")
+        expect(getToolOutput(result)).toBe("ok")
         expect(promptBody).toBeDefined()
         expect(promptBody?.parts.some((part) => part.type === "file" && part.mime === "application/json")).toBe(false)
         expect(promptBody?.parts.some((part) => part.type === "text" && part.text?.includes('{"hello":"world"}'))).toBe(true)

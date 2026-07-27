@@ -6,7 +6,7 @@ import { CodegraphConfigSchema } from "./codegraph"
 
 describe("CodegraphConfigSchema", () => {
   describe("#given auto_init is not specified", () => {
-    test("#when parsed #then auto_init defaults to true", () => {
+    test("#when parsed #then auto_init defaults to safe", () => {
       // given
       const input = {}
 
@@ -14,7 +14,7 @@ describe("CodegraphConfigSchema", () => {
       const result = CodegraphConfigSchema.parse(input)
 
       // then
-      expect(result.auto_init).toBe(true)
+      expect(result.auto_init).toBe("safe")
     })
   })
 
@@ -41,6 +41,19 @@ describe("CodegraphConfigSchema", () => {
 
       // then
       expect(result.auto_init).toBe(true)
+    })
+  })
+
+  describe("#given auto_init is explicitly safe", () => {
+    test("#when parsed #then auto_init remains safe", () => {
+      // given
+      const input = { auto_init: "safe" }
+
+      // when
+      const result = CodegraphConfigSchema.parse(input)
+
+      // then
+      expect(result.auto_init).toBe("safe")
     })
   })
 })

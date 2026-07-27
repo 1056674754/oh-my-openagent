@@ -28,8 +28,10 @@ describe("loadOmoConfig", () => {
       // then
       expect(result.config).toEqual({
         codegraph: {
+          auto_init: "safe",
           auto_provision: true,
           enabled: true,
+          max_index_db_bytes: 2_147_483_648,
           telemetry: false,
         },
       })
@@ -72,9 +74,11 @@ describe("loadOmoConfig", () => {
 
       // then
       expect(result.config.codegraph).toEqual({
+        auto_init: "safe",
         auto_provision: true,
         enabled: false,
         install_dir: "/base",
+        max_index_db_bytes: 2_147_483_648,
         telemetry: false,
       })
     } finally {
@@ -98,9 +102,11 @@ describe("loadOmoConfig", () => {
 
       // then
       expect(result.config.codegraph).toEqual({
+        auto_init: "safe",
         auto_provision: false,
         enabled: true,
         install_dir: "/child",
+        max_index_db_bytes: 2_147_483_648,
         telemetry: false,
       })
     } finally {
@@ -150,7 +156,7 @@ describe("loadOmoConfig", () => {
     }
   })
 
-  test("#given unsupported codex setting #when loading config #then applicability warning is returned", () => {
+  test("#given Codex watch debounce #when loading config #then the setting is accepted", () => {
     // given
     const homeDir = makeTempHome()
     const cwd = join(homeDir, "repo")
@@ -162,7 +168,8 @@ describe("loadOmoConfig", () => {
       const result = loadOmoConfig({ harness: "codex", cwd, homeDir, env: {} })
 
       // then
-      expect(result.warnings).toContain("codegraph.watch_debounce_ms is not supported for harness codex")
+      expect(result.config.codegraph?.watch_debounce_ms).toBe(250)
+      expect(result.warnings).toEqual([])
     } finally {
       rmSync(homeDir, { force: true, recursive: true })
     }

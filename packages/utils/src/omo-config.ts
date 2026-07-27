@@ -3,10 +3,12 @@ export const HARNESS_IDS = ["codex", "opencode", "omo"] as const
 export type HarnessId = (typeof HARNESS_IDS)[number]
 
 export interface CodegraphConfig {
+  readonly auto_init?: boolean | "safe"
   readonly auto_provision?: boolean
   readonly enabled?: boolean
   readonly excluded_roots?: readonly string[]
   readonly install_dir?: string
+  readonly max_index_db_bytes?: number
   readonly telemetry?: boolean
   readonly watch_debounce_ms?: number
 }
@@ -25,12 +27,14 @@ type CodegraphSettingKey = keyof CodegraphConfig
 type SettingPath = `codegraph.${CodegraphSettingKey}`
 
 export const SETTING_HARNESS_SUPPORT: Record<SettingPath, readonly HarnessId[]> = {
+  "codegraph.auto_init": HARNESS_IDS,
   "codegraph.auto_provision": HARNESS_IDS,
   "codegraph.enabled": HARNESS_IDS,
   "codegraph.excluded_roots": ["codex"],
   "codegraph.install_dir": HARNESS_IDS,
+  "codegraph.max_index_db_bytes": HARNESS_IDS,
   "codegraph.telemetry": HARNESS_IDS,
-  "codegraph.watch_debounce_ms": ["opencode", "omo"],
+  "codegraph.watch_debounce_ms": HARNESS_IDS,
 } as const
 
 export interface OmoConfigValidationResult {
@@ -44,11 +48,13 @@ const HARNESS_BLOCK_KEYS: Record<string, HarnessId> = {
   "[opencode]": "opencode",
 }
 
-const CODEGRAPH_VALUE_TYPES: Record<CodegraphSettingKey, "boolean" | "number" | "string" | "string_array"> = {
+const CODEGRAPH_VALUE_TYPES: Record<CodegraphSettingKey, "auto_init" | "boolean" | "number" | "positive_integer" | "string" | "string_array"> = {
+  auto_init: "auto_init",
   auto_provision: "boolean",
   enabled: "boolean",
   excluded_roots: "string_array",
   install_dir: "string",
+  max_index_db_bytes: "positive_integer",
   telemetry: "boolean",
   watch_debounce_ms: "number",
 }
@@ -80,9 +86,21 @@ function validateCodegraphSection(
 
     const settingKey = key as CodegraphSettingKey
     const expectedType = CODEGRAPH_VALUE_TYPES[settingKey]
+    if (expectedType === "auto_init") {
+      if (value !== "safe" && typeof value !== "boolean") {
+        errors.push(`${pathPrefix}.${key} must be "safe" or a boolean`)
+      }
+      continue
+    }
     if (expectedType === "string_array") {
       if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) {
         errors.push(`${pathPrefix}.${key} must be an array of strings`)
+      }
+      continue
+    }
+    if (expectedType === "positive_integer") {
+      if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+        errors.push(`${pathPrefix}.${key} must be a positive safe integer`)
       }
       continue
     }

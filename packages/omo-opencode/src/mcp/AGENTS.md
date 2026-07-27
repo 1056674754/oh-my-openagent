@@ -45,4 +45,4 @@ Tier 1 of the three-tier MCP system. Built-ins are created by `createBuiltinMcps
 | `context7.ts` | Context7 with optional auth header |
 | `grep-app.ts` | Grep.app (no auth) |
 | `lsp.ts` | Local stdio MCP config for packaged `lsp-tools-mcp` |
-| `codegraph.ts` | Local stdio MCP config; resolves/gates the `codegraph` binary (gated by `config.codegraph.enabled`) |
+| `codegraph.ts` | Local stdio MCP config; applies workspace/index safety policy before resolving and enabling the `codegraph` binary |

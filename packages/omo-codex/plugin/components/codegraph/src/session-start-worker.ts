@@ -22,11 +22,13 @@ import type {
 	SessionStartWorkerOptions,
 	WorkerAction,
 } from "./hook-types.js";
+import { decideCodexCodegraphWorkspaceUse } from "./workspace-safety.js";
 
 export const SESSION_START_CWD_ENV = "OMO_CODEGRAPH_SESSION_START_CWD";
 
 const CODEGRAPH_VERSION = "1.0.1";
-const COMMAND_TIMEOUT_MS = 60_000;
+const STATUS_TIMEOUT_MS = 5_000;
+const ACTION_TIMEOUT_MS = 60_000;
 const WINDOWS_CMD_EXTENSIONS = new Set([".bat", ".cmd"]);
 const WINDOWS_NODE_SCRIPT_EXTENSIONS = new Set([".cjs", ".js", ".mjs"]);
 type CodegraphBootstrapConfig = CodegraphConfig & {
@@ -57,7 +59,8 @@ export async function runCodegraphSessionStartWorker(options: SessionStartWorker
 		...(config.codegraph ?? {}),
 		...(config.trustedCodegraphInstallDir === undefined ? {} : { trustedCodegraphInstallDir: config.trustedCodegraphInstallDir }),
 	};
-	return runBootstrap(projectRoot, bootstrapConfig, env, homeDir, nodeSupport, { ...defaultDeps, ...options.deps }, logOutcome);
+	const autoInitPolicy = bootstrapConfig.auto_init ?? (options.config === undefined ? "safe" : true);
+	return runBootstrap(projectRoot, { ...bootstrapConfig, auto_init: autoInitPolicy }, env, homeDir, nodeSupport, { ...defaultDeps, ...options.deps }, logOutcome);
 }
 
 async function runBootstrap(
@@ -70,6 +73,11 @@ async function runBootstrap(
 	logOutcome: (outcome: CodegraphSessionStartOutcome) => void,
 ): Promise<{ readonly action: WorkerAction }> {
 	try {
+		const workspaceDecision = decideCodexCodegraphWorkspaceUse(projectRoot, config);
+		if (!workspaceDecision.allowed) {
+			return finish("skipped-safety", { error: workspaceDecision.reason, projectRoot }, logOutcome);
+		}
+
 		const command = await resolveOrProvisionCommand(deps, config, env, homeDir, nodeSupport);
 		if (command.kind === "unavailable") {
 			return finish("skipped-unavailable", { error: command.error, projectRoot, source: command.source }, logOutcome);
@@ -81,12 +89,12 @@ async function runBootstrap(
 		deps.prepareWorkspace(projectRoot, { homeDir });
 		deps.ensureGitignored(projectRoot);
 		const codegraphEnv = codegraphEnvForConfig(config, homeDir);
-		const status = await deps.runCommand(projectRoot, command.resolution.command, [...command.resolution.argsPrefix, "status", "--json"], { env: codegraphEnv, timeoutMs: COMMAND_TIMEOUT_MS });
+		const status = await deps.runCommand(projectRoot, command.resolution.command, [...command.resolution.argsPrefix, "status", "--json"], { env: codegraphEnv, timeoutMs: STATUS_TIMEOUT_MS });
 		const decision = decideStartupAction(status);
 		if (decision.kind === "skip") return finish("skipped-status", { error: decision.reason, projectRoot }, logOutcome);
 
 		const actionArgs = command.resolution.argsPrefix.concat(decision.kind === "init" ? ["init"] : ["sync"]);
-		const action = await deps.runCommand(projectRoot, command.resolution.command, actionArgs, { env: codegraphEnv, timeoutMs: COMMAND_TIMEOUT_MS });
+		const action = await deps.runCommand(projectRoot, command.resolution.command, actionArgs, { env: codegraphEnv, timeoutMs: ACTION_TIMEOUT_MS });
 		return finish(decision.kind === "init" ? "initialized" : "synced", { exitCode: action.exitCode, projectRoot, source: command.resolution.source, timedOut: action.timedOut }, logOutcome);
 	} catch (error) {
 		return finish("failed", { error: error instanceof Error ? error.message : String(error), projectRoot }, logOutcome);
@@ -128,7 +136,10 @@ async function resolveOrProvisionCommand(
 
 function codegraphEnvForConfig(config: CodegraphBootstrapConfig, homeDir: string): Record<string, string> {
 	const env = buildCodegraphEnv({ homeDir });
-	return config.trustedCodegraphInstallDir === undefined ? env : { ...env, CODEGRAPH_INSTALL_DIR: config.trustedCodegraphInstallDir };
+	const installEnv = config.trustedCodegraphInstallDir === undefined ? env : { ...env, CODEGRAPH_INSTALL_DIR: config.trustedCodegraphInstallDir };
+	return config.watch_debounce_ms === undefined
+		? installEnv
+		: { ...installEnv, CODEGRAPH_WATCH_DEBOUNCE_MS: String(config.watch_debounce_ms) };
 }
 
 function canUseResolvedCommand(resolved: CodegraphCommandResolution, nodeSupport: CodegraphNodeSupport): boolean {

@@ -7,6 +7,8 @@ import { normalizeArgs, validateArgs } from "./look-at-arguments"
 import { prepareLookAtInput } from "./look-at-input-preparer"
 import { runLookAtSession } from "./look-at-session-runner"
 import { getMissingLookAtFilePath } from "./missing-file-error"
+import { resolveLookAtRoute } from "./look-at-route"
+import { createDirectLookAtResult, createLookAtTextResult } from "./look-at-result"
 
 export { normalizeArgs, validateArgs } from "./look-at-arguments"
 
@@ -35,25 +37,37 @@ export function createLookAt(ctx: PluginInput): ToolDefinition {
 
       const preparedInput = preparedInputResult.value
       const { sourceDescription } = preparedInput
-      log(`[look_at] Analyzing ${sourceDescription}, goal: ${args.goal}`)
+      const routeDecision = resolveLookAtRoute(toolContext.sessionID)
+      log(`[look_at] Routing ${sourceDescription} via ${routeDecision.route}, goal: ${args.goal}`)
 
       try {
-        return await runLookAtSession({
+        if (routeDecision.route === "direct") {
+          return createDirectLookAtResult(preparedInput.inputParts, args.goal, routeDecision)
+        }
+
+        const output = await runLookAtSession({
           ctx,
           toolContext,
           goal: args.goal,
           inputParts: preparedInput.inputParts,
         })
+        return createLookAtTextResult(output, routeDecision)
       } catch (error) {
         const missingFilePath = getMissingLookAtFilePath(error, args)
         if (missingFilePath) {
           log(`[look_at] Missing file while analyzing ${sourceDescription}:`, error)
-          return `Error: File not found: ${missingFilePath}`
+          return createLookAtTextResult(
+            `Error: File not found: ${missingFilePath}`,
+            routeDecision,
+          )
         }
 
         const errorMessage = error instanceof Error ? error.message : String(error)
         log(`[look_at] Unexpected error analyzing ${sourceDescription}:`, error)
-        return `Error: Failed to analyze ${sourceDescription}: ${errorMessage}`
+        return createLookAtTextResult(
+          `Error: Failed to analyze ${sourceDescription}: ${errorMessage}`,
+          routeDecision,
+        )
       } finally {
         preparedInput.cleanup()
       }

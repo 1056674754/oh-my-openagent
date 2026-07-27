@@ -7,9 +7,11 @@ describe("validateOmoConfig", () => {
     // given
     const config = {
       codegraph: {
+        auto_init: "safe",
         auto_provision: true,
         enabled: true,
         install_dir: "~/.omo/codegraph",
+        max_index_db_bytes: 2_147_483_648,
         excluded_roots: ["/tmp/omo-scratch"],
         telemetry: false,
         watch_debounce_ms: 2_000,
@@ -57,7 +59,7 @@ describe("validateOmoConfig", () => {
     expect(enabledSupport).toEqual(["codex", "opencode", "omo"])
   })
 
-  it("flags settings used under unsupported harness blocks", () => {
+  it("accepts watch debounce under the Codex harness", () => {
     // given
     const config = {
       "[codex]": {
@@ -71,7 +73,24 @@ describe("validateOmoConfig", () => {
     const result = validateOmoConfig(config)
 
     // then
+    expect(result).toEqual({ errors: [], ok: true })
+  })
+
+  it("rejects invalid CodeGraph workspace safety settings", () => {
+    // given
+    const config = {
+      codegraph: {
+        auto_init: "always",
+        max_index_db_bytes: 0,
+      },
+    }
+
+    // when
+    const result = validateOmoConfig(config)
+
+    // then
     expect(result.ok).toBe(false)
-    expect(result.errors).toContain("codegraph.watch_debounce_ms is not supported for harness codex")
+    expect(result.errors).toContain('config.codegraph.auto_init must be "safe" or a boolean')
+    expect(result.errors).toContain("config.codegraph.max_index_db_bytes must be a positive safe integer")
   })
 })

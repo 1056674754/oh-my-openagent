@@ -1,6 +1,8 @@
 /// <reference types="bun-types" />
 
 import { describe, expect, it } from "bun:test"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { CODEGRAPH_TELEMETRY_ENV, DO_NOT_TRACK_ENV } from "@oh-my-opencode/utils"
 import { createCodegraphMcpConfig } from "./codegraph"
@@ -15,7 +17,7 @@ describe("createCodegraphMcpConfig", () => {
     // when
     const config = createCodegraphMcpConfig({
       cwd: "/workspace/project",
-      config: { enabled: true },
+      config: { auto_init: true, enabled: true },
       env: {},
       fileExists: () => false,
       homeDir: "/tmp/omo-codegraph-test-home",
@@ -38,7 +40,7 @@ describe("createCodegraphMcpConfig", () => {
     // when
     const config = createCodegraphMcpConfig({
       cwd: "/workspace/project",
-      config: { enabled: true },
+      config: { auto_init: true, enabled: true },
       fileExists: () => false,
       homeDir: "/tmp/omo-codegraph-test-home",
       resolveExecutable,
@@ -56,7 +58,7 @@ describe("createCodegraphMcpConfig", () => {
     // when
     const config = createCodegraphMcpConfig({
       cwd: "/workspace/project",
-      config: { enabled: true },
+      config: { auto_init: true, enabled: true },
       env: { OMO_CODEGRAPH_BIN: "/nonexistent" },
       fileExists: () => false,
       homeDir: "/tmp/omo-codegraph-test-home",
@@ -76,7 +78,7 @@ describe("createCodegraphMcpConfig", () => {
     // when
     const config = createCodegraphMcpConfig({
       cwd: "/workspace/project",
-      config: { enabled: true },
+      config: { auto_init: true, enabled: true },
       env: {},
       fileExists: () => false,
       homeDir: "/tmp/omo-codegraph-test-home",
@@ -99,7 +101,7 @@ describe("createCodegraphMcpConfig", () => {
     // when
     const config = createCodegraphMcpConfig({
       cwd: "/workspace/project",
-      config: { enabled: true },
+      config: { auto_init: true, enabled: true },
       env: { OMO_CODEGRAPH_BIN: codegraphPath },
       fileExists: (filePath) => filePath === codegraphPath,
       homeDir: "/tmp/omo-codegraph-test-home",
@@ -121,7 +123,7 @@ describe("createCodegraphMcpConfig", () => {
     // when
     const config = createCodegraphMcpConfig({
       cwd: "/workspace/project",
-      config: { enabled: true },
+      config: { auto_init: true, enabled: true },
       env: { CODEGRAPH_NODE_BIN: nodeBin },
       fileExists: (filePath) => filePath === shim || filePath === nodeBin,
       homeDir: "/tmp/omo-codegraph-test-home",
@@ -144,7 +146,7 @@ describe("createCodegraphMcpConfig", () => {
     // when
     const config = createCodegraphMcpConfig({
       cwd: "/workspace/project",
-      config: { enabled: true },
+      config: { auto_init: true, enabled: true },
       fileExists: () => false,
       homeDir: "/tmp/omo-codegraph-test-home",
       resolveExecutable: createResolver({ codegraph: codegraphPath }),
@@ -164,7 +166,7 @@ describe("createCodegraphMcpConfig", () => {
     // when
     const config = createCodegraphMcpConfig({
       cwd: "/workspace/project",
-      config: { enabled: true, install_dir: installDir },
+      config: { auto_init: true, enabled: true, install_dir: installDir },
       env: {},
       fileExists: (filePath) => filePath === provisionedPath,
       homeDir: "/tmp/omo-codegraph-test-home",
@@ -182,6 +184,92 @@ describe("createCodegraphMcpConfig", () => {
       enabled: true,
     })
     expect(config.environment?.CODEGRAPH_INSTALL_DIR).toBe(installDir)
+  })
+
+  it("#given default safe auto_init and a non-Git collection root #when creating the MCP config #then it disables CodeGraph before spawn", () => {
+    // given
+    const workspace = mkdtempSync(join(tmpdir(), "omo-codegraph-mcp-collection-"))
+    mkdirSync(join(workspace, "repo-a", ".git"), { recursive: true })
+    const codegraphPath = "/opt/omo/codegraph/bin/codegraph"
+
+    try {
+      // when
+      const config = createCodegraphMcpConfig({
+        cwd: workspace,
+        config: { enabled: true },
+        env: { OMO_CODEGRAPH_BIN: codegraphPath },
+        fileExists: (filePath) => filePath === codegraphPath,
+        resolveExecutable: createResolver({}),
+      })
+
+      // then
+      expect(config.enabled).toBe(false)
+    } finally {
+      rmSync(workspace, { force: true, recursive: true })
+    }
+  })
+
+  it("#given a Git project root and no index #when creating the MCP config in safe mode #then CodeGraph remains enabled", () => {
+    // given
+    const workspace = mkdtempSync(join(tmpdir(), "omo-codegraph-mcp-git-root-"))
+    mkdirSync(join(workspace, ".git"), { recursive: true })
+    writeFileSync(join(workspace, ".git", "HEAD"), "ref: refs/heads/main\n")
+    const codegraphPath = "/opt/omo/codegraph/bin/codegraph"
+
+    try {
+      // when
+      const config = createCodegraphMcpConfig({
+        cwd: workspace,
+        config: { auto_init: "safe", enabled: true },
+        env: { OMO_CODEGRAPH_BIN: codegraphPath },
+        fileExists: (filePath) => filePath === codegraphPath,
+        resolveExecutable: createResolver({}),
+      })
+
+      // then
+      expect(config.enabled).toBe(true)
+    } finally {
+      rmSync(workspace, { force: true, recursive: true })
+    }
+  })
+
+  it("#given an index exceeds its configured byte budget #when creating the MCP config #then it disables CodeGraph before spawn", () => {
+    // given
+    const workspace = mkdtempSync(join(tmpdir(), "omo-codegraph-mcp-oversized-"))
+    mkdirSync(join(workspace, ".codegraph"), { recursive: true })
+    writeFileSync(join(workspace, ".codegraph", "codegraph.db"), "too large")
+    const codegraphPath = "/opt/omo/codegraph/bin/codegraph"
+
+    try {
+      // when
+      const config = createCodegraphMcpConfig({
+        cwd: workspace,
+        config: { auto_init: false, enabled: true, max_index_db_bytes: 4 },
+        env: { OMO_CODEGRAPH_BIN: codegraphPath },
+        fileExists: (filePath) => filePath === codegraphPath,
+        resolveExecutable: createResolver({}),
+      })
+
+      // then
+      expect(config.enabled).toBe(false)
+    } finally {
+      rmSync(workspace, { force: true, recursive: true })
+    }
+  })
+
+  it("#given watch debounce is configured #when creating the MCP config #then it reaches the child environment", () => {
+    // given
+    const codegraphPath = "/opt/omo/codegraph/bin/codegraph"
+
+    // when
+    const config = createCodegraphMcpConfig({
+      cwd: "/workspace/project",
+      config: { auto_init: true, enabled: true, watch_debounce_ms: 900 },
+      resolveExecutable: createResolver({ codegraph: codegraphPath }),
+    })
+
+    // then
+    expect(config.environment?.CODEGRAPH_WATCH_DEBOUNCE_MS).toBe("900")
   })
 })
 

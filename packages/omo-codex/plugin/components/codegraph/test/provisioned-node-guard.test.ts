@@ -14,6 +14,7 @@ describe("CodeGraph provisioned launcher Node guard", () => {
 
 		// when
 		const exitCode = await runCodegraphServe({
+			config: { codegraph: { auto_init: true }, sources: [], warnings: [] },
 			env: {},
 			nodeVersion: "26.3.0",
 			buildEnv: () => ({}),

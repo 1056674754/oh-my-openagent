@@ -19,6 +19,7 @@ import { getCodexOmoConfig } from "../../../shared/src/config-loader.ts";
 import { pruneCodegraphProjectStoresBestEffort } from "./cache-gc.js";
 import { sweepCodegraphZombiesBestEffort } from "./hook-sweep.js";
 import { resolveCodegraphCommandInvocation, SESSION_START_CWD_ENV } from "./session-start-worker.js";
+import { decideCodexCodegraphWorkspaceUse } from "./workspace-safety.js";
 import type {
 	HookStdout,
 	PostToolUseHookOptions,
@@ -84,6 +85,11 @@ export async function executeCodegraphSessionStartHook(options: SessionStartHook
 	});
 	if (exclusion.excluded) {
 		return { action: "skipped-excluded", exitCode: 0 };
+	}
+	const workspaceDecision = decideCodexCodegraphWorkspaceUse(projectRoot, config.codegraph ?? {}, options.config === undefined ? "safe" : true);
+	if (!workspaceDecision.allowed) {
+		writeDebugLog(`CodeGraph SessionStart skipped by workspace safety policy: ${workspaceDecision.reason}`);
+		return { action: "skipped-safety", exitCode: 0 };
 	}
 
 	const isInitialized = await (options.statusProbe ?? isCodegraphProjectInitialized)({

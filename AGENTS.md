@@ -4,6 +4,11 @@
 
 **Generated:** 2026-07-17 | **Source snapshot:** 7d664b96b | **Branch:** dev | **Release:** v4.18.2
 
+## USER PREFERENCES (this fork only — `1056674754/oh-my-openagent`)
+
+- **DO NOT propose PR workflows back to upstream.** This fork is a personal downstream; the owner does not contribute back to `code-yeongyu/oh-my-openagent`. Never suggest `gh pr create` targeting upstream, never propose the `work-with-pr` skill against upstream, never offer to "open a PR" for any change. If a change needs to ship, land it in-place on a feature branch in this fork.
+- Main checkout is `/Users/song/dev_ai/oh-my-openagent`. Worktrees, if any, are subordinate to it.
+
 ## STOP. QA IS MANDATORY. NON-NEGOTIABLE. EVERY SINGLE TIME YOU TOUCH AN OPENCODE- OR CODEX-CONNECTED COMPONENT.
 
 > **IF YOUR CHANGE TOUCHES ANYTHING WIRED INTO OPENCODE OR INTO THE CODEX LIGHT EDITION, YOU MUST QA IT. ALWAYS. EVERY SINGLE TIME. NO EXCEPTIONS. THERE IS NO "TOO SMALL TO SKIP". THERE IS NO "IT OBVIOUSLY WORKS".**

@@ -3,6 +3,49 @@ import { ZodError } from "zod"
 import { BackgroundTaskConfigSchema } from "./background-task"
 
 describe("BackgroundTaskConfigSchema", () => {
+  describe("quotaRouting", () => {
+    test("#given Kimi dual-window routing #when parsed #then preserves both pacing windows", () => {
+      const result = BackgroundTaskConfigSchema.parse({
+        quotaRouting: {
+          "kimi-for-coding/k3": {
+            quotaProvider: "kimi-for-coding",
+            windows: [
+              { windowSeconds: 18_000 },
+              { windowSeconds: 604_800 },
+            ],
+            fallbackModels: ["openai/gpt-5.6-sol"],
+          },
+        },
+      })
+
+      expect(result.quotaRouting?.["kimi-for-coding/k3"]).toEqual({
+        enabled: true,
+        quotaProvider: "kimi-for-coding",
+        windows: [
+          { windowSeconds: 18_000, gracePeriodSeconds: 3_600, paceThresholdRatio: 0.95 },
+          { windowSeconds: 604_800, gracePeriodSeconds: 3_600, paceThresholdRatio: 0.95 },
+        ],
+        refreshIntervalSeconds: 60,
+        requestTimeoutMs: 5_000,
+        fallbackModels: ["openai/gpt-5.6-sol"],
+      })
+    })
+
+    test("#given a grace period equal to a window #when parsed #then rejects the rule", () => {
+      const result = BackgroundTaskConfigSchema.safeParse({
+        quotaRouting: {
+          "kimi-for-coding/k3": {
+            quotaProvider: "kimi-for-coding",
+            windows: [{ windowSeconds: 3_600, gracePeriodSeconds: 3_600 }],
+            fallbackModels: ["openai/gpt-5.6-sol"],
+          },
+        },
+      })
+
+      expect(result.success).toBe(false)
+    })
+  })
+
   describe("maxDepth", () => {
     describe("#given valid maxDepth (3)", () => {
       test("#when parsed #then returns correct value", () => {

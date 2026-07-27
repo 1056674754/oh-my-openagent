@@ -15,7 +15,7 @@ describe("runCodegraphServe unavailable CodeGraph paths", () => {
 		// when
 		const exitCode = await runCodegraphServe({
 			...closedMcpStdio(),
-			config: { codegraph: { auto_provision: false, enabled: true }, sources: [], warnings: [] },
+			config: { codegraph: { auto_init: true, auto_provision: false, enabled: true }, sources: [], warnings: [] },
 			env: { PATH: "/bin" },
 			buildEnv: () => ({}),
 			resolve: () => ({ argsPrefix: [], command: "codegraph", exists: false, source: "path" }),
@@ -41,6 +41,7 @@ describe("runCodegraphServe unavailable CodeGraph paths", () => {
 
 		// when
 		const exitCode = await runCodegraphServe({
+			config: { codegraph: { auto_init: true }, sources: [], warnings: [] },
 			...closedMcpStdio(),
 			env: {},
 			nodeVersion: "26.3.0",
@@ -68,6 +69,7 @@ describe("runCodegraphServe unavailable CodeGraph paths", () => {
 
 		// when
 		const exitCode = await runCodegraphServe({
+			config: { codegraph: { auto_init: true }, sources: [], warnings: [] },
 			...closedMcpStdio(),
 			buildEnv: () => ({}),
 			commandExists: () => false,

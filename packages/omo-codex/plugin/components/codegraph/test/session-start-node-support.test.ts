@@ -15,7 +15,7 @@ describe("CodeGraph SessionStart worker Node support", () => {
 		try {
 			// when
 			const result = await runCodegraphSessionStartWorker({
-				config: { codegraph: { auto_provision: false, enabled: true }, sources: [], warnings: [] },
+				config: { codegraph: { auto_init: true, auto_provision: false, enabled: true }, sources: [], warnings: [] },
 				cwd: workspace,
 				env: { HOME: homeDir },
 				nodeVersion: "26.3.0",
@@ -58,6 +58,7 @@ describe("CodeGraph SessionStart worker Node support", () => {
 		try {
 			// when
 			const result = await runCodegraphSessionStartWorker({
+				config: { codegraph: { auto_init: true }, sources: [], warnings: [] },
 				cwd: workspace,
 				env: { HOME: homeDir },
 				nodeVersion: "26.3.0",
@@ -110,6 +111,7 @@ describe("CodeGraph SessionStart worker Node support", () => {
 		try {
 			// when
 			const result = await runCodegraphSessionStartWorker({
+				config: { codegraph: { auto_init: true }, sources: [], warnings: [] },
 				cwd: workspace,
 				env: { CODEGRAPH_NODE_BIN: nodeBin, HOME: homeDir },
 				nodeVersion: "26.3.0",
