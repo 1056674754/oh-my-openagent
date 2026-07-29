@@ -26,6 +26,8 @@ export type ManagedStartSpec = {
   readonly parentSessionId: string
   readonly rootSessionId: string
   readonly model?: string
+  readonly requestedModel?: ResolvedModelRecord
+  readonly fallbackModels?: readonly ResolvedModelRecord[]
   readonly variant?: string
   readonly agentType?: string
   readonly instructions?: string
@@ -61,6 +63,8 @@ export type ManagerStartSpec = {
 
 export type ResolvedChildPlan = {
   readonly model: string
+  readonly requested_model?: ResolvedModelRecord
+  readonly fallback_models?: readonly ResolvedModelRecord[]
   readonly resolved_model?: ResolvedModelRecord
   readonly variant?: string
   readonly agentExecutionMode?: ExecutionMode
@@ -184,8 +188,8 @@ export type TaskManager = {
   get(taskId: string): TaskRecord | undefined
   list(scope: ListScope): readonly ListedTask[]
   waitFor(taskId: string, options?: { readonly signal?: AbortSignal }): Promise<TaskRecord>
-  // Live read of the manager-owned run-stats accumulator. Status surfaces (task_output's blocking
-  // wait) need in-flight turns/tool-calls/tok-s; the record only carries run_stats once terminal.
+  // Live read of the manager-owned run-stats accumulator. Snapshot and live TUI surfaces need
+  // in-flight turns/tool-calls/tok-s; the record only carries run_stats once terminal.
   // Optional so downstream structural fakes keep compiling; the concrete manager always implements it.
   runStatsSnapshot?(taskId: string): TaskRunStats | undefined
   // W1-V F3: prune a live handle (and its per-epoch release/background bookkeeping) so the lifecycle
@@ -197,7 +201,9 @@ export type TaskManager = {
   // Subscribe at the runner-agnostic handle seam now or when a queued task is promoted.
   subscribeChild(taskId: string, listener: ManagedChildListener): () => void
   residentTaskIds(): readonly string[]
-  // Whether a task was spawned run_in_background, so the store-terminal completion bridge only
-  // notifies background terminals (sync spawns are awaited inline by the tool).
+  // Promote a foreground task when the tool stops waiting inline. The completion bridge reads this
+  // state live at terminal transition, so promotion makes the eventual completion notify normally.
+  promoteToBackground(taskId: string): boolean
+  // Whether a task is currently background, either from its spawn spec or a later promotion.
   wasBackground(taskId: string): boolean
 }

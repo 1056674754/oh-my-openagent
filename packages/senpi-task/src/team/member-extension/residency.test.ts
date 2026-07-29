@@ -49,7 +49,7 @@ describe("member injection residency", () => {
       memberName: "alice",
       config,
       sessionDir,
-      sendUserMessage: (content) => { injected = handle.followUp(content) },
+      inject: (content) => { injected = handle.followUp(content) },
     })
     await sendMessage({
       version: 1,

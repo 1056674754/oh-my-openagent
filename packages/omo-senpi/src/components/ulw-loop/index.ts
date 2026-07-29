@@ -25,6 +25,7 @@ interface InputEventLike {
   text: string
   source?: unknown
   images?: unknown
+  streamingBehavior?: unknown
 }
 
 interface ActiveStatus {
@@ -58,6 +59,7 @@ export function createUlwLoopComponent(options: UlwLoopComponentOptions = {}): O
 
         state.consecutiveContinuations = 0
         state.previousStatusRaw = undefined
+        if (payload.streamingBehavior === undefined) return { action: "continue" }
         const status = await readActiveStatus(omoBin, runCommand, cwdFromContext(eventCtx), ctx)
         if (status === null || !status.active) return { action: "continue" }
         return {
@@ -117,12 +119,21 @@ function deliverContinuation(pi: SenpiExtensionAPI, ctx: ComponentContext): void
     ctx.idleCoordinator.enqueue({
       key: ULW_CONTINUATION_INJECTION_KEY,
       source: "ulw-continuation",
+      customType: "omo-senpi:ulw-continuation",
       content: CONTINUATION_PROMPT,
+      display: false,
     })
     ctx.idleCoordinator.scheduleFlush()
     return
   }
-  pi.sendUserMessage(CONTINUATION_PROMPT, { deliverAs: "followUp" })
+  pi.sendMessage(
+    {
+      customType: "omo-senpi:ulw-continuation",
+      content: CONTINUATION_PROMPT,
+      display: false,
+    },
+    { triggerTurn: true, deliverAs: "followUp" },
+  )
 }
 
 async function readActiveStatus(

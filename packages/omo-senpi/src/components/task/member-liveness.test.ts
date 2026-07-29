@@ -46,7 +46,7 @@ describe("team member liveness notifier", () => {
     const pi = new FakeExtensionAPI()
     const scheduled: Array<() => void> = []
     const coordinator = new IdleInjectionCoordinator(
-      (content, options) => pi.sendUserMessage(content, options),
+      (message, options) => pi.sendMessage(message, { triggerTurn: true, deliverAs: options.deliverAs }),
       { scheduleFlush: (flush) => scheduled.push(flush) },
     )
     const notifier = createTeamMemberLivenessNotifier({
@@ -61,9 +61,22 @@ describe("team member liveness notifier", () => {
     for (const flush of scheduled) flush()
 
     // then
-    expect(pi.userMessages).toEqual([{
-      content: "Team member liveness: alpha exited abnormally; last known state: error. Reason: RPC child killed by signal SIGKILL",
-      options: { deliverAs: "steer" },
+    expect(pi.userMessages).toEqual([])
+    expect(pi.messages).toEqual([{
+      message: {
+        customType: "omo-senpi:wake",
+        content: "Team member liveness: alpha exited abnormally; last known state: error. Reason: RPC child killed by signal SIGKILL",
+        display: false,
+        details: [{
+          customType: TEAM_MEMBER_LIVENESS_MESSAGE_TYPE,
+          details: {
+            memberName: "alpha",
+            lastKnownState: "error",
+            reason: "RPC child killed by signal SIGKILL",
+          },
+        }],
+      },
+      options: { triggerTurn: true, deliverAs: "steer" },
     }])
   })
 
@@ -102,6 +115,8 @@ describe("team member liveness notifier", () => {
       lastKnownState: "error",
       reason: "RPC child killed by signal SIGKILL",
     })
+    expect(liveness?.message.display).toBe(false)
+    expect(liveness?.options).toEqual({ triggerTurn: true, deliverAs: "steer" })
   })
 
   test("#given a normal member completion #when its terminal record is observed #then no liveness event is injected", () => {

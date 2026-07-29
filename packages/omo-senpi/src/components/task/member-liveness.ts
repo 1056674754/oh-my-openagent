@@ -37,7 +37,14 @@ export function createTeamMemberLivenessNotifier(
       delivered.add(key)
       const content = livenessContent(details)
       if (deps.coordinator !== undefined) {
-        deps.coordinator.enqueue({ key, source: "team-liveness", content })
+        deps.coordinator.enqueue({
+          key,
+          source: "team-liveness",
+          customType: TEAM_MEMBER_LIVENESS_MESSAGE_TYPE,
+          content,
+          display: false,
+          details,
+        })
         if (deps.isStreaming()) deps.coordinator.scheduleFlush()
         else deps.coordinator.flushSoon()
         return
@@ -45,7 +52,7 @@ export function createTeamMemberLivenessNotifier(
       deps.pi.sendMessage({
         customType: TEAM_MEMBER_LIVENESS_MESSAGE_TYPE,
         content,
-        display: true,
+        display: false,
         details,
       }, { triggerTurn: true, deliverAs: "steer" })
     },

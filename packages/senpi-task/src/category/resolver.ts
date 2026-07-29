@@ -14,7 +14,10 @@ import {
   CATEGORY_PROMPT_APPEND_RESOLVERS,
   CATEGORY_PROMPT_APPENDS,
   DEFAULT_CATEGORIES,
+  categoryGateModel,
+  isCategoryGateSatisfied,
 } from "./builtins"
+import { buildRuntimeModelChain, type ModelChainCandidate } from "../model-chain"
 import { CATEGORY_FALLBACK_CHAINS } from "./fallback-chains"
 import type {
   CategoryModelSelection,
@@ -118,8 +121,71 @@ function flattenFallbackModels(fallbackModels: OmoFallbackModels | undefined): r
   return fallbackModels.map((fallback) => typeof fallback === "string" ? fallback : fallbackObjectToString(fallback))
 }
 
-function availableCategoryNames(config: OmoConfig): readonly string[] {
-  return Array.from(new Set([...Object.keys(DEFAULT_CATEGORIES), ...Object.keys(config.categories ?? {})])).sort()
+function categoryModelCandidates(config: OmoCategoryConfig): readonly ModelChainCandidate[] {
+  const primary = config.model === undefined
+    ? []
+    : [{
+        model: config.model,
+        ...(config.variant !== undefined ? { variant: config.variant } : {}),
+        ...(config.reasoningEffort !== undefined
+          ? { reasoningEffort: config.reasoningEffort }
+          : {}),
+      }]
+  const fallbackModels = config.fallback_models
+  if (fallbackModels === undefined) return primary
+
+  const entries = typeof fallbackModels === "string" ? [fallbackModels] : fallbackModels
+  const fallbacks = entries.map((entry): ModelChainCandidate => {
+    if (typeof entry === "string") {
+      return {
+        model: entry,
+        ...(config.variant !== undefined ? { variant: config.variant } : {}),
+        ...(config.reasoningEffort !== undefined
+          ? { reasoningEffort: config.reasoningEffort }
+          : {}),
+      }
+    }
+    return {
+      model: entry.model,
+      ...(entry.variant ?? config.variant) !== undefined
+        ? { variant: entry.variant ?? config.variant }
+        : {},
+      ...(entry.reasoningEffort ?? config.reasoningEffort) !== undefined
+        ? { reasoningEffort: entry.reasoningEffort ?? config.reasoningEffort }
+        : {},
+    }
+  })
+  return [...primary, ...fallbacks]
+}
+
+function availableCategoryNames(config: OmoConfig, availableModelIds?: ReadonlySet<string>): readonly string[] {
+  const names = Array.from(new Set([...Object.keys(DEFAULT_CATEGORIES), ...Object.keys(config.categories ?? {})])).sort()
+  if (availableModelIds === undefined) return names
+  const userCategories = config.categories ?? {}
+  return names.filter((name) =>
+    isCategoryGateSatisfied(name, getOwnRecordValue(userCategories, name) !== undefined, availableModelIds)
+  )
+}
+
+// A gateway provider re-publishes an upstream model under `<gateway>/<upstream-vendor>/<model-id>`
+// (e.g. `vercel/openai/gpt-5.6-sol`). Only these known upstream vendor prefixes are unwrapped, so an
+// unrelated model that merely ends in a gate model's name cannot open that gate.
+const GATEWAY_UPSTREAM_VENDOR_PREFIXES = ["openai", "anthropic", "google"] as const
+
+function modelIdsOf(models: readonly string[]): ReadonlySet<string> {
+  const ids = new Set<string>()
+  for (const entry of models) {
+    const modelId = entry.slice(entry.indexOf("/") + 1)
+    ids.add(modelId)
+    const separatorIndex = modelId.indexOf("/")
+    if (separatorIndex <= 0) continue
+    const vendor = modelId.slice(0, separatorIndex)
+    const upstreamId = modelId.slice(separatorIndex + 1)
+    if (!upstreamId.includes("/") && GATEWAY_UPSTREAM_VENDOR_PREFIXES.some((prefix) => prefix === vendor)) {
+      ids.add(upstreamId)
+    }
+  }
+  return ids
 }
 
 function getOwnRecordValue<TValue>(
@@ -197,6 +263,18 @@ export function resolveCategory<TModel extends SenpiModelPort>(
       availableCategories,
     }
   }
+
+  const gatedCategories = availableCategoryNames(omoConfig, modelIdsOf(availableModels))
+  if (!isCategoryGateSatisfied(categoryName, userConfig !== undefined, modelIdsOf(availableModels))) {
+    return {
+      kind: "model_unavailable",
+      category: categoryName,
+      attemptedModel: builtinConfig?.model ?? config.model,
+      availableModels,
+      availableCategories: gatedCategories,
+    }
+  }
+
   const fallbackChain = getOwnRecordValue(CATEGORY_FALLBACK_CHAINS, categoryName)
   const resolution = resolveModelForDelegateTask(
     {
@@ -221,7 +299,7 @@ export function resolveCategory<TModel extends SenpiModelPort>(
       category: categoryName,
       attemptedModel: config.model,
       availableModels,
-      availableCategories,
+      availableCategories: gatedCategories,
     }
   }
 
@@ -242,7 +320,7 @@ export function resolveCategory<TModel extends SenpiModelPort>(
       category: categoryName,
       attemptedModel: selection.selectedModel,
       availableModels,
-      availableCategories,
+      availableCategories: gatedCategories,
       ...(fallback !== undefined ? { nearestFallback: fallback } : {}),
       ...(selection.fallbackEntry !== undefined ? { fallbackEntry: selection.fallbackEntry } : {}),
     }
@@ -250,10 +328,17 @@ export function resolveCategory<TModel extends SenpiModelPort>(
 
   const prompt_append = promptAppendForCategory(categoryName, selection.selectedModel, userConfig?.prompt_append)
   const variant = userConfig?.variant ?? selection.variant ?? config.variant
+  const runtimeModelChain = buildRuntimeModelChain({
+    candidates: categoryModelCandidates(config),
+    selectedModel: selection.selectedModel,
+    availableModels: new Set(availableModels),
+    source: "category",
+  })
   const spec: ResolvedChildSpec<TModel> = {
     model: foundModel.model,
     provider: foundModel.provider,
     modelId: foundModel.modelId,
+    ...runtimeModelChain,
     ...(foundModel.displayName !== undefined ? { displayName: foundModel.displayName } : {}),
     ...(variant !== undefined ? { variant } : {}),
     ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
@@ -271,6 +356,6 @@ export function resolveCategory<TModel extends SenpiModelPort>(
     config,
     description: userConfig?.description ?? getOwnRecordValue(CATEGORY_DESCRIPTIONS, categoryName),
     modelSelection: selection,
-    availableCategories,
+    availableCategories: gatedCategories,
   }
 }

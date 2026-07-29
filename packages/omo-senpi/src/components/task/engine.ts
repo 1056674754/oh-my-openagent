@@ -156,7 +156,10 @@ export function composeTaskEngine(deps: ComposeTaskEngineDeps): TaskEngine {
     planner,
     config: settings,
     cwd: deps.cwd,
-    destruction: { destroyResidentTask: (taskId) => lifecycle.destroyResidentTask(taskId, "cancel") },
+    destruction: {
+      destroyResidentTask: (taskId, cause) =>
+        lifecycle.destroyResidentTask(taskId, cause),
+    },
     admit: (parentSessionId) => admitAdapter(lifecycle, parentSessionId),
     trustedRespawnLaunch: createTeamMemberRespawnLaunchResolver({
       stateDir: {

@@ -5,7 +5,10 @@ import type { TaskRecord } from "../../state"
 import { createChildProgress, type ToolProgressDetails } from "../../progress"
 import { executeBatch } from "./execute-batch"
 import { buildStartSpec, singleSpawnParams } from "./execute-spec"
+import type { ForegroundWaitOptions } from "./foreground-wait"
+import { waitForForegroundTask } from "./foreground-wait"
 import type { TaskToolParamsStatic } from "./params"
+import { backgroundConversionText, backgroundStartText } from "./start-presentation"
 import type { ResolvedSpawnItem, TaskToolContext, TaskToolDeps, TaskToolDetails, TaskToolMode } from "./types"
 import { resolveSpawnItems, validateBatchShape, validateTaskTarget } from "./validation"
 
@@ -21,7 +24,7 @@ type ResolvedManagerStartSpec = ManagerStartSpec & { readonly execution_mode: Ex
 
 type SingleSpawnParams = Omit<TaskToolParamsStatic, "prompt" | "tasks"> & { readonly prompt: string }
 
-type RunSpawnInput = {
+type RunSpawnInput = ForegroundWaitOptions & {
   readonly params: SingleSpawnParams
   readonly signal: AbortSignal | undefined
   readonly onUpdate: AgentToolUpdateCallback<TaskToolDetails> | undefined
@@ -86,20 +89,11 @@ function partialDetails(
   return { ...startedDetails(started, params, executionMode), ...progress }
 }
 
-function backgroundStartText(started: Extract<StartResult, { kind: "started" }>, description: string | undefined): string {
-  const queue = started.queue_position !== undefined ? ` queued at position ${started.queue_position}` : ""
-  const label = description ?? started.name
-  if (label === started.task_id) {
-    return `Started task ${started.task_id} (${started.status})${queue}. The system will notify you on completion; use task_output to read progress or task_send to steer it.`
-  }
-  return `Started task ${label} (${started.task_id}, ${started.status})${queue}. The system will notify you on completion; use task_output to read progress or task_send to steer it.`
-}
-
 async function runSpawn(
   deps: TaskToolDeps,
   input: RunSpawnInput,
 ): Promise<AgentToolResult<TaskToolDetails>> {
-  const { params, signal, onUpdate, ctx } = input
+  const { params, signal, onUpdate, ctx, env, scheduleDeadline } = input
   if (signal?.aborted) {
     const reason = "Parent aborted before spawn"
     return result(reason, { task_id: "", status: "cancelled", mode: "spawn", reason })
@@ -210,13 +204,26 @@ async function runSpawn(
     emit()
   }
   try {
-    const final = await deps.manager.waitFor(started.task_id, { signal })
+    const waited = await waitForForegroundTask({
+      manager: deps.manager,
+      taskId: started.task_id,
+      signal,
+      ctx,
+      ...(env !== undefined && { env }),
+      ...(scheduleDeadline !== undefined && { scheduleDeadline }),
+    })
+    if (waited.kind === "promoted") {
+      return result(backgroundConversionText(started, params.description, waited.budgetSeconds), {
+        ...startedDetails(started, params, spec.execution_mode),
+        run_in_background: true,
+      })
+    }
     if (timer !== undefined) {
       clearTimeout(timer)
       timer = undefined
       emit()
     }
-    return syncResult(final, "spawn")
+    return syncResult(waited.record, "spawn")
   } catch (error) {
     if (!signal?.aborted || error !== signal.reason) throw error
     const reason = "parent turn aborted"
@@ -237,7 +244,7 @@ function invalidArguments(message: string): AgentToolResult<TaskToolDetails> {
   return result(message, { task_id: "", status: "invalid_arguments", mode: "spawn", reason: message })
 }
 
-export function buildTaskExecute(deps: TaskToolDeps): TaskExecute {
+export function buildTaskExecute(deps: TaskToolDeps, options: ForegroundWaitOptions = {}): TaskExecute {
   return async (_toolCallId, params, signal, onUpdate, ctx) => {
     const shape = validateBatchShape(params)
     if (shape.kind === "error") return invalidArguments(shape.error.message)
@@ -254,7 +261,14 @@ export function buildTaskExecute(deps: TaskToolDeps): TaskExecute {
     const first = resolved.items[0]
     if (first === undefined) return invalidArguments("Provide at least one task item.")
     if (resolved.items.length === 1) {
-      return runSpawn(deps, { params: singleSpawnParams(first, params.run_in_background), signal, onUpdate, ctx })
+      return runSpawn(deps, {
+        params: singleSpawnParams(first, params.run_in_background),
+        signal,
+        onUpdate,
+        ctx,
+        ...(options.env !== undefined && { env: options.env }),
+        ...(options.scheduleDeadline !== undefined && { scheduleDeadline: options.scheduleDeadline }),
+      })
     }
 
     const parentSessionId = ctx.sessionManager.getSessionId()
@@ -262,7 +276,10 @@ export function buildTaskExecute(deps: TaskToolDeps): TaskExecute {
       manager: deps.manager,
       items: resolved.items,
       signal,
+      ctx,
       runInBackground: params.run_in_background === true,
+      ...(options.env !== undefined && { env: options.env }),
+      ...(options.scheduleDeadline !== undefined && { scheduleDeadline: options.scheduleDeadline }),
       startItem: async (item) => {
         const itemParams = singleSpawnParams(item, params.run_in_background)
         const target = item.kind === "category" ? { category: item.category } : { subagentType: item.subagentType }

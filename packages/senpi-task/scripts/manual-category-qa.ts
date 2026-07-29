@@ -47,8 +47,48 @@ if (happy.kind !== "resolved") {
 }
 requireCondition(happy.spec.provider === "openai", "happy provider mismatch")
 requireCondition(happy.spec.modelId === "gpt-5.6-sol", "happy model mismatch")
-requireCondition(happy.spec.variant === "xhigh", "happy variant mismatch")
+requireCondition(happy.spec.variant === "max", "happy variant mismatch")
 requireCondition(happy.spec.prompt_append?.includes("DEEP LOGICAL REASONING") === true, "happy prompt missing")
+
+const visualPrimary = resolveCategory("visual-engineering", {}, registry([model("anthropic", "claude-opus-5")]))
+requireCondition(visualPrimary.kind === "resolved", "visual-engineering primary did not resolve")
+if (visualPrimary.kind !== "resolved") {
+  throw new Error("visual-engineering primary did not resolve")
+}
+requireCondition(visualPrimary.spec.modelId === "claude-opus-5", "visual-engineering primary model mismatch")
+requireCondition(visualPrimary.spec.variant === "max", "visual-engineering primary variant is not max")
+
+const visualKimiFallback = resolveCategory("visual-engineering", {}, registry([model("apitopia", "kimi-k3")]))
+requireCondition(visualKimiFallback.kind === "resolved", "visual-engineering kimi fallback did not resolve")
+if (visualKimiFallback.kind !== "resolved") {
+  throw new Error("visual-engineering kimi fallback did not resolve")
+}
+requireCondition(visualKimiFallback.spec.modelId === "kimi-k3", "visual-engineering kimi fallback model mismatch")
+requireCondition(visualKimiFallback.spec.variant === "max", "visual-engineering kimi fallback variant is not max")
+
+const artistryPrimary = resolveCategory("artistry", {}, registry([model("anthropic", "claude-fable-5")]))
+requireCondition(artistryPrimary.kind === "resolved", "artistry primary did not resolve")
+if (artistryPrimary.kind !== "resolved") {
+  throw new Error("artistry primary did not resolve")
+}
+requireCondition(artistryPrimary.spec.modelId === "claude-fable-5", "artistry primary model mismatch")
+requireCondition(artistryPrimary.spec.variant === "xhigh", "artistry primary variant is not xhigh")
+
+const artistryKimiFallback = resolveCategory("artistry", {}, registry([model("apitopia", "kimi-k3")]))
+requireCondition(artistryKimiFallback.kind === "resolved", "artistry kimi fallback did not resolve")
+if (artistryKimiFallback.kind !== "resolved") {
+  throw new Error("artistry kimi fallback did not resolve")
+}
+requireCondition(artistryKimiFallback.spec.modelId === "kimi-k3", "artistry kimi fallback model mismatch")
+requireCondition(artistryKimiFallback.spec.variant === "max", "artistry kimi fallback variant is not max")
+
+const artistryOpusFallback = resolveCategory("artistry", {}, registry([model("anthropic", "claude-opus-5")]))
+requireCondition(artistryOpusFallback.kind === "resolved", "artistry opus fallback did not resolve")
+if (artistryOpusFallback.kind !== "resolved") {
+  throw new Error("artistry opus fallback did not resolve")
+}
+requireCondition(artistryOpusFallback.spec.modelId === "claude-opus-5", "artistry opus fallback model mismatch")
+requireCondition(artistryOpusFallback.spec.variant === "xhigh", "artistry opus fallback variant is not xhigh")
 
 const disabled = resolveCategory(
   "ultrabrain",
@@ -95,8 +135,8 @@ requireCondition(systemDefault.spec.provider === "local", "system default provid
 requireCondition(systemDefault.spec.modelId === "system-default", "system default model mismatch")
 
 const headerModel = {
-  provider: "openai",
-  id: "gpt-5.4-mini",
+  provider: "quotio-openai",
+  id: "gpt-5.4-mini-fast",
   name: "header model",
   headers: { "User-Agent": "test" },
 }
@@ -173,7 +213,7 @@ for (const result of identityFind) {
   if (result.kind !== "model_unavailable") {
     throw new Error("identity find result did not return model_unavailable")
   }
-  requireCondition(result.attemptedModel === "openai/gpt-5.4-mini", "identity find attempted model changed")
+  requireCondition(result.attemptedModel === "apitopia/kimi-for-coding-highspeed", "identity find attempted model changed")
   requireCondition(!JSON.stringify(result).includes("evil"), "identity find result leaked mismatched provider")
 }
 

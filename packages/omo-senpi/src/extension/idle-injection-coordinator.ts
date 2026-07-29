@@ -5,11 +5,24 @@ export interface IdleInjection {
   // so repeated continuation enqueues on one idle edge collapse to a single injection.
   readonly key: string
   readonly source: IdleInjectionSource
+  readonly customType?: string
   readonly content: string
+  readonly display?: boolean
+  readonly details?: unknown
   readonly onFlushed?: () => void
 }
 
-export type IdleInjectionDelivery = (content: string, options: { deliverAs: "steer" | "followUp" }) => void
+export interface IdleInjectionMessage extends Record<string, unknown> {
+  readonly customType: "omo-senpi:wake"
+  readonly content: string
+  readonly display: false
+  readonly details: ReadonlyArray<{ readonly customType: string; readonly details: unknown }>
+}
+
+export type IdleInjectionDelivery = (
+  message: IdleInjectionMessage,
+  options: { deliverAs: "steer" | "followUp" },
+) => void
 
 // Defers a single flush to the next idle tick. Injectable so unit tests drive it deterministically;
 // production defaults to queueMicrotask so a deferred continuation flush runs after any synchronous
@@ -65,7 +78,7 @@ export class IdleInjectionCoordinator {
     })
   }
 
-  // Immediate coalesced flush for an IDLE parent. A microtask is soon enough to land the follow-up before
+  // Immediate coalesced flush for an IDLE parent. A microtask is soon enough to land the steer before
   // senpi's print mode can decide the session is over (the windowed timer is not - live-driver proven),
   // while still batching every notification that becomes ready in the same tick into one injection.
   flushSoon(): void {
@@ -85,9 +98,9 @@ export class IdleInjectionCoordinator {
     return this.#pending.delete(key)
   }
 
-  // Flush the whole queue as one idle-edge follow-up. Returns how many queued items were collapsed (0 = no-op).
+  // Flush the whole queue as one idle-edge steer. Returns how many queued items were collapsed (0 = no-op).
   flushOnIdle(): number {
-    return this.#flush("followUp")
+    return this.#flush("steer")
   }
 
   #flush(deliverAs: "steer" | "followUp"): number {
@@ -97,7 +110,19 @@ export class IdleInjectionCoordinator {
     )
     const collapsed = ordered.length
     this.#pending.clear()
-    this.#deliver(ordered.map((injection) => injection.content).join("\n\n"), { deliverAs })
+    this.#deliver(
+      {
+        customType: "omo-senpi:wake",
+        content: ordered.map((injection) => injection.content).join("\n\n"),
+        display: false,
+        details: ordered.flatMap((injection) =>
+          injection.customType === undefined
+            ? []
+            : [{ customType: injection.customType, details: injection.details }],
+        ),
+      },
+      { deliverAs },
+    )
     for (const injection of ordered) injection.onFlushed?.()
     return collapsed
   }

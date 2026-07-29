@@ -24,6 +24,7 @@ const TEAM_TOOL_NAMES = [
 const ALL_TOOL_NAMES = [...TASK_TOOL_NAMES, ...TEAM_TOOL_NAMES]
 const TASK_EVENTS = [
   "session_start",
+  "session_before_reload",
   "session_before_switch",
   "session_before_compact",
   "session_compact",
@@ -97,7 +98,6 @@ function wiredBridge(): {
   const reconcileCalls = { count: 0 }
   const leadCalls = { ticks: 0, shutdowns: 0 }
   wireEventBridge(pi, ctxFor(pi, logger), engine, noopStatusUi, transitions, {
-    warnDualConfig: false,
     reconcileTeamMailbox: () => {
       reconcileCalls.count += 1
       return Promise.resolve()
@@ -190,7 +190,7 @@ describe("omo-senpi task component wiring", () => {
     expect(logger.entries).toContainEqual({ level: "info", message: "omo-senpi task component disabled by flag" })
   })
 
-  it("#given a malformed omo.json #when the component registers #then it boots with defaults, warns once, and still wires the tools", () => {
+  it("#given a malformed omo.json #when the component registers #then it boots with defaults and still wires the tools", () => {
     // given a project whose .omo/omo.json is invalid JSON
     const project = tempProject()
     mkdirSync(join(project, ".omo"), { recursive: true })
@@ -203,11 +203,8 @@ describe("omo-senpi task component wiring", () => {
 
     // then it never crashed: all tools still registered
     expect(toolNames(pi)).toEqual([...ALL_TOOL_NAMES].sort())
-    // and exactly one config-load warning was emitted
-    const configWarnings = logger.entries.filter(
-      (entry) => entry.level === "warn" && entry.message.includes("using default config after omo.json load issues"),
-    )
-    expect(configWarnings).toHaveLength(1)
+    // diagnostics are surfaced once by the dedicated config-startup component on session_start.
+    expect(logger.entries).toEqual([])
   })
 
   it("#given a wired bridge #when session_start fires repeatedly #then the team mailbox is reconciled on every start", async () => {
@@ -251,7 +248,6 @@ describe("omo-senpi task component wiring", () => {
     }
     const transitions = createSessionTransitionBridge({ runtime: engine.runtime, notifier: engine.notifier })
     wireEventBridge(pi, ctxFor(pi, logger), engine, noopStatusUi, transitions, {
-      warnDualConfig: false,
       reconcileTeamMailbox: () => {
         order.push("reclaim")
         return Promise.resolve()

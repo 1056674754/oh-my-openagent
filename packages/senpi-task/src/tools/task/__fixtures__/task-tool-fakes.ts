@@ -31,6 +31,7 @@ export function createFakeManager(overrides: Partial<TaskManager>): TaskManager 
     getResidentHandle: () => undefined,
     subscribeChild: () => () => {},
     residentTaskIds: () => [],
+    promoteToBackground: () => true,
     wasBackground: () => false,
     ...overrides,
   }
