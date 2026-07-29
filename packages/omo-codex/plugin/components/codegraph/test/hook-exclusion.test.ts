@@ -20,6 +20,7 @@ describe("CodeGraph SessionStart exclusion policy", () => {
 		// given
 		const stdout: string[] = [];
 		const spawned: WorkerSpawnInvocation[] = [];
+		let sweepCalls = 0;
 		const stateRoot = createAllowedWorkspace("codegraph-omo-state");
 		const workspace = join(stateRoot, ".omo", "ulw-research", "run", "clones", "repo");
 		mkdirSync(workspace, { recursive: true });
@@ -36,10 +37,14 @@ describe("CodeGraph SessionStart exclusion policy", () => {
 				statusProbe: () => {
 					throw new Error("excluded projects must not probe CodeGraph status");
 				},
+				sweepZombies: () => {
+					sweepCalls += 1;
+				},
 			});
 
 			// then
 			expect(result).toEqual({ action: "skipped-excluded", exitCode: 0 });
+			expect(sweepCalls).toBe(0);
 			expect(spawned).toEqual([]);
 			expect(stdout.join("")).toBe("");
 		} finally {

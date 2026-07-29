@@ -19,6 +19,7 @@ describe("OhMyOpenCodeConfigSchema codegraph", () => {
       expect(result.codegraph).toEqual({
         auto_init: "safe",
         auto_provision: true,
+        daemon: true,
         enabled: true,
         max_index_db_bytes: 2_147_483_648,
       })
@@ -41,6 +42,7 @@ describe("OhMyOpenCodeConfigSchema codegraph", () => {
       expect(result.codegraph).toEqual({
         auto_init: "safe",
         auto_provision: true,
+        daemon: true,
         enabled: false,
         max_index_db_bytes: 2_147_483_648,
       })
@@ -68,6 +70,7 @@ describe("OhMyOpenCodeConfigSchema codegraph", () => {
       expect(result.codegraph).toEqual({
         ...input.codegraph,
         auto_init: "safe",
+        daemon: true,
       })
     })
   })

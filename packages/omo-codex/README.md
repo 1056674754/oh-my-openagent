@@ -71,7 +71,40 @@ Add extra exclude-only roots with `codegraph.excluded_roots`:
 
 Entries may be absolute, `~`-relative, or relative to the configured home directory. OMO expands `~`, realpath-canonicalizes each configured root when possible, and compares descendants after platform-aware normalization. There is no include override.
 
-CodeGraph runs with `CODEGRAPH_NO_DAEMON=1`, `CODEGRAPH_NO_DOWNLOAD=1`, `CODEGRAPH_TELEMETRY=0`, and `DO_NOT_TRACK=1` in the managed child environment. OMO stores per-project CodeGraph data under the managed CodeGraph home and prunes dead project stores when their recorded source directory no longer exists.
+CodeGraph runs with `CODEGRAPH_NO_DOWNLOAD=1`, `CODEGRAPH_TELEMETRY=0`, and `DO_NOT_TRACK=1` in the managed child environment. The shared daemon is enabled by default; setting `codegraph.daemon` to `false` adds `CODEGRAPH_NO_DAEMON=1`. OMO stores per-project CodeGraph data under the managed CodeGraph home and prunes dead project stores when their recorded source directory no longer exists.
+
+### CodeGraph daemon
+
+By default CodeGraph uses the upstream shared daemon. Set `codegraph.daemon` to `false` in the OMO config (`~/.omo/config.jsonc`, or `.omo/config.jsonc` in a project) to keep each MCP process in-process:
+
+```jsonc
+{
+  "codegraph": {
+    // Default true. Set false to keep the index inside each MCP client.
+    "daemon": false
+  }
+}
+```
+
+With the daemon enabled, upstream CodeGraph spawns one detached daemon per project, rooted at the nearest ancestor holding `.codegraph/codegraph.db`, and every client for that project talks to it over a local socket. The daemon records itself in `.codegraph/daemon.pid`, exits after about five minutes idle, and runs under an upstream PPID watchdog. The default trades a detached background process for lower first-query latency once any client has warmed the daemon, plus one shared index across concurrent clients. Set `daemon: false` when strict client-scoped process lifetime is preferred.
+
+Inspect or stop running daemons with the upstream manager:
+
+```bash
+codegraph daemon   # interactive list of running daemons; pick one and press enter to stop it
+```
+
+An ambient `CODEGRAPH_NO_DAEMON=1` in the environment still forces daemon-off when `codegraph.daemon` is `true`.
+
+### Process hygiene and the CodeGraph 1.4.1 upgrade
+
+CodeGraph is pinned to 1.4.1. Project stores built by older versions migrate automatically on first use; no manual re-index is needed.
+
+Process lifecycle is self-cleaning and always on (no config keys):
+
+- MCP server processes (`codegraph`, `lsp`, `git_bash`) run a parent-liveness watchdog and exit when their parent process dies, so a crashed harness does not leave servers behind.
+- A newly started lsp daemon reaps running daemons left over from older versions at startup.
+- A best-effort family sweep removes orphaned codegraph and lsp processes at startup on every adapter (the Codex `SessionStart` hook, OpenCode plugin startup, and Senpi session start) and self-throttles via stamp files.
 
 Native Windows installs discover Git Bash before the installer mutates `~/.codex/`. The installer checks `OMO_CODEX_GIT_BASH_PATH`, standard Git for Windows locations such as `C:\Program Files\Git\bin\bash.exe`, and then PATH. If Git Bash is still missing, it prints the install guidance shown here and stops without running `winget` or changing system dependencies:
 
@@ -93,6 +126,17 @@ $env:OMO_CODEX_GIT_BASH_PATH = "C:\Program Files\Git\bin\bash.exe"
 The installer does not write a global Codex shell config. On Windows it enables the plugin MCP policy for `git_bash`; on non-Windows it keeps the manifest bundled but writes `enabled = false` for that MCP server. The Git Bash hook injects fixed guidance before the first Codex shell-like `Bash` hook call in a session, and again before the first shell-like call after `PostCompact`, recommending `git_bash` before built-in `exec_command`.
 
 To install both editions in one command, use `--platform=both`.
+
+### Subagent service tier (explorer/librarian)
+
+The bundled `explorer` and `librarian` agent TOMLs ship with `service_tier = "fast"` so recon subagents run on the cheaper Fast tier by default. To opt out, edit the tier in your installed agent files and the installer will preserve your choice across every reinstall and bootstrap:
+
+```toml
+# ~/.codex/agents/explorer.toml (and librarian.toml)
+service_tier = "standard"   # use the default/parent tier instead of Fast
+```
+
+Delete the `service_tier` line entirely to inherit the parent session's tier. On reinstall the bootstrap captures your current tier and re-applies it after relinking the bundled agents, so a changed or removed tier is never silently reset back to `fast`.
 
 ## Telemetry
 

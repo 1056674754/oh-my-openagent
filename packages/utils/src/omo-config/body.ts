@@ -15,6 +15,7 @@ export const BUILT_IN_DEFAULTS: OmoConfig = {
   codegraph: {
     auto_init: "safe",
     auto_provision: true,
+    daemon: true,
     enabled: true,
     max_index_db_bytes: DEFAULT_CODEGRAPH_MAX_INDEX_DB_BYTES,
     telemetry: false,
@@ -35,6 +36,7 @@ type MutableOmoConfig = {
 const CODEGRAPH_SETTING_KEYS: readonly CodegraphSettingKey[] = [
   "auto_init",
   "auto_provision",
+  "daemon",
   "enabled",
   "excluded_roots",
   "install_dir",
@@ -131,6 +133,9 @@ function setCodegraphSetting(config: MutableCodegraphConfig, key: CodegraphSetti
       return
     case "auto_provision":
       if (typeof value === "boolean") config.auto_provision = value
+      return
+    case "daemon":
+      if (typeof value === "boolean") config.daemon = value
       return
     case "enabled":
       if (typeof value === "boolean") config.enabled = value

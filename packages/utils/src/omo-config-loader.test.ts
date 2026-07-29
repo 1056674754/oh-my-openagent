@@ -30,6 +30,7 @@ describe("loadOmoConfig", () => {
         codegraph: {
           auto_init: "safe",
           auto_provision: true,
+          daemon: true,
           enabled: true,
           max_index_db_bytes: 2_147_483_648,
           telemetry: false,
@@ -76,6 +77,7 @@ describe("loadOmoConfig", () => {
       expect(result.config.codegraph).toEqual({
         auto_init: "safe",
         auto_provision: true,
+        daemon: true,
         enabled: false,
         install_dir: "/base",
         max_index_db_bytes: 2_147_483_648,
@@ -104,6 +106,7 @@ describe("loadOmoConfig", () => {
       expect(result.config.codegraph).toEqual({
         auto_init: "safe",
         auto_provision: false,
+        daemon: true,
         enabled: true,
         install_dir: "/child",
         max_index_db_bytes: 2_147_483_648,
