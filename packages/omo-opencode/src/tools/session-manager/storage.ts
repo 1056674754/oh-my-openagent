@@ -1,4 +1,5 @@
 import type { PluginInput } from "@opencode-ai/plugin"
+import { createOpencodeClient } from "@opencode-ai/sdk"
 import { isSqliteBackend } from "../../shared/opencode-storage-detection"
 import { log } from "../../shared"
 import { getFileAllSessions, getFileMainSessions, fileSessionExists, getFileSessionInfo, getFileSessionMessages, getFileSessionTodos, getFileSessionTranscript } from "./file-storage"
@@ -9,11 +10,37 @@ export interface GetMainSessionsOptions {
   directory?: string
 }
 
-// In multi-project server mode (opencode web / opencode serve) ctx.directory is the
-// filesystem root "/", which never matches a stored session.directory. Treat it as
-// "no project filter" so every session is listed instead of silently dropping all of them.
-function normalizeProjectFilter(directory?: string): string | undefined {
+export interface SetStorageClientOptions {
+  /**
+   * When provided, a directory-less SDK client is built from this URL and used for
+   * session.list() queries. The OpenCode server filters GET /session strictly by
+   * ?directory=, and the SDK auto-injects the configured directory into every GET
+   * request. In OpenChamber's embedded multi-server mode the injected ctx.directory
+   * never matches session.directory, silently emptying every list/search call.
+   */
+  serverUrl?: URL
+}
+
+// OpenChamber embedded multi-server launcher appends these to ctx.directory; real
+// session.directory never has them. Stripped by normalizeProjectFilter.
+const OPENCHAMBER_DIRECTORY_SUFFIXES = ["current", "root"] as const
+
+// In multi-project server mode (opencode web / opencode serve / OpenChamber embedded)
+// ctx.directory is either the filesystem root "/" or an OpenChamber server-relative
+// path like "<workdir>/current". Neither matches a stored session.directory, so every
+// session would be silently dropped — normalize these cases before filtering.
+export function normalizeProjectFilter(directory?: string): string | undefined {
+  if (!directory) return undefined
   if (directory === "/") return undefined
+
+  for (const suffix of OPENCHAMBER_DIRECTORY_SUFFIXES) {
+    const suffixSegment = `/${suffix}`
+    if (directory.endsWith(suffixSegment)) {
+      const stripped = directory.slice(0, -suffixSegment.length)
+      return stripped || undefined
+    }
+  }
+
   return directory
 }
 
@@ -40,20 +67,46 @@ function mergeSessionIds(sdkSessionIds: string[], fileSessionIds: string[]): str
 
 // SDK client reference for beta mode
 let sdkClient: PluginInput["client"] | null = null
+// Directory-less SDK client used for session.list() to bypass server-side ?directory=
+// filtering. Built from SetStorageClientOptions.serverUrl; falls back to sdkClient.
+let directoryLessListClient: PluginInput["client"] | null = null
 
-export function setStorageClient(client: PluginInput["client"]): void {
+export function setStorageClient(
+  client: PluginInput["client"],
+  options?: SetStorageClientOptions,
+): void {
   sdkClient = client
+  directoryLessListClient = null
+  if (options?.serverUrl) {
+    try {
+      directoryLessListClient = createOpencodeClient({
+        baseUrl: options.serverUrl.toString(),
+      }) as PluginInput["client"]
+    } catch (error) {
+      log("[session-manager] failed to build directory-less list client; falling back to ctx client for session.list()", {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
 }
 
 export function resetStorageClient(): void {
   sdkClient = null
+  directoryLessListClient = null
+}
+
+// Pick the client for session.list(). Prefer the directory-less client so the server
+// does not silently filter sessions by the (possibly mismatched) ctx.directory.
+function pickListClient(): PluginInput["client"] | null {
+  return directoryLessListClient ?? sdkClient
 }
 
 export async function getMainSessions(options: GetMainSessionsOptions): Promise<SessionMetadata[]> {
   const directory = normalizeProjectFilter(options.directory)
-  if (isSqliteBackend() && sdkClient) {
+  const listClient = pickListClient()
+  if (isSqliteBackend() && listClient) {
     try {
-      const sdkSessions = await getSdkMainSessions(sdkClient, directory)
+      const sdkSessions = await getSdkMainSessions(listClient, directory)
       const fileSessions = await getFileMainSessions(directory)
       return mergeSessionMetadataLists(sdkSessions, fileSessions)
     } catch (error) {
@@ -66,9 +119,10 @@ export async function getMainSessions(options: GetMainSessionsOptions): Promise<
 }
 
 export async function getAllSessions(): Promise<string[]> {
-  if (isSqliteBackend() && sdkClient) {
+  const listClient = pickListClient()
+  if (isSqliteBackend() && listClient) {
     try {
-      const sdkSessionIds = await getSdkAllSessions(sdkClient)
+      const sdkSessionIds = await getSdkAllSessions(listClient)
       const fileSessionIds = await getFileAllSessions()
       return mergeSessionIds(sdkSessionIds, fileSessionIds)
     } catch (error) {
