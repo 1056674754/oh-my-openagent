@@ -68,9 +68,13 @@ export function createSessionManagerTools(
     ...deps,
   }
   // Initialize storage client for SDK-based operations (beta mode).
-  // Pass ctx.serverUrl so session.list() can bypass the server-side ?directory= filter
-  // (mismatched ctx.directory in OpenChamber embedded mode would otherwise empty results).
-  resolvedDeps.setStorageClient(ctx.client, { serverUrl: ctx.serverUrl })
+  // Pass ctx.serverUrl + ctx.directory so session.list() can use a directory-corrected
+  // client (OpenChamber suffixes stripped + auth headers cloned), avoiding the
+  // server-side ?directory= mismatch that empties list/search results.
+  resolvedDeps.setStorageClient(ctx.client, {
+    serverUrl: ctx.serverUrl,
+    directory: ctx.directory,
+  })
 
   const session_list: ToolDefinition = tool({
     description: SESSION_LIST_DESCRIPTION,

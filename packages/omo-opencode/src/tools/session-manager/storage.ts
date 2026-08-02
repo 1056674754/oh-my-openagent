@@ -12,13 +12,16 @@ export interface GetMainSessionsOptions {
 
 export interface SetStorageClientOptions {
   /**
-   * When provided, a directory-less SDK client is built from this URL and used for
-   * session.list() queries. The OpenCode server filters GET /session strictly by
-   * ?directory=, and the SDK auto-injects the configured directory into every GET
-   * request. In OpenChamber's embedded multi-server mode the injected ctx.directory
-   * never matches session.directory, silently emptying every list/search call.
+   * When provided, a directory-corrected SDK client is built from this URL and used
+   * for session.list() queries. OpenChamber's embedded launcher injects a server-
+   * relative ctx.directory (e.g. "<workdir>/current", "/") that the OpenCode server
+   * cannot match against session.directory, silently emptying every list/search call.
+   * When `serverUrl` + `directory` are provided, a new client is built with the
+   * normalized real-workdir directory, so the server-side ?directory= filter returns
+   * the correct project's sessions.
    */
   serverUrl?: URL
+  directory?: string
 }
 
 // OpenChamber embedded multi-server launcher appends these to ctx.directory; real
@@ -67,9 +70,34 @@ function mergeSessionIds(sdkSessionIds: string[], fileSessionIds: string[]): str
 
 // SDK client reference for beta mode
 let sdkClient: PluginInput["client"] | null = null
-// Directory-less SDK client used for session.list() to bypass server-side ?directory=
-// filtering. Built from SetStorageClientOptions.serverUrl; falls back to sdkClient.
+// Directory-corrected SDK client used for session.list(). Built from
+// SetStorageClientOptions.{serverUrl, directory} with OpenChamber suffixes stripped,
+// so the server-side ?directory= filter matches session.directory. Falls back to sdkClient.
 let directoryLessListClient: PluginInput["client"] | null = null
+
+// The OpencodeClient class keeps its raw SDK config behind a protected `_client`
+// field. We reflect into it to clone the auth headers + fetch wrapper from the
+// ctx-injected client (OpenCode injects ServerAuth headers there) so the
+// directory-corrected client can authenticate against the same server. Without those
+// headers the server returns 401 and the SDK surfaces a non-Error rejection that
+// tool callers stringify as "Error: [object Object]".
+function extractClientConfig(client: PluginInput["client"]): {
+  headers?: Record<string, string>
+  fetch?: typeof fetch
+} {
+  const inner = (client as unknown as { _client?: { getConfig?: () => Record<string, unknown> } })?._client
+  const config = inner?.getConfig?.() ?? {}
+  const rawHeaders = config.headers as Headers | Record<string, string> | undefined
+  const entries = rawHeaders instanceof Headers
+    ? Array.from(rawHeaders.entries())
+    : Object.entries(rawHeaders ?? {})
+  const headers: Record<string, string> = {}
+  for (const [key, value] of entries) {
+    if (key.toLowerCase() === "x-opencode-directory") continue
+    headers[key] = String(value)
+  }
+  return { headers, fetch: config.fetch as typeof fetch | undefined }
+}
 
 export function setStorageClient(
   client: PluginInput["client"],
@@ -79,11 +107,19 @@ export function setStorageClient(
   directoryLessListClient = null
   if (options?.serverUrl) {
     try {
-      directoryLessListClient = createOpencodeClient({
+      const { headers, fetch: fetchFn } = extractClientConfig(client)
+      const realDirectory = options.directory !== undefined
+        ? normalizeProjectFilter(options.directory)
+        : undefined
+      const cfg: { baseUrl: string; headers?: Record<string, string>; fetch?: typeof fetch; directory?: string } = {
         baseUrl: options.serverUrl.toString(),
-      }) as PluginInput["client"]
+      }
+      if (headers && Object.keys(headers).length > 0) cfg.headers = headers
+      if (fetchFn) cfg.fetch = fetchFn
+      if (realDirectory) cfg.directory = realDirectory
+      directoryLessListClient = createOpencodeClient(cfg) as PluginInput["client"]
     } catch (error) {
-      log("[session-manager] failed to build directory-less list client; falling back to ctx client for session.list()", {
+      log("[session-manager] failed to build directory-corrected list client; falling back to ctx client for session.list()", {
         error: error instanceof Error ? error.message : String(error),
       })
     }
