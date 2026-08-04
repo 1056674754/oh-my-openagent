@@ -70,17 +70,19 @@ function mergeSessionIds(sdkSessionIds: string[], fileSessionIds: string[]): str
 
 // SDK client reference for beta mode
 let sdkClient: PluginInput["client"] | null = null
-// Directory-corrected SDK client used for session.list(). Built from
-// SetStorageClientOptions.{serverUrl, directory} with OpenChamber suffixes stripped,
-// so the server-side ?directory= filter matches session.directory. Falls back to sdkClient.
-let directoryLessListClient: PluginInput["client"] | null = null
+// OpenChamber embedded mode loads OMO once per project, and each setStorageClient
+// call overwrites the previous ctx. A single directory-corrected client cannot
+// serve all queries, so we cache the server URL + auth/fetch pieces here and build
+// per-query-directory clients on demand.
+let listClientBase: { serverUrl?: URL; headers?: Record<string, string>; fetch?: typeof fetch } = {}
+const directoryClientCache = new Map<string, PluginInput["client"]>()
 
 // The OpencodeClient class keeps its raw SDK config behind a protected `_client`
 // field. We reflect into it to clone the auth headers + fetch wrapper from the
-// ctx-injected client (OpenCode injects ServerAuth headers there) so the
-// directory-corrected client can authenticate against the same server. Without those
-// headers the server returns 401 and the SDK surfaces a non-Error rejection that
-// tool callers stringify as "Error: [object Object]".
+// ctx-injected client (OpenCode injects ServerAuth headers there) so per-directory
+// list clients can authenticate against the same server. Without those headers the
+// server returns 401 and the SDK surfaces a non-Error rejection that tool callers
+// stringify as "Error: [object Object]".
 function extractClientConfig(client: PluginInput["client"]): {
   headers?: Record<string, string>
   fetch?: typeof fetch
@@ -104,42 +106,59 @@ export function setStorageClient(
   options?: SetStorageClientOptions,
 ): void {
   sdkClient = client
-  directoryLessListClient = null
+  listClientBase = {}
+  directoryClientCache.clear()
   if (options?.serverUrl) {
     try {
       const { headers, fetch: fetchFn } = extractClientConfig(client)
-      const realDirectory = options.directory !== undefined
-        ? normalizeProjectFilter(options.directory)
-        : undefined
-      const cfg: { baseUrl: string; headers?: Record<string, string>; fetch?: typeof fetch; directory?: string } = {
-        baseUrl: options.serverUrl.toString(),
-      }
-      if (headers && Object.keys(headers).length > 0) cfg.headers = headers
-      if (fetchFn) cfg.fetch = fetchFn
-      if (realDirectory) cfg.directory = realDirectory
-      directoryLessListClient = createOpencodeClient(cfg) as PluginInput["client"]
+      listClientBase = { serverUrl: options.serverUrl, headers, fetch: fetchFn }
     } catch (error) {
-      log("[session-manager] failed to build directory-corrected list client; falling back to ctx client for session.list()", {
+      log("[session-manager] failed to extract auth headers from ctx.client; falling back to ctx client for session.list()", {
         error: error instanceof Error ? error.message : String(error),
       })
     }
   }
 }
 
-export function resetStorageClient(): void {
-  sdkClient = null
-  directoryLessListClient = null
+// Build (or fetch from cache) a list client for the given query directory, so the
+// server-side ?directory= filter matches session.directory for that project.
+function pickListClient(queryDirectory?: string): PluginInput["client"] | null {
+  if (!sdkClient) return null
+  if (!listClientBase.serverUrl) return sdkClient
+  const normalized = queryDirectory !== undefined ? normalizeProjectFilter(queryDirectory) : undefined
+  if (!normalized) return sdkClient
+  const cached = directoryClientCache.get(normalized)
+  if (cached) return cached
+  try {
+    const cfg: { baseUrl: string; headers?: Record<string, string>; fetch?: typeof fetch; directory: string } = {
+      baseUrl: listClientBase.serverUrl.toString(),
+      directory: normalized,
+    }
+    if (listClientBase.headers && Object.keys(listClientBase.headers).length > 0) {
+      cfg.headers = listClientBase.headers
+    }
+    if (listClientBase.fetch) cfg.fetch = listClientBase.fetch
+    const client = createOpencodeClient(cfg) as PluginInput["client"]
+    directoryClientCache.set(normalized, client)
+    return client
+  } catch (error) {
+    log("[session-manager] failed to build directory-corrected list client; falling back to ctx client", {
+      directory: normalized,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return sdkClient
+  }
 }
 
-// Pick the client for session.list(). Prefer the directory-less client so the server
-// does not silently filter sessions by the (possibly mismatched) ctx.directory.
-function pickListClient(): PluginInput["client"] | null {
-  return directoryLessListClient ?? sdkClient
+export function resetStorageClient(): void {
+  sdkClient = null
+  listClientBase = {}
+  directoryClientCache.clear()
 }
 
 export async function getMainSessions(options: GetMainSessionsOptions): Promise<SessionMetadata[]> {
   const directory = normalizeProjectFilter(options.directory)
-  const listClient = pickListClient()
+  const listClient = pickListClient(options.directory)
   if (isSqliteBackend() && listClient) {
     try {
       const sdkSessions = await getSdkMainSessions(listClient, directory)
@@ -155,7 +174,7 @@ export async function getMainSessions(options: GetMainSessionsOptions): Promise<
 }
 
 export async function getAllSessions(): Promise<string[]> {
-  const listClient = pickListClient()
+  const listClient = pickListClient() ?? sdkClient
   if (isSqliteBackend() && listClient) {
     try {
       const sdkSessionIds = await getSdkAllSessions(listClient)
