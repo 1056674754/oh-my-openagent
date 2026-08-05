@@ -3,7 +3,15 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { loadOmoConfig } from "@oh-my-opencode/omo-config-core"
+import { OmoTaskSettingsSchema, loadOmoConfig } from "@oh-my-opencode/omo-config-core"
+import { createRuntimeState, transitionRuntimeState } from "@oh-my-opencode/team-core/team-state-store"
+import {
+  createTaskRecordStore,
+  normalizeSenpiTeamSpec,
+  teamStorageBaseDir,
+  toTeamCoreConfig,
+  type TaskRecord,
+} from "@oh-my-opencode/senpi-task"
 
 import { FakeExtensionAPI } from "../../../test-support/fake-extension-api"
 import type { ComponentContext, ComponentLogger } from "../../extension/types"
@@ -33,6 +41,7 @@ const TASK_EVENTS = [
   "before_agent_start",
   "agent_end",
 ]
+const SKILL_INVOCATION_TRACKER_EVENTS = ["input", "tool_result", "session_shutdown"]
 const TASK_COMMANDS = ["task-kill", "tasks"]
 
 interface RecordedLog {
@@ -113,6 +122,37 @@ function wiredBridge(): {
   return { pi, engine, reconcileCalls, leadCalls }
 }
 
+async function seedTeamRuntime(cwd: string, leadSessionId: string, memberName = "crash"): Promise<string> {
+  const loaded = loadOmoConfig({ cwd }).config
+  const settings = loaded.task ?? OmoTaskSettingsSchema.parse({})
+  const stateDir = { project_dir: cwd }
+  const config = toTeamCoreConfig(settings, teamStorageBaseDir(stateDir))
+  const spec = normalizeSenpiTeamSpec({
+    members: [{ name: memberName, kind: "category", category: "quick", prompt: "member" }],
+  }, "liveness-test")
+  const runtime = await createRuntimeState(spec, leadSessionId, "project", config)
+  await transitionRuntimeState(runtime.teamRunId, (state) => ({ ...state, status: "active" }), config)
+  return runtime.teamRunId
+}
+
+function terminalRecord(teamRunId: string, memberName = "crash"): TaskRecord {
+  return {
+    task_id: "st_00000009",
+    name: `team:${teamRunId}:${memberName}`,
+    parent_session_id: "lead-session",
+    root_session_id: "lead-session",
+    depth: 1,
+    execution_mode: "process",
+    model: "omo-mock/mock-1",
+    status: "error",
+    residency_state: "resident",
+    created_at: "2026-07-29T00:00:00.000Z",
+    updated_at: "2026-07-29T00:00:01.000Z",
+    error_message: "RPC child exited with code 1",
+    notification: { run_epoch: 0, notified_epoch: 0 },
+  }
+}
+
 function toolNames(pi: FakeExtensionAPI): string[] {
   return pi.tools
     .map((tool) => tool["name"])
@@ -132,14 +172,19 @@ describe("omo-senpi task component wiring", () => {
     expect(toolNames(pi)).toEqual([...ALL_TOOL_NAMES].sort())
     // the /tasks and /task-kill commands registered
     expect(pi.commands.map((entry) => entry.name).sort()).toEqual([...TASK_COMMANDS].sort())
-    // Peer mail is a plain injected turn; completion and member liveness use structured renderers.
+    // Peer mail is a plain injected turn; completion, member liveness, and the dead-chain category
+    // warning use structured renderers.
     expect(pi.messageRenderers.map((entry) => entry.customType)).toEqual([
       "senpi-task.completion",
       "senpi-task.team-member-liveness",
+      "senpi-task.category-unavailable",
     ])
-    // exactly the task event handlers (session lifecycle + transition-buffer edges) plus the
+    // exactly the task event handlers (session lifecycle + transition-buffer edges), the
+    // skill-invocation tracker subscriptions feeding the plan-gated agent gate, plus the
     // unconditional T16 hygiene sweep handler, which registers its own session_start listener
-    expect(pi.handlers.map((handler) => handler.event).sort()).toEqual([...TASK_EVENTS, "session_start"].sort())
+    expect(pi.handlers.map((handler) => handler.event).sort()).toEqual(
+      [...TASK_EVENTS, ...SKILL_INVOCATION_TRACKER_EVENTS, "session_start"].sort(),
+    )
   })
 
   it("#given a fake ExtensionAPI boot #when the task component registers #then only injection-driven lead team tools are wired", () => {
@@ -270,6 +315,101 @@ describe("omo-senpi task component wiring", () => {
 
     // then
     expect(order).toEqual(["reattach", "cleanup", "reclaim", "notify", "poll"])
+  })
+
+  it("#given a terminal member owned by lead A #when lead B reconciles then lead A reconciles #then only the owning lead receives replay", async () => {
+    const cwd = tempProject()
+    const teamRunId = await seedTeamRuntime(cwd, "lead-a")
+    const terminal = terminalRecord(teamRunId)
+    const pi = new FakeExtensionAPI()
+    const logger = createLogger()
+    const base = composeTaskEngine({ pi, omoConfig: loadOmoConfig({ cwd }).config, cwd, sharedParentTools: () => [] })
+    const engine: TaskEngine = {
+      ...base,
+      manager: { ...base.manager, get: () => terminal },
+      lifecycle: {
+        ...base.lifecycle,
+        reconcileOnSessionStart: async () => ({ outcomes: [{ task_id: terminal.task_id, kind: "resumed" }] }),
+        cleanupExpiredRecords: () => ({ deleted: [], retained: [] }),
+      },
+    }
+    const transitions = createSessionTransitionBridge({ runtime: engine.runtime, notifier: engine.notifier })
+    wireEventBridge(pi, ctxFor(pi, logger), engine, noopStatusUi, transitions, {
+      reconcileTeamMailbox: () => Promise.resolve(),
+      leadPollers: { tick: () => Promise.resolve(), shutdown: () => undefined },
+    })
+
+    await pi.dispatch("session_start", {}, {
+      sessionManager: { getSessionId: () => "lead-b" },
+    })
+    expect(pi.messages).toEqual([])
+
+    await pi.dispatch("session_start", {}, {
+      sessionManager: { getSessionId: () => "lead-a" },
+    })
+    expect(pi.messages).toHaveLength(1)
+    expect(pi.messages[0]?.message.customType).toBe("senpi-task.team-member-liveness")
+  })
+
+  it("#given a liveness send before host persistence #when the process crashes and restarts #then no early ack suppresses replay and agent_end later commits the exact persisted marker", async () => {
+    const cwd = tempProject()
+    const teamRunId = await seedTeamRuntime(cwd, "lead-session")
+    const terminal = terminalRecord(teamRunId)
+    const store = createTaskRecordStore({ project_dir: cwd })
+    store.save(terminal)
+
+    const firstPi = new FakeExtensionAPI()
+    const firstEngine = composeTaskEngine({
+      pi: firstPi,
+      omoConfig: loadOmoConfig({ cwd }).config,
+      cwd,
+      sharedParentTools: () => [],
+    })
+    firstEngine.runtime.captureFrom({ sessionManager: { getSessionId: () => "lead-session" } })
+    await firstEngine.notifyOwnedMemberLiveness(terminal)
+    expect(firstPi.messages).toHaveLength(1)
+    expect(store.load(terminal.task_id)?.notification.liveness_notified_epoch).toBeUndefined()
+
+    const replayPi = new FakeExtensionAPI()
+    const logger = createLogger()
+    const base = composeTaskEngine({
+      pi: replayPi,
+      omoConfig: loadOmoConfig({ cwd }).config,
+      cwd,
+      sharedParentTools: () => [],
+    })
+    const engine: TaskEngine = {
+      ...base,
+      manager: { ...base.manager, get: () => store.load(terminal.task_id) ?? undefined },
+      lifecycle: {
+        ...base.lifecycle,
+        reconcileOnSessionStart: async () => ({ outcomes: [{ task_id: terminal.task_id, kind: "resumed" }] }),
+        cleanupExpiredRecords: () => ({ deleted: [], retained: [] }),
+      },
+    }
+    const transitions = createSessionTransitionBridge({ runtime: engine.runtime, notifier: engine.notifier })
+    wireEventBridge(replayPi, ctxFor(replayPi, logger), engine, noopStatusUi, transitions, {
+      reconcileTeamMailbox: () => Promise.resolve(),
+      leadPollers: { tick: () => Promise.resolve(), shutdown: () => undefined },
+    })
+    const sessionFile = join(cwd, "lead-session.jsonl")
+    const liveContext = {
+      sessionManager: {
+        getSessionId: () => "lead-session",
+        getSessionFile: () => sessionFile,
+      },
+    }
+
+    await replayPi.dispatch("session_start", {}, liveContext)
+    expect(replayPi.messages).toHaveLength(1)
+    expect(store.load(terminal.task_id)?.notification.liveness_notified_epoch).toBeUndefined()
+
+    const replayMessage = replayPi.messages[0]?.message
+    if (replayMessage === undefined) throw new Error("expected replay liveness message")
+    writeFileSync(sessionFile, `${JSON.stringify({ type: "custom_message", ...replayMessage })}\n`, "utf8")
+    await replayPi.dispatch("agent_end", {}, liveContext)
+
+    expect(store.load(terminal.task_id)?.notification.liveness_notified_epoch).toBe(0)
   })
 
   it("#given a captured ui #when session_before_switch fires #then the ui bridge is cleared", async () => {

@@ -116,6 +116,7 @@ describe("CodeGraph SessionStart hook", () => {
 			env: {},
 			stdin: Readable.from(["{}"]),
 			stdout: { write: (chunk) => stdout.push(chunk) },
+			sweepZombies: () => undefined,
 			spawnWorker: (invocation) => spawned.push(invocation),
 		});
 
@@ -144,6 +145,7 @@ describe("CodeGraph SessionStart hook", () => {
 				env: { HOME: homeDir },
 				stdin: Readable.from(["{}"]),
 				stdout: { write: (chunk) => stdout.push(chunk) },
+				sweepZombies: () => undefined,
 				spawnWorker: (invocation) => spawned.push(invocation),
 			});
 
@@ -175,6 +177,7 @@ describe("CodeGraph SessionStart hook", () => {
 				env: { HOME: homeDir },
 				stdin: Readable.from(["{}"]),
 				stdout: { write: (chunk) => stdout.push(chunk) },
+				sweepZombies: () => undefined,
 				spawnWorker: (invocation) => spawned.push(invocation),
 			});
 
@@ -202,6 +205,7 @@ describe("CodeGraph SessionStart hook", () => {
 				env: { CODEX_CODEGRAPH_ENABLED: "0", HOME: homeDir },
 				stdin: Readable.from(["{}"]),
 				stdout: { write: (chunk) => stdout.push(chunk) },
+				sweepZombies: () => undefined,
 				spawnWorker: (invocation) => spawned.push(invocation),
 			});
 
@@ -279,6 +283,7 @@ describe("CodeGraph SessionStart hook", () => {
 				env: { HOME: homeDir, KEEP: "1" },
 				stdin: Readable.from(["{}"]),
 				stdout: { write: (chunk) => stdout.push(chunk) },
+				sweepZombies: () => undefined,
 				spawnWorker: (invocation) => spawned.push(invocation),
 			});
 
@@ -303,6 +308,7 @@ describe("CodeGraph SessionStart hook", () => {
 			env: {},
 			stdin: Readable.from(["{not-json"]),
 			stdout: { write: (chunk) => stdout.push(chunk) },
+			sweepZombies: () => undefined,
 			spawnWorker: (invocation) => spawned.push(invocation),
 		});
 

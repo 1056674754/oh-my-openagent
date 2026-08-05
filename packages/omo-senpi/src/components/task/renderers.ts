@@ -8,6 +8,13 @@ import {
 
 import type { TeamMemberLivenessDetails } from "./member-liveness"
 
+// Compact renderer for the dead-chain warning: one line, the same text the notify carried.
+export const renderCategoryUnavailable: MessageRenderer<Readonly<Record<string, unknown>>> = (message) => {
+  const content = (message as { readonly content?: unknown }).content
+  const text = typeof content === "string" && content.length > 0 ? content : "(category unavailable)"
+  return linesComponent([normalizeRendererText(text)])
+}
+
 // Render completion details as user-facing rows without exposing the LLM-facing notification envelope.
 export const renderTaskCompletion: MessageRenderer<readonly CompletionDetails[]> = (message) => {
   const details = message.details ?? []

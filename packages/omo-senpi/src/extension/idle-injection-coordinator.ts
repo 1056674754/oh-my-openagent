@@ -10,6 +10,7 @@ export interface IdleInjection {
   readonly display?: boolean
   readonly details?: unknown
   readonly onFlushed?: () => void
+  readonly onDeliveryFailed?: (error: unknown) => void
 }
 
 export interface IdleInjectionMessage extends Record<string, unknown> {
@@ -22,7 +23,7 @@ export interface IdleInjectionMessage extends Record<string, unknown> {
 export type IdleInjectionDelivery = (
   message: IdleInjectionMessage,
   options: { deliverAs: "steer" | "followUp" },
-) => void
+) => unknown
 
 // Defers a single flush to the next idle tick. Injectable so unit tests drive it deterministically;
 // production defaults to queueMicrotask so a deferred continuation flush runs after any synchronous
@@ -110,20 +111,41 @@ export class IdleInjectionCoordinator {
     )
     const collapsed = ordered.length
     this.#pending.clear()
-    this.#deliver(
-      {
-        customType: "omo-senpi:wake",
-        content: ordered.map((injection) => injection.content).join("\n\n"),
-        display: false,
-        details: ordered.flatMap((injection) =>
-          injection.customType === undefined
-            ? []
-            : [{ customType: injection.customType, details: injection.details }],
-        ),
-      },
-      { deliverAs },
-    )
-    for (const injection of ordered) injection.onFlushed?.()
+    let delivery: unknown
+    try {
+      delivery = this.#deliver(
+        {
+          customType: "omo-senpi:wake",
+          content: ordered.map((injection) => injection.content).join("\n\n"),
+          display: false,
+          details: ordered.flatMap((injection) =>
+            injection.customType === undefined
+              ? []
+              : [{ customType: injection.customType, details: injection.details }],
+          ),
+        },
+        { deliverAs },
+      )
+    } catch (error) {
+      for (const injection of ordered) injection.onDeliveryFailed?.(error)
+      throw error
+    }
+    if (!isPromiseLike(delivery)) {
+      for (const injection of ordered) injection.onFlushed?.()
+    } else {
+      void delivery.then(
+        () => {
+          for (const injection of ordered) injection.onFlushed?.()
+        },
+        (error: unknown) => {
+          for (const injection of ordered) injection.onDeliveryFailed?.(error)
+        },
+      )
+    }
     return collapsed
   }
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return typeof value === "object" && value !== null && "then" in value && typeof value.then === "function"
 }

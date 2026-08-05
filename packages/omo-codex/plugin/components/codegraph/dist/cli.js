@@ -16,7 +16,7 @@ var __export = (target, all) => {
 
 // components/codegraph/src/cli.ts
 import { realpathSync as realpathSync9 } from "node:fs";
-import { basename as basename7, resolve as resolve10 } from "node:path";
+import { basename as basename7, resolve as resolve11 } from "node:path";
 import { stderr as processStderr5 } from "node:process";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
@@ -3211,6 +3211,9 @@ function handlePipeResult(left, next, ctx) {
   }
   return next._zod.run({ value: left.value, issues: left.issues, fallback: left.fallback }, ctx);
 }
+var $ZodPreprocess = /* @__PURE__ */ $constructor("$ZodPreprocess", (inst, def) => {
+  $ZodPipe.init(inst, def);
+});
 var $ZodReadonly = /* @__PURE__ */ $constructor("$ZodReadonly", (inst, def) => {
   $ZodType.init(inst, def);
   defineLazy(inst._zod, "propValues", () => def.innerType._zod.propValues);
@@ -5297,6 +5300,10 @@ function pipe(in_, out) {
     out
   });
 }
+var ZodPreprocess = /* @__PURE__ */ $constructor("ZodPreprocess", (inst, def) => {
+  ZodPipe.init(inst, def);
+  $ZodPreprocess.init(inst, def);
+});
 var ZodReadonly = /* @__PURE__ */ $constructor("ZodReadonly", (inst, def) => {
   $ZodReadonly.init(inst, def);
   ZodType.init(inst, def);
@@ -5320,22 +5327,142 @@ function refine(fn, _params = {}) {
 function superRefine(fn, params) {
   return _superRefine(fn, params);
 }
+function preprocess(fn, schema) {
+  return new ZodPreprocess({
+    type: "pipe",
+    in: transform(fn),
+    out: schema
+  });
+}
+
+// ../../omo-config-core/src/schema/reasoning-vocabulary.ts
+var REASONING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+var REASONING_AUTO = "auto";
+var REASONING_LEVEL_SET = new Set(REASONING_LEVELS);
+var REASONING_LEVEL_OR_AUTO_SET = new Set([...REASONING_LEVELS, REASONING_AUTO]);
+function isReasoningLevel(value) {
+  return REASONING_LEVEL_SET.has(value);
+}
+function normalizeReasoning(input) {
+  const normalized = input.trim().toLowerCase();
+  if (!normalized)
+    return {};
+  if (normalized === "none")
+    return { level: "off" };
+  if (normalized === REASONING_AUTO)
+    return { level: REASONING_AUTO };
+  if (isReasoningLevel(normalized))
+    return { level: normalized };
+  return { passthrough: normalized };
+}
+function splitReasoningSuffix(model, options) {
+  if (typeof model !== "string")
+    return { base: "" };
+  const trimmed = model.trim();
+  if (!trimmed)
+    return { base: "" };
+  const separatorIndex = trimmed.lastIndexOf(":");
+  if (separatorIndex === -1)
+    return { base: trimmed };
+  const base = trimmed.slice(0, separatorIndex).trim();
+  const token = trimmed.slice(separatorIndex + 1).trim().toLowerCase();
+  if (!base || !REASONING_LEVEL_OR_AUTO_SET.has(token))
+    return { base: trimmed };
+  if (token === "max" && !(options?.allowMaxSuffix ?? base.includes("/")))
+    return { base: trimmed };
+  return { base, level: token };
+}
+
+// ../../omo-config-core/src/schema/model-ref.ts
+var REASONING_LEVELS_OR_AUTO = [...REASONING_LEVELS, "auto"];
+var OmoReasoningSchema = union([
+  _enum(REASONING_LEVELS_OR_AUTO),
+  string2()
+]);
+var OmoModelRefObjectSchema = object({
+  model: string2(),
+  reasoning: OmoReasoningSchema.optional(),
+  temperature: number2().min(0).max(2).optional(),
+  top_p: number2().min(0).max(1).optional(),
+  max_tokens: number2().int().positive().optional(),
+  provider_options: record(string2(), unknown()).optional()
+}).strict();
+var OmoModelRefSchema = union([string2(), OmoModelRefObjectSchema]);
 
 // ../../omo-config-core/src/schema/fallback-models.ts
 var OmoThinkingConfigSchema = object({
   type: _enum(["enabled", "disabled"]),
   budgetTokens: number2().optional()
 }).strict();
-var OmoReasoningEffortSchema = _enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]);
-var OmoFallbackModelObjectSchema = object({
+var OmoReasoningEffortSchema = OmoReasoningSchema;
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function canonicalReasoning(value) {
+  if (typeof value !== "string")
+    return;
+  const normalized = normalizeReasoning(value);
+  return normalized.level ?? normalized.passthrough;
+}
+function canonicalModelString(model) {
+  const colon = splitReasoningSuffix(model, { allowMaxSuffix: true });
+  if (colon.level !== undefined)
+    return `${colon.base}:${colon.level}`;
+  const trimmed = model.trim();
+  const parenthesized = trimmed.match(/^(.*)\(([^()]+)\)\s*$/);
+  const spaced = parenthesized === null ? trimmed.match(/^(.*\S)\s+([a-z][a-z0-9_-]*)$/i) : null;
+  const base = (parenthesized?.[1] ?? spaced?.[1])?.trim();
+  const token = (parenthesized?.[2] ?? spaced?.[2])?.trim();
+  if (base === undefined || token === undefined)
+    return trimmed;
+  const normalized = normalizeReasoning(token);
+  return normalized.level === undefined ? trimmed : `${base}:${normalized.level}`;
+}
+function normalizeLegacyModelFields(entry) {
+  const normalized = { ...entry };
+  delete normalized["variant"];
+  delete normalized["reasoningEffort"];
+  delete normalized["thinking"];
+  delete normalized["textVerbosity"];
+  delete normalized["maxTokens"];
+  delete normalized["providerOptions"];
+  if (typeof entry["model"] === "string")
+    normalized["model"] = canonicalModelString(entry["model"]);
+  const explicitReasoning = canonicalReasoning(entry["reasoning"]);
+  const variant = canonicalReasoning(entry["variant"]);
+  const reasoningEffort = canonicalReasoning(entry["reasoningEffort"]);
+  const thinking = isRecord(entry["thinking"]) ? entry["thinking"] : undefined;
+  const reasoning = explicitReasoning ?? reasoningEffort ?? variant ?? (thinking?.["type"] === "disabled" ? "off" : undefined);
+  if (reasoning !== undefined)
+    normalized["reasoning"] = reasoning;
+  const providerOptions = isRecord(entry["provider_options"]) ? { ...entry["provider_options"] } : isRecord(entry["providerOptions"]) ? { ...entry["providerOptions"] } : {};
+  if (thinking?.["type"] === "enabled")
+    providerOptions["thinking"] = { ...thinking };
+  if (entry["textVerbosity"] !== undefined)
+    providerOptions["textVerbosity"] = entry["textVerbosity"];
+  if (Object.keys(providerOptions).length > 0)
+    normalized["provider_options"] = providerOptions;
+  if (entry["max_tokens"] !== undefined)
+    normalized["max_tokens"] = entry["max_tokens"];
+  else if (entry["maxTokens"] !== undefined)
+    normalized["max_tokens"] = entry["maxTokens"];
+  return normalized;
+}
+var OmoLegacyFallbackModelObjectInputSchema = object({
   model: string2(),
-  variant: string2().optional(),
-  reasoningEffort: OmoReasoningEffortSchema.optional(),
+  reasoning: OmoReasoningSchema.optional(),
   temperature: number2().min(0).max(2).optional(),
   top_p: number2().min(0).max(1).optional(),
+  max_tokens: number2().int().positive().optional(),
+  provider_options: record(string2(), unknown()).optional(),
+  variant: string2().optional(),
+  reasoningEffort: OmoReasoningEffortSchema.optional(),
+  thinking: OmoThinkingConfigSchema.optional(),
+  textVerbosity: _enum(["low", "medium", "high"]).optional(),
   maxTokens: number2().optional(),
-  thinking: OmoThinkingConfigSchema.optional()
+  providerOptions: record(string2(), unknown()).optional()
 }).strict();
+var OmoFallbackModelObjectSchema = preprocess((value) => isRecord(value) ? normalizeLegacyModelFields(value) : value, OmoLegacyFallbackModelObjectInputSchema);
 var OmoFallbackModelsSchema = union([
   string2(),
   array(string2()),
@@ -5344,19 +5471,16 @@ var OmoFallbackModelsSchema = union([
 ]);
 
 // ../../omo-config-core/src/schema/agent.ts
-var OmoAgentModelEntrySchema = union([
-  string2(),
-  object({
-    model: string2(),
-    variant: string2().optional(),
-    reasoningEffort: OmoReasoningEffortSchema.optional()
-  }).strict()
-]);
-var OmoAgentDefSchema = object({
+function isRecord2(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+var OmoAgentModelEntrySchema = union([string2(), OmoFallbackModelObjectSchema]);
+var OmoAgentDefInputSchema = object({
   description: string2().optional(),
   prompt: string2().optional(),
   model: string2().optional(),
   models: array(OmoAgentModelEntrySchema).optional(),
+  reasoning: OmoReasoningSchema.optional(),
   variant: string2().optional(),
   reasoningEffort: OmoReasoningEffortSchema.optional(),
   tools: record(string2(), boolean2()).optional(),
@@ -5369,16 +5493,24 @@ var OmoAgentDefSchema = object({
   temperature: number2().min(0).max(2).optional(),
   disable: boolean2().optional()
 }).strict();
+var OmoAgentDefSchema = preprocess((value) => isRecord2(value) ? normalizeLegacyModelFields(value) : value, OmoAgentDefInputSchema);
 var OmoAgentsConfigSchema = record(string2(), OmoAgentDefSchema);
 
 // ../../omo-config-core/src/schema/category.ts
-var OmoCategoryConfigSchema = object({
+function isRecord3(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+var OmoCategoryConfigObjectSchema = object({
   description: string2().optional(),
   model: string2().optional(),
-  fallback_models: OmoFallbackModelsSchema.optional(),
-  variant: string2().optional(),
+  models: array(union([string2(), OmoFallbackModelObjectSchema])).optional(),
+  reasoning: OmoReasoningSchema.optional(),
   temperature: number2().min(0).max(2).optional(),
   top_p: number2().min(0).max(1).optional(),
+  max_tokens: number2().int().positive().optional(),
+  provider_options: record(string2(), unknown()).optional(),
+  fallback_models: OmoFallbackModelsSchema.optional(),
+  variant: string2().optional(),
   maxTokens: number2().optional(),
   thinking: OmoThinkingConfigSchema.optional(),
   reasoningEffort: OmoReasoningEffortSchema.optional(),
@@ -5387,8 +5519,10 @@ var OmoCategoryConfigSchema = object({
   prompt_append: string2().optional(),
   max_prompt_tokens: number2().int().positive().optional(),
   is_unstable_agent: boolean2().optional(),
-  disable: boolean2().optional()
+  disable: boolean2().optional(),
+  warn_unavailable: boolean2().optional()
 }).strict();
+var OmoCategoryConfigSchema = preprocess((value) => isRecord3(value) ? normalizeLegacyModelFields(value) : value, OmoCategoryConfigObjectSchema);
 var OmoCategoriesConfigSchema = record(string2(), OmoCategoryConfigSchema);
 
 // ../../omo-config-core/src/schema/harness.ts
@@ -5416,13 +5550,19 @@ var OmoCodegraphSettingsSchema = OmoCodegraphSettingsLayerSchema.extend({
 }).strict();
 
 // ../../omo-config-core/src/schema/model-catalog.ts
-var OmoModelCatalogEntrySchema = object({
+function isRecord4(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+var OmoModelCatalogEntryInputSchema = object({
   model: string2(),
+  reasoning: OmoReasoningSchema.optional(),
   variant: string2().optional(),
   reasoningEffort: OmoReasoningEffortSchema.optional()
 }).strict();
+var OmoModelCatalogEntrySchema = preprocess((value) => isRecord4(value) ? normalizeLegacyModelFields(value) : value, OmoModelCatalogEntryInputSchema);
 var OmoModelCatalogSchema = record(string2(), OmoModelCatalogEntrySchema);
-var OmoModelCatalogEntryLayerSchema = OmoModelCatalogEntrySchema.partial();
+var OmoModelCatalogEntryLayerInputSchema = OmoModelCatalogEntryInputSchema.partial();
+var OmoModelCatalogEntryLayerSchema = preprocess((value) => isRecord4(value) ? normalizeLegacyModelFields(value) : value, OmoModelCatalogEntryLayerInputSchema);
 var OmoModelCatalogLayerSchema = record(string2(), OmoModelCatalogEntryLayerSchema);
 
 // ../../omo-config-core/src/schema/task.ts
@@ -5436,6 +5576,9 @@ var OmoTaskTeamSettingsSchema = object({
   max_parallel_members: number2().int().min(1).max(8).default(4),
   max_wall_clock_minutes: number2().int().positive().default(120)
 }).strict();
+var OmoTaskWarningsSchema = object({
+  unavailable_categories: boolean2().default(true)
+}).strict();
 var OmoTaskSettingsSchema = object({
   default_execution_mode: _enum(["in-process", "process"]).default("in-process"),
   default_concurrency: number2().int().positive().default(5),
@@ -5446,6 +5589,7 @@ var OmoTaskSettingsSchema = object({
   ttl_ms: number2().int().positive().default(86400000),
   state_dir: string2().optional(),
   reattach_on_reconcile: boolean2().optional(),
+  warnings: OmoTaskWarningsSchema.default({ unavailable_categories: true }),
   wait: OmoTaskWaitSchema.default({ min_ms: 5000, default_ms: 60000, max_ms: 600000 }),
   team: OmoTaskTeamSettingsSchema.default({
     max_members: 8,
@@ -5463,6 +5607,9 @@ var OmoTaskTeamSettingsLayerSchema = object({
   max_parallel_members: number2().int().min(1).max(8).optional(),
   max_wall_clock_minutes: number2().int().positive().optional()
 }).strict();
+var OmoTaskWarningsLayerSchema = object({
+  unavailable_categories: boolean2().optional()
+}).strict();
 var OmoTaskSettingsLayerSchema = object({
   default_execution_mode: _enum(["in-process", "process"]).optional(),
   default_concurrency: number2().int().positive().optional(),
@@ -5473,6 +5620,7 @@ var OmoTaskSettingsLayerSchema = object({
   ttl_ms: number2().int().positive().optional(),
   state_dir: string2().optional(),
   reattach_on_reconcile: boolean2().optional(),
+  warnings: OmoTaskWarningsLayerSchema.optional(),
   wait: OmoTaskWaitLayerSchema.optional(),
   team: OmoTaskTeamSettingsLayerSchema.optional()
 }).strict();
@@ -6973,7 +7121,8 @@ function mergeOmoConfigRecords(base, override, parentKey) {
 }
 
 // ../../omo-config-core/src/loader/paths.ts
-import { dirname as dirname2, isAbsolute as isAbsolute2, join as join6, posix, relative, resolve as resolve4 } from "node:path";
+import { userInfo } from "node:os";
+import { dirname as dirname2, join as join6, posix, resolve as resolve4 } from "node:path";
 
 // ../../omo-config-core/src/internal/posix-path.ts
 function toPosixPath(path) {
@@ -6991,10 +7140,7 @@ var DEFAULT_READ_FILE_SYSTEM = {
 
 // ../../omo-config-core/src/loader/paths.ts
 var MAX_PROJECT_CONFIG_DIRECTORY_DEPTH = 256;
-function containsPath(parent, child) {
-  const pathToChild = relative(parent, child);
-  return pathToChild === "" || !pathToChild.startsWith("..") && !isAbsolute2(pathToChild);
-}
+var ACCOUNT_HOME_DIR = userInfo().homedir;
 function resolveHomeDir(env = process.env) {
   const homeDir = env.HOME ?? env.USERPROFILE ?? process.cwd();
   return homeDir.startsWith("/") ? posix.resolve(homeDir) : toPosixPath(resolve4(homeDir));
@@ -7046,15 +7192,14 @@ function realpathOrSelf(path, fileSystem) {
     return path;
   }
 }
-function findProjectConfigPathsFarthestFirst(cwd, homeDir, fileSystem) {
+function findProjectConfigPathsFarthestFirst(cwd, homeDir, fileSystem, accountHomeDir = homeDir) {
   const startDir = resolve4(cwd);
-  const resolvedHomeDir = resolve4(homeDir);
-  const realHomeDir = realpathOrSelf(resolvedHomeDir, fileSystem);
-  const stopDir = containsPath(realHomeDir, realpathOrSelf(startDir, fileSystem)) ? realHomeDir : null;
+  const boundaryDirs = [...new Set([resolve4(homeDir), resolve4(accountHomeDir)])];
+  const realBoundaryDirs = new Set(boundaryDirs.map((path) => realpathOrSelf(path, fileSystem)));
   const nearestFirst = [];
   let currentDir = startDir;
   for (let depth = 0;depth < MAX_PROJECT_CONFIG_DIRECTORY_DEPTH; depth += 1) {
-    const isHomeDir = currentDir === resolvedHomeDir || stopDir !== null && realpathOrSelf(currentDir, fileSystem) === stopDir;
+    const isHomeDir = boundaryDirs.includes(currentDir) || realBoundaryDirs.has(realpathOrSelf(currentDir, fileSystem));
     const configPath = isHomeDir ? null : detectOmoJsonPath(currentDir, fileSystem);
     if (configPath !== null)
       nearestFirst.push(configPath);
@@ -7071,7 +7216,7 @@ function resolveOmoConfigPaths(options) {
   const fileSystem = options.fileSystem ?? DEFAULT_READ_FILE_SYSTEM;
   const env = options.env ?? process.env;
   const userPath = detectUserOmoJsonPath(env, fileSystem);
-  const projectPaths = findProjectConfigPathsFarthestFirst(options.cwd, resolveHomeDir(env), fileSystem);
+  const projectPaths = findProjectConfigPathsFarthestFirst(options.cwd, resolveHomeDir(env), fileSystem, ACCOUNT_HOME_DIR);
   return [
     { path: userPath, scope: "user" },
     ...projectPaths.map((path) => ({ path, scope: "project" }))
@@ -7706,6 +7851,23 @@ function prepareTargetWrite(input) {
   const edits = [...collectMigrationEdits(merged.additions), { path: ["_migrations"], value: marker }];
   return { diagnostics: merged.diagnostics, document, edits };
 }
+function prepareTargetReplacement(input) {
+  const marker = markerValue(input.target, input.migrationId, input.targetPath);
+  const document = { ...input.document, _migrations: marker };
+  validateTarget(input.targetPath, document);
+  const edits = [];
+  for (const key of Object.keys(input.target)) {
+    if (key !== "_migrations" && !Object.prototype.hasOwnProperty.call(input.document, key)) {
+      edits.push({ path: [key], value: undefined });
+    }
+  }
+  for (const [key, value] of Object.entries(input.document)) {
+    if (key !== "_migrations")
+      edits.push({ path: [key], value });
+  }
+  edits.push({ path: ["_migrations"], value: marker });
+  return { diagnostics: [], document, edits };
+}
 function writePreparedTarget(input) {
   input.writeTarget({
     edits: input.prepared.edits,
@@ -7738,8 +7900,16 @@ function parseJournal(value) {
   if (!isPlainObject3(value["targetWrite"]) || !isPlainObject3(value["targetWrite"]["additions"])) {
     throw new Error("Migration journal target write is invalid");
   }
+  const targetWriteMode = value["targetWrite"]["mode"];
+  if (targetWriteMode !== undefined && targetWriteMode !== "replace-target") {
+    throw new Error("Migration journal target write mode is invalid");
+  }
   if (typeof value["targetWritten"] !== "boolean" || !Array.isArray(value["completedMoves"])) {
     throw new Error("Migration journal completion state is invalid");
+  }
+  const diagnostics = value["diagnostics"];
+  if (diagnostics !== undefined && (!Array.isArray(diagnostics) || !diagnostics.every((entry) => typeof entry === "string"))) {
+    throw new Error("Migration journal diagnostics are invalid");
   }
   if (!value["completedMoves"].every((path) => typeof path === "string")) {
     throw new Error("Migration journal completed moves are invalid");
@@ -7756,9 +7926,13 @@ function parseJournal(value) {
   return {
     backupMoves,
     completedMoves: [...value["completedMoves"]],
+    diagnostics: diagnostics === undefined ? [] : [...diagnostics],
     migrationId: value["migrationId"],
     targetPath: value["targetPath"],
-    targetWrite: { additions: { ...value["targetWrite"]["additions"] } },
+    targetWrite: {
+      additions: { ...value["targetWrite"]["additions"] },
+      ...targetWriteMode === undefined ? {} : { mode: targetWriteMode }
+    },
     targetWritten: value["targetWritten"],
     version: 1
   };
@@ -7949,7 +8123,12 @@ function resumeMigrationJournal(input) {
   input.renewLock();
   const target = targetDocument(journal.targetPath, input.fileSystem);
   if (!hasMigrationMarker(target, journal.migrationId)) {
-    const prepared = prepareTargetWrite({
+    const prepared = journal.targetWrite.mode === "replace-target" ? prepareTargetReplacement({
+      document: journal.targetWrite.additions,
+      migrationId: journal.migrationId,
+      target,
+      targetPath: journal.targetPath
+    }) : prepareTargetWrite({
       additions: journal.targetWrite.additions,
       migrationId: journal.migrationId,
       target,
@@ -8053,11 +8232,17 @@ function executePlan(input) {
   assertSafeSourcePaths(plan.sources, protectedPaths);
   const existingSources = plan.sources.filter((source) => fileSystem.existsSync(source.path));
   const target = targetDocument(plan.targetPath, fileSystem);
-  if (!shouldRunMigration({ legacySourcesExist: existingSources.length > 0, migrationId: plan.id, target })) {
+  const replaceTarget = plan.mode === "replace-target";
+  if (!shouldRunMigration({
+    legacySourcesExist: replaceTarget ? fileSystem.existsSync(plan.targetPath) : existingSources.length > 0,
+    migrationId: plan.id,
+    target
+  })) {
     return { diagnostics: [], journalResumed, status: "skipped" };
   }
-  const transformed = transformResult(plan.transform(loadSources(existingSources, fileSystem)));
-  const prepared = prepareTargetWrite({ additions: transformed.document, migrationId: plan.id, target, targetPath: plan.targetPath });
+  const loaded = replaceTarget ? [{ path: plan.targetPath, value: target }] : loadSources(existingSources, fileSystem);
+  const transformed = transformResult(plan.transform(loaded));
+  const prepared = replaceTarget ? prepareTargetReplacement({ document: transformed.document, migrationId: plan.id, target, targetPath: plan.targetPath }) : prepareTargetWrite({ additions: transformed.document, migrationId: plan.id, target, targetPath: plan.targetPath });
   const diagnostics = [...transformed.diagnostics, ...prepared.diagnostics];
   const moves = backupMoves(existingSources, plan.id, fileSystem, protectedPaths);
   const preview = { backupMoves: moves, targetPath: plan.targetPath, transform: transformed.document };
@@ -8067,9 +8252,13 @@ function executePlan(input) {
   const journal = {
     backupMoves: moves,
     completedMoves: [],
+    diagnostics,
     migrationId: plan.id,
     targetPath: plan.targetPath,
-    targetWrite: { additions: transformed.document },
+    targetWrite: {
+      additions: transformed.document,
+      ...replaceTarget ? { mode: "replace-target" } : {}
+    },
     targetWritten: false,
     version: 1
   };
@@ -8133,17 +8322,17 @@ import { existsSync as existsSync5 } from "node:fs";
 import { posix as posix4, win32 } from "node:path";
 var MIGRATION_ID = "2026-07-codex-config-jsonc";
 var OMO_SCHEMA_URL = "https://raw.githubusercontent.com/code-yeongyu/oh-my-openagent/dev/assets/omo.schema.json";
-function isRecord(value) {
+function isRecord5(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function recordAt(value, key) {
   const candidate = value[key];
-  return isRecord(candidate) ? candidate : undefined;
+  return isRecord5(candidate) ? candidate : undefined;
 }
 function migrationHistory(sources, configPath) {
   const history = [];
   for (const source of sources) {
-    if (!isRecord(source.value))
+    if (!isRecord5(source.value))
       continue;
     for (const key of ["_migrations", "appliedMigrations"]) {
       const values = source.value[key];
@@ -8159,7 +8348,7 @@ function migrationHistory(sources, configPath) {
 }
 function transformConfigJsonc(configPath, sources) {
   const config2 = sources.find((source) => source.path === configPath);
-  const legacy = config2 === undefined || !isRecord(config2.value) ? {} : config2.value;
+  const legacy = config2 === undefined || !isRecord5(config2.value) ? {} : config2.value;
   const omo = recordAt(legacy, "[omo]");
   const senpi = recordAt(legacy, "[senpi]");
   const history = migrationHistory(sources, configPath);
@@ -8407,7 +8596,7 @@ function resolveHomeDir3(env) {
   return env["HOME"] ?? env["USERPROFILE"] ?? homedir6();
 }
 function resolveHookProjectRoot(input, fallback) {
-  if (!isRecord2(input))
+  if (!isRecord6(input))
     return fallback;
   const cwd = input["cwd"];
   return typeof cwd === "string" && cwd.trim().length > 0 ? cwd : fallback;
@@ -8422,7 +8611,7 @@ async function readHookInput(stdin) {
     return;
   return parseJson(text);
 }
-function isRecord2(value) {
+function isRecord6(value) {
   return typeof value === "object" && value !== null;
 }
 function parseJson(text) {
@@ -8465,7 +8654,7 @@ function parseWindowsProcessTable(output) {
   const entries = Array.isArray(parsed) ? parsed : parsed === undefined ? [] : [parsed];
   const processes = [];
   for (const entry of entries) {
-    if (!isRecord3(entry))
+    if (!isRecord7(entry))
       continue;
     const pid = numberField(entry, "ProcessId");
     const ppid = numberField(entry, "ParentProcessId");
@@ -8499,7 +8688,7 @@ function stringField(record2, key) {
   const value = record2[key];
   return typeof value === "string" ? value : undefined;
 }
-function isRecord3(value) {
+function isRecord7(value) {
   return typeof value === "object" && value !== null;
 }
 
@@ -8587,7 +8776,7 @@ async function runProcessFamilySweep(config2, options) {
   }
   try {
     const plan = await config2.collect();
-    const { failed, killed } = dryRun ? { failed: [], killed: [] } : await killTargets(plan.killList, options, config2.familyLabel);
+    const { failed, killed } = dryRun ? { failed: [], killed: [] } : await killTargets(plan.killList, options, config2);
     if (!dryRun)
       writeSweepStamp(config2.stampFile, nowMs);
     return {
@@ -8604,16 +8793,18 @@ async function runProcessFamilySweep(config2, options) {
     return { action: "failed", candidates: [], dryRun, failed: [], killed: [], spared: [], stampFile: config2.stampFile };
   }
 }
-async function killTargets(targets, options, familyLabel) {
+async function killTargets(targets, options, config2) {
   const failed = [];
   const killed = [];
   const context = {
     failed,
-    familyLabel,
+    familyLabel: config2.familyLabel,
     killer: options.killer ?? createDefaultProcessKiller(options.platform),
     log: options.log
   };
   for (const target of targets) {
+    if (!await passesSignalAttestation(target, config2.attestBeforeSignal, options.log, "SIGTERM"))
+      continue;
     const terminated = await safelyTerminate(target.pid, context);
     if (!terminated)
       continue;
@@ -8622,10 +8813,25 @@ async function killTargets(targets, options, familyLabel) {
       killed.push(target);
       continue;
     }
+    if (!await passesSignalAttestation(target, config2.attestBeforeSignal, options.log, "SIGKILL"))
+      continue;
     if (await safelyKill(target.pid, context))
       killed.push(target);
   }
   return { failed, killed };
+}
+async function passesSignalAttestation(target, attest, log, signal) {
+  if (attest === undefined)
+    return true;
+  try {
+    const attested = await attest(target);
+    if (!attested)
+      log?.(`process sweep sparing pid ${target.pid}: identity changed before ${signal}`);
+    return attested;
+  } catch (error) {
+    log?.(`process sweep sparing pid ${target.pid}: identity attestation failed before ${signal}: ${String(error)}`);
+    return false;
+  }
 }
 async function safelyTerminate(pid, context) {
   try {
@@ -10271,21 +10477,36 @@ function runProcessWithTreeTimeout(options) {
     };
     child.stdout.on("data", (chunk) => capture("stdout", chunk));
     child.stderr.on("data", (chunk) => capture("stderr", chunk));
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      startTermination().then(() => settle(124, child.signalCode));
-    }, options.timeoutMs);
-    timeout.unref();
+    let removeTimeoutSignal = () => {
+      return;
+    };
+    let timeout;
     const settle = async (exitCode, signal) => {
       if (settled)
         return;
       settled = true;
       clearTimeout(timeout);
+      removeTimeoutSignal();
       const termination = treeTermination === undefined ? null : await treeTermination;
       stderr += stderrDecoder.end();
       stdout += stdoutDecoder.end();
       resolvePromise({ exitCode, signal, stderr, stdout, termination, timedOut });
     };
+    const triggerTimeout = () => {
+      if (settled)
+        return;
+      timedOut = true;
+      startTermination().then(() => settle(124, child.signalCode));
+    };
+    timeout = setTimeout(triggerTimeout, options.timeoutMs);
+    timeout.unref();
+    if (options.timeoutSignal?.aborted === true) {
+      triggerTimeout();
+    } else if (options.timeoutSignal !== undefined) {
+      const timeoutSignal = options.timeoutSignal;
+      timeoutSignal.addEventListener("abort", triggerTimeout, { once: true });
+      removeTimeoutSignal = () => timeoutSignal.removeEventListener("abort", triggerTimeout);
+    }
     child.once("error", () => {
       resolveChildClosed();
       settle(1, null);
@@ -10699,12 +10920,12 @@ function textFromUnknown(value) {
   if (Array.isArray(value))
     return value.map(textFromUnknown).filter(Boolean).join(`
 `);
-  if (!isRecord4(value))
+  if (!isRecord8(value))
     return "";
   return Object.entries(value).map(([key, nested]) => `${key}: ${textFromUnknown(nested)}`).filter((line) => line.trim().length > 0).join(`
 `);
 }
-function isRecord4(value) {
+function isRecord8(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -10722,9 +10943,9 @@ async function executeCodegraphPostToolUseHook(options = {}) {
   return { action: "emitted-guidance", exitCode: 0 };
 }
 function runCodegraphPostToolUseHook(input, options = {}) {
-  const toolName = isRecord2(input) ? input["tool_name"] : undefined;
-  const cwd = isRecord2(input) ? input["cwd"] : undefined;
-  const toolOutput = isRecord2(input) ? input["tool_response"] ?? input["tool_output"] ?? input["response"] : input;
+  const toolName = isRecord6(input) ? input["tool_name"] : undefined;
+  const cwd = isRecord6(input) ? input["cwd"] : undefined;
+  const toolOutput = isRecord6(input) ? input["tool_response"] ?? input["tool_output"] ?? input["response"] : input;
   const guidance = buildCodegraphInitGuidanceForToolResult({ cwd, toolName, toolOutput }, options);
   if (guidance === null)
     return "";
@@ -10925,7 +11146,7 @@ function defaultWorkerCliPath() {
 // components/codegraph/src/serve.ts
 import { existsSync as existsSync11, realpathSync as realpathSync8 } from "node:fs";
 import { homedir as homedir13 } from "node:os";
-import { basename as basename6, join as join22, resolve as resolve9 } from "node:path";
+import { basename as basename6, join as join23, resolve as resolve10 } from "node:path";
 import {
   cwd as processCwd3,
   env as processEnv6,
@@ -11540,6 +11761,80 @@ function requestedProtocolVersion(params) {
   return params["protocolVersion"];
 }
 
+// ../../utils/src/codegraph/workspace-policy.ts
+import { lstatSync as lstatSync5, readFileSync as readFileSync9, statSync as statSync5 } from "node:fs";
+import { dirname as dirname12, isAbsolute as isAbsolute2, join as join22, resolve as resolve9 } from "node:path";
+var DEFAULT_CODEGRAPH_MAX_INDEX_DB_BYTES = 2147483648;
+function hasGitHead(gitDir) {
+  return statSync5(join22(gitDir, "HEAD"), { throwIfNoEntry: false })?.isFile() === true;
+}
+function ownsGitRoot(workspace) {
+  try {
+    const markerPath2 = join22(workspace, ".git");
+    const marker = lstatSync5(markerPath2, { throwIfNoEntry: false });
+    if (marker === undefined || marker.isSymbolicLink())
+      return false;
+    if (marker.isDirectory())
+      return hasGitHead(markerPath2);
+    if (!marker.isFile())
+      return false;
+    const match = /^gitdir:\s*(.+)\s*$/i.exec(readFileSync9(markerPath2, "utf8").trim());
+    const target = match?.[1];
+    if (target === undefined)
+      return false;
+    return hasGitHead(isAbsolute2(target) ? target : resolve9(dirname12(markerPath2), target));
+  } catch (error) {
+    if (error instanceof Error)
+      return false;
+    throw error;
+  }
+}
+function inspectCodegraphWorkspace(workspace, options = {}) {
+  const resolvedWorkspace = resolve9(workspace);
+  const projectLink = join22(resolvedWorkspace, ".codegraph");
+  const indexPath = join22(projectLink, "codegraph.db");
+  const base = { indexPath, ownsGitRoot: ownsGitRoot(resolvedWorkspace), workspace: resolvedWorkspace };
+  try {
+    const projectEntry = lstatSync5(projectLink, { throwIfNoEntry: false });
+    if (projectEntry === undefined)
+      return { ...base, indexState: "absent" };
+    const index = statSync5(indexPath, { throwIfNoEntry: false });
+    if (index === undefined || !index.isFile())
+      return { ...base, indexState: "incomplete" };
+    const maxIndexDbBytes = options.maxIndexDbBytes ?? DEFAULT_CODEGRAPH_MAX_INDEX_DB_BYTES;
+    if (index.size > maxIndexDbBytes)
+      return { ...base, indexBytes: index.size, indexState: "oversized" };
+    return { ...base, indexBytes: index.size, indexState: "ready" };
+  } catch (error) {
+    if (error instanceof Error)
+      return { ...base, indexState: "unreadable" };
+    throw error;
+  }
+}
+function decideCodegraphWorkspaceUse(inspection, autoInit = "safe") {
+  if (inspection.indexState === "oversized")
+    return { allowed: false, reason: "index-oversized" };
+  if (inspection.indexState === "unreadable")
+    return { allowed: false, reason: "index-unreadable" };
+  if (inspection.indexState === "ready")
+    return { allowed: true, reason: "existing-index" };
+  if (autoInit === false)
+    return { allowed: false, reason: "auto-init-disabled" };
+  if (autoInit === true)
+    return { allowed: true, reason: "explicit-auto-init" };
+  if (inspection.ownsGitRoot)
+    return { allowed: true, reason: "safe-git-root" };
+  return { allowed: false, reason: "safe-root-required" };
+}
+
+// components/codegraph/src/workspace-safety.ts
+function decideCodexCodegraphWorkspaceUse(workspace, config2, fallbackPolicy = "safe") {
+  const inspection = inspectCodegraphWorkspace(workspace, {
+    ...config2.max_index_db_bytes === undefined ? {} : { maxIndexDbBytes: config2.max_index_db_bytes }
+  });
+  return decideCodegraphWorkspaceUse(inspection, config2.auto_init ?? fallbackPolicy);
+}
+
 // components/codegraph/src/serve.ts
 var CODEGRAPH_SKIP_HINT = `CodeGraph MCP skipped: codegraph binary not found. Install CodeGraph or set OMO_CODEGRAPH_BIN.
 `;
@@ -11567,8 +11862,14 @@ async function runCodegraphServe(options = {}) {
   if (exclusion.excluded) {
     return runUnavailableMcp(CODEGRAPH_EXCLUDED_HINT, options);
   }
+  const autoInitPolicy = codegraphConfig.auto_init ?? (options.config === undefined ? "safe" : true);
+  const workspaceDecision = decideCodexCodegraphWorkspaceUse(projectCwd, codegraphConfig, autoInitPolicy);
+  if (!workspaceDecision.allowed) {
+    return runUnavailableMcp(`CodeGraph MCP skipped: workspace blocked by safety policy (${workspaceDecision.reason}).
+`, options);
+  }
   const trustedInstallDir = config2.trustedCodegraphInstallDir;
-  const installDir = trustedInstallDir ?? join22(homeDir, ".omo", "codegraph");
+  const installDir = trustedInstallDir ?? join23(homeDir, ".omo", "codegraph");
   const resolutionOptions = {
     env,
     homeDir,
@@ -11612,7 +11913,7 @@ async function runCodegraphServe(options = {}) {
     return runUnavailableMcp(buildCodegraphNodeSkipHint(nodeSupport), options);
   }
   const runProcess = options.runProcess ?? runBridgedCodegraphProcess;
-  const codegraphEnv = codegraphEnvForConfig(trustedInstallDir, homeDir, codegraphConfig.daemon !== false, options.buildEnv);
+  const codegraphEnv = codegraphEnvForConfig(codegraphConfig, trustedInstallDir, homeDir, codegraphConfig.daemon !== false, options.buildEnv);
   const mergedEnv = buildCodegraphChildEnv({ ambientEnv: env, codegraphEnv, runtimeEnv: env });
   return runProcess(resolution.command, [...resolution.argsPrefix, "serve", "--mcp"], {
     cwd: projectCwd,
@@ -11640,10 +11941,10 @@ async function provisionMissingCodegraph(options) {
     return null;
   if (options.config.auto_provision === false)
     return null;
-  const installDir = options.trustedInstallDir ?? join22(options.homeDir, ".omo", "codegraph");
+  const installDir = options.trustedInstallDir ?? join23(options.homeDir, ".omo", "codegraph");
   const result = await options.ensureProvisioned({
     installDir,
-    lockDir: join22(installDir, ".locks"),
+    lockDir: join23(installDir, ".locks"),
     version: CODEGRAPH_VERSION
   });
   if (!result.provisioned || result.binPath === undefined)
@@ -11660,20 +11961,21 @@ function shouldSkipResolvedCommand(resolution, commandExists) {
 function looksLikePath2(command) {
   return command.includes("/") || command.includes("\\");
 }
-function codegraphEnvForConfig(trustedInstallDir, homeDir, daemon, buildEnv) {
+function codegraphEnvForConfig(config2, trustedInstallDir, homeDir, daemon, buildEnv) {
   const env = buildEnv?.({ daemon, homeDir }) ?? buildCodegraphEnv({ daemon, homeDir });
-  return trustedInstallDir === undefined ? env : { ...env, CODEGRAPH_INSTALL_DIR: trustedInstallDir };
+  const installEnv = trustedInstallDir === undefined ? env : { ...env, CODEGRAPH_INSTALL_DIR: trustedInstallDir };
+  return config2.watch_debounce_ms === undefined ? installEnv : { ...installEnv, CODEGRAPH_WATCH_DEBOUNCE_MS: String(config2.watch_debounce_ms) };
 }
 function resolveProjectCwd(env, fallback) {
   for (const key of PROJECT_CWD_ENV_KEYS) {
     const candidate = env[key]?.trim();
     if (candidate === undefined || candidate.length === 0)
       continue;
-    const resolved = resolve9(candidate);
+    const resolved = resolve10(candidate);
     if (existsSync11(resolved))
       return resolved;
   }
-  return resolve9(fallback);
+  return resolve10(fallback);
 }
 function provisionedBinFromInstallDir(installDir) {
   return resolvePinnedCodegraphBin(installDir);
@@ -11695,7 +11997,7 @@ function isDirectInvocation(argvPath) {
   const moduleName = basename6(modulePath);
   if (moduleName !== "serve.js" && moduleName !== "serve.ts")
     return false;
-  return realpathSync8(resolve9(argvPath)) === realpathSync8(modulePath);
+  return realpathSync8(resolve10(argvPath)) === realpathSync8(modulePath);
 }
 
 // components/codegraph/src/sweep-cli.ts
@@ -11806,7 +12108,7 @@ function isDirectInvocation2(argvPath) {
   const moduleName = basename7(modulePath);
   if (moduleName !== "cli.js" && moduleName !== "cli.ts")
     return false;
-  return realpathSync9(resolve10(argvPath)) === realpathSync9(modulePath);
+  return realpathSync9(resolve11(argvPath)) === realpathSync9(modulePath);
 }
 export {
   runCodegraphCli

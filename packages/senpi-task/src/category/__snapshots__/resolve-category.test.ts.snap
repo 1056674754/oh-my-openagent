@@ -32,8 +32,8 @@ exports[`builtin category defaults #given ported builtin defaults #when snapshot
   {
     "name": "deep",
     "config": {
-      "model": "openai/gpt-5.6-terra",
-      "variant": "xhigh"
+      "model": "openai/gpt-5.6-sol",
+      "variant": "medium"
     },
     "description": "Goal-oriented autonomous problem-solving on hairy problems requiring deep research. ONE goal + ONE deliverable per call — multiple goals must fan out as parallel \`deep\` calls, never bundled into one.",
     "promptAppend": "<Category_Context>\\nYou are working on GOAL-ORIENTED AUTONOMOUS tasks.\\n\\nYou are NOT an interactive assistant. You are an autonomous problem-solver.\\n\\nBEFORE making ANY changes:\\n1. Silently explore the codebase extensively (5-15 minutes of reading is normal)\\n2. Read related files, trace dependencies, understand the full context\\n3. Build a complete mental model of the problem space\\n4. Do not ask clarifying questions - the goal is already defined\\n\\nYou receive a GOAL. When the goal includes numbered steps or phases, treat them as one atomic task broken into sub-steps, not as separate independent tasks. Figure out HOW to achieve it yourself. Thorough research before any action.\\n\\nSub-steps of ONE goal = execute all steps as phases of one atomic task.\\nGenuinely independent tasks = flag and refuse, require separate delegations.\\n\\nApproach: explore extensively, understand deeply, then act decisively. Prefer comprehensive solutions over quick patches. If the goal is unclear, make reasonable assumptions and proceed.\\n\\nMinimal status updates. Focus on results, not play-by-play. Report completion with summary of changes.\\n</Category_Context>"
@@ -41,10 +41,10 @@ exports[`builtin category defaults #given ported builtin defaults #when snapshot
   {
     "name": "quick",
     "config": {
-      "model": "apitopia/kimi-for-coding-highspeed"
+      "model": "kimi-coding/kimi-for-coding-highspeed"
     },
     "description": "Trivial tasks - single file changes, typo fixes, simple modifications",
-    "promptAppend": "<Category_Context>\\nYou are working on SMALL / QUICK tasks.\\n\\nEfficient execution mindset:\\n- Fast, focused, minimal overhead\\n- Get to the point immediately\\n- No over-engineering\\n- Simple solutions for simple problems\\n\\nApproach:\\n- Minimal viable implementation\\n- Skip unnecessary abstractions\\n- Direct and concise\\n</Category_Context>\\n\\n<Caller_Warning>\\nTHIS CATEGORY USES A SMALLER/FASTER MODEL (gpt-5.4-mini).\\n\\nThe model executing this task is optimized for speed over depth. Your prompt MUST be:\\n\\n**EXHAUSTIVELY EXPLICIT** - Leave NOTHING to interpretation:\\n1. MUST DO: List every required action as atomic, numbered steps\\n2. MUST NOT DO: Explicitly forbid likely mistakes and deviations\\n3. EXPECTED OUTPUT: Describe exact success criteria with concrete examples\\n\\n**WHY THIS MATTERS:**\\n- Smaller models benefit from explicit guardrails\\n- Vague instructions may lead to unpredictable results\\n- Implicit expectations may be missed\\n**PROMPT STRUCTURE (MANDATORY):**\\n\`\`\`\\nTASK: [One-sentence goal]\\n\\nMUST DO:\\n1. [Specific action with exact details]\\n2. [Another specific action]\\n...\\n\\nMUST NOT DO:\\n- [Forbidden action + why]\\n- [Another forbidden action]\\n...\\n\\nEXPECTED OUTPUT:\\n- [Exact deliverable description]\\n- [Success criteria / verification method]\\n\`\`\`\\n\\nIf your prompt lacks this structure, REWRITE IT before delegating.\\n</Caller_Warning>"
+    "promptAppend": "<Category_Context>\\nYou are working on SMALL / QUICK tasks.\\n\\nEfficient execution mindset:\\n- Fast, focused, minimal overhead\\n- Get to the point immediately\\n- No over-engineering\\n- Simple solutions for simple problems\\n\\nApproach:\\n- Minimal viable implementation\\n- Skip unnecessary abstractions\\n- Direct and concise\\n</Category_Context>\\n\\n<Caller_Warning>\\nTHIS CATEGORY USES A SMALLER/FASTER MODEL (gpt-5.6-luna-fast).\\n\\nThe model executing this task is optimized for speed over depth. Your prompt MUST be:\\n\\n**EXHAUSTIVELY EXPLICIT** - Leave NOTHING to interpretation:\\n1. MUST DO: List every required action as atomic, numbered steps\\n2. MUST NOT DO: Explicitly forbid likely mistakes and deviations\\n3. EXPECTED OUTPUT: Describe exact success criteria with concrete examples\\n\\n**WHY THIS MATTERS:**\\n- Smaller models benefit from explicit guardrails\\n- Vague instructions may lead to unpredictable results\\n- Implicit expectations may be missed\\n**PROMPT STRUCTURE (MANDATORY):**\\n\`\`\`\\nTASK: [One-sentence goal]\\n\\nMUST DO:\\n1. [Specific action with exact details]\\n2. [Another specific action]\\n...\\n\\nMUST NOT DO:\\n- [Forbidden action + why]\\n- [Another forbidden action]\\n...\\n\\nEXPECTED OUTPUT:\\n- [Exact deliverable description]\\n- [Success criteria / verification method]\\n\`\`\`\\n\\nIf your prompt lacks this structure, REWRITE IT before delegating.\\n</Caller_Warning>"
   },
   {
     "name": "unspecified-low",
@@ -67,7 +67,7 @@ exports[`builtin category defaults #given ported builtin defaults #when snapshot
   {
     "name": "unspecified-high",
     "config": {
-      "model": "apitopia/kimi-k3",
+      "model": "kimi-coding/k3",
       "variant": "max"
     },
     "description": "Tasks that don't fit other categories, high effort required",
@@ -76,7 +76,8 @@ exports[`builtin category defaults #given ported builtin defaults #when snapshot
   {
     "name": "writing",
     "config": {
-      "model": "kimi-for-coding/kimi-k3"
+      "model": "kimi-coding/k3",
+      "variant": "low"
     },
     "description": "Documentation, prose, technical writing",
     "promptAppend": "<Category_Context>\\nYou are working on WRITING / PROSE tasks.\\n\\nWordsmith mindset:\\n- Clear, flowing prose\\n- Appropriate tone and voice\\n- Engaging and readable\\n- Proper structure and organization\\n\\nApproach:\\n- Understand the audience\\n- Draft with care\\n- Polish for clarity and impact\\n- Documentation, READMEs, articles, technical writing\\n\\nANTI-AI-SLOP RULES (NON-NEGOTIABLE):\\n- NEVER use em dashes (-) or en dashes (-). Use commas, periods, ellipses, or line breaks instead. Zero tolerance.\\n- Remove AI-sounding phrases: \\"delve\\", \\"it's important to note\\", \\"I'd be happy to\\", \\"certainly\\", \\"please don't hesitate\\", \\"leverage\\", \\"utilize\\", \\"in order to\\", \\"moving forward\\", \\"circle back\\", \\"at the end of the day\\", \\"robust\\", \\"streamline\\", \\"facilitate\\"\\n- Pick plain words. \\"Use\\" not \\"utilize\\". \\"Start\\" not \\"commence\\". \\"Help\\" not \\"facilitate\\".\\n- Use contractions naturally: \\"don't\\" not \\"do not\\", \\"it's\\" not \\"it is\\".\\n- Vary sentence length. Don't make every sentence the same length.\\n- NEVER start consecutive sentences with the same word.\\n- No filler openings: skip \\"In today's world...\\", \\"As we all know...\\", \\"It goes without saying...\\"\\n- Write like a human, not a corporate template.\\n</Category_Context>"

@@ -116,9 +116,13 @@ describe("runSenpiStartupMigration", () => {
 
     // then
     expect(result.error).toBeUndefined()
-    expect(result.results.map((entry) => entry.status)).toEqual(["migrated", "migrated"])
+    expect(result.results.map((entry) => entry.status)).toEqual(["migrated", "migrated", "migrated"])
     expect(parse(fileSystem.readFileSync("/home/alice/.omo/omo.jsonc", "utf-8"))).toMatchObject({
-      _migrations: ["2026-07-opencode-config-unification", "2026-07-codex-config-jsonc"],
+      _migrations: [
+        "2026-07-opencode-config-unification",
+        "2026-07-codex-config-jsonc",
+        "2026-08-reasoning-unification",
+      ],
       "[opencode]": { agents: { finder: { model: "provider/finder" } } },
       codegraph: { daemon: false },
     })
@@ -159,10 +163,11 @@ describe("runSenpiStartupMigration", () => {
     // then
     if (opencodeResult === undefined) throw new Error("Expected OpenCode race result")
     expect(opencodeResult.status).toBe("locked")
-    const migrations = [...senpiResult.results, ...opencodeResult.results].filter((entry) => entry.status === "migrated")
-    expect(migrations).toHaveLength(1)
+    expect(opencodeResult.results.filter((entry) => entry.status === "migrated")).toHaveLength(0)
+    expect(senpiResult.results.filter((entry) => entry.status === "migrated")).toHaveLength(2)
     expect(parse(fileSystem.readFileSync("/home/alice/.omo/omo.jsonc", "utf-8"))._migrations).toEqual([
       "2026-07-opencode-config-unification",
+      "2026-08-reasoning-unification",
     ])
   })
 })

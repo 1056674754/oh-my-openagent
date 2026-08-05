@@ -13,12 +13,15 @@ import {
   FALLBACK_ARCHITECT_DIRECTIVE_TYPE,
   FALLBACK_ARCHITECT_REMINDER_TYPE,
 } from "./directive"
+import {
+  buildFallbackArchitectNotice,
+  FALLBACK_ARCHITECT_NOTICE_TYPE,
+  renderFallbackArchitectNotice,
+} from "./notice"
 
 const FALLBACK_ARCHITECT_DISABLED_FLAG = "omo-senpi-fallback-architect-disabled"
 
-type FallbackArchitectInputResult =
-  | { action: "continue" }
-  | { action: "transform"; text: string; images?: readonly unknown[] }
+type FallbackArchitectInputResult = { action: "continue" }
 
 export interface FallbackArchitectComponentOptions {
   /** Injectable so tests can decide the gate without depending on the developer's own omo.json. */
@@ -45,6 +48,8 @@ export function createFallbackArchitectComponent(
     register(pi: SenpiExtensionAPI, ctx: ComponentContext): void {
       const state: FallbackArchitectState = { refusalPending: false, active: undefined }
       const isDisabled = (): boolean => ctx.config.getFlag(FALLBACK_ARCHITECT_DISABLED_FLAG) === true
+
+      pi.registerMessageRenderer?.(FALLBACK_ARCHITECT_NOTICE_TYPE, renderFallbackArchitectNotice)
 
       pi.on("message_end", (payload: unknown): void => {
         if (!isMessageEndEvent(payload)) return
@@ -80,6 +85,14 @@ export function createFallbackArchitectComponent(
           content: buildFallbackArchitectDirective({ from, to }),
           display: false,
         })
+        // The one user-facing piece: a visible upgrade card so the fallback reads as a win, with
+        // structured details for the TUI renderer and future GUI consumers.
+        pi.sendMessage({
+          customType: FALLBACK_ARCHITECT_NOTICE_TYPE,
+          content: buildFallbackArchitectNotice({ from, to }),
+          display: true,
+          details: { from, to },
+        })
         state.active = { from, to }
         state.refusalPending = false
         ctx.logger.info("omo-senpi fallback-architect directive injected", { from, to })
@@ -89,25 +102,13 @@ export function createFallbackArchitectComponent(
         if (isDisabled() || state.active === undefined) return { action: "continue" }
         if (!isUserSourcedInput(payload)) return { action: "continue" }
 
-        const reminder = buildFallbackArchitectReminder({ from: state.active.from })
-
-        // A prompt queued mid-stream carries streamingBehavior. Senpi drains those queues one
-        // message at a time and answers each drained message, so a separate hidden message would
-        // burn its own assistant turn before the user's actual ask is handled. Carry the reminder
-        // inside that one queued message instead, appending so a leading `/skill:` command still
-        // expands. Same reasoning and same shape as components/ultrawork/index.ts.
-        if (isQueuedDuringStreaming(payload)) {
-          const images = payload["images"]
-          return {
-            action: "transform",
-            text: `${payload["text"]}\n${reminder}`,
-            ...(Array.isArray(images) ? { images } : {}),
-          }
-        }
-
+        // Always a hidden message, never a transform: an appended reminder renders inside the
+        // user's own bubble in the TUI. On the mid-stream path senpi steers a custom message into
+        // the RUNNING turn (agent-session sendCustomMessage -> agent.steer), so this costs no
+        // extra assistant turn for queued prompts either, and the typed text stays byte-identical.
         pi.sendMessage({
           customType: FALLBACK_ARCHITECT_REMINDER_TYPE,
-          content: reminder,
+          content: buildFallbackArchitectReminder({ from: state.active.from }),
           display: false,
         })
         return { action: "continue" }
@@ -118,10 +119,6 @@ export function createFallbackArchitectComponent(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
-}
-
-function isQueuedDuringStreaming(payload: unknown): boolean {
-  return isRecord(payload) && typeof payload["streamingBehavior"] === "string"
 }
 
 function isUserSourcedInput(payload: unknown): payload is Record<string, unknown> & { text: string } {

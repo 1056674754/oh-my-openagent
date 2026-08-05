@@ -110,7 +110,7 @@ export class InProcessRunner {
       ...(spec.modelRuntime !== undefined && { modelRuntime: spec.modelRuntime }),
       ...(spec.model !== undefined && { model: spec.model }),
       ...(spec.thinkingLevel !== undefined && { thinkingLevel: spec.thinkingLevel }),
-      ...(settingsManager !== undefined && { settingsManager }),
+      settingsManager,
       ...(spec.toolAllowlist !== undefined && { tools: [...spec.toolAllowlist] }),
     }
 

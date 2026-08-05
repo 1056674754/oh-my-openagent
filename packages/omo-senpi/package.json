@@ -1,6 +1,6 @@
 {
   "name": "@oh-my-opencode/omo-senpi",
-  "version": "4.19.3-sscity",
+  "version": "4.19.4-sscity",
   "type": "module",
   "private": true,
   "description": "Senpi harness adapter for oh-my-openagent.",

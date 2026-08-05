@@ -61,6 +61,26 @@ export const NOOP_SCRIPT = {
   lead: [text("fresh boot for session_start reclaim")],
 }
 
+// Print mode exits the moment its scripted turns settle, while the member mailbox poller only ticks
+// on 1s intervals and the ack scanner commits only after the injected envelope reaches the session
+// JSONL at a tool boundary. Two tool-held waits keep the turn (and therefore the process) alive
+// across exactly those boundaries: reservation first, durable processed commit second.
+export function crashReplacementScript(unreadPath, processedPath) {
+  return {
+    quick: [
+      toolCall("bash", { command: waitForPathCommand(unreadPath, "absent") }),
+      toolCall("bash", { command: waitForPathCommand(processedPath, "present") }),
+      text("replacement crash message recovered"),
+    ],
+  }
+}
+
+function waitForPathCommand(path, mode) {
+  const hit = mode === "present" ? "fs.existsSync(p)" : "!fs.existsSync(p)"
+  const script = `const fs=require('fs');const p=process.argv[1];const until=Date.now()+25000;(function poll(){if(${hit})process.exit(0);if(Date.now()>until){console.error('timed out waiting for '+p);process.exit(1)}setTimeout(poll,100)})()`
+  return `node -e "${script}" ${JSON.stringify(path)}`
+}
+
 export const CRASH_SEED_SCRIPT = {
   lead: [
     toolCall("team_create", {

@@ -22,6 +22,10 @@ const componentSkillNames = new Set(skillSources.map(({ name }) => name))
 const nativeSkillsRoot = join(repoRoot, "omo-senpi", "skills")
 const nativeSkillSources = [
   {
+    name: "give-me-tips",
+    source: join(nativeSkillsRoot, "give-me-tips"),
+  },
+  {
     name: "hyperplan",
     source: join(nativeSkillsRoot, "hyperplan"),
   },

@@ -32,9 +32,11 @@ export function wireEventBridge(
     transitions.onSessionStart(engine.runtime.sessionId())
     const reconciliation = await engine.lifecycle.reconcileOnSessionStart()
     for (const outcome of reconciliation.outcomes) {
-      if ((outcome.kind !== "lost" && outcome.kind !== "lost_and_terminated") || outcome.reason === "already lost") continue
       const record = engine.manager.get(outcome.task_id)
-      if (record !== undefined) engine.memberLiveness.notifyTerminal(record)
+      // A previous process can persist the terminal transition before its queued team-liveness steer
+      // flushes. Re-observe every reconciled record; the notifier filters non-team/non-error states and
+      // its persisted liveness epoch suppresses records already delivered in an earlier process.
+      if (record !== undefined) await engine.notifyOwnedMemberLiveness(record)
     }
     const cleanup = engine.lifecycle.cleanupExpiredRecords()
     if (cleanup.deleted.length > 0) {
@@ -80,12 +82,14 @@ export function wireEventBridge(
     statusUi.scheduleSync()
   })
 
-  pi.on("agent_end", (_payload, eventCtx) => {
-    engine.runtime.captureFrom(asLiveContext(eventCtx))
+  pi.on("agent_end", async (_payload, eventCtx) => {
+    const liveContext = asLiveContext(eventCtx)
+    engine.runtime.captureFrom(liveContext)
     const coordinator = ctx.idleCoordinator
-    if (coordinator === undefined) return undefined
-    queueMicrotask(() => coordinator.flushOnIdle())
-    return undefined
+    if (coordinator !== undefined) queueMicrotask(() => coordinator.flushOnIdle())
+    await engine.memberLiveness.acknowledgePersisted(
+      () => liveContext.sessionManager?.getSessionFile?.() ?? engine.runtime.sessionFile(),
+    )
   })
 
   pi.on("before_agent_start", (_payload, eventCtx) => {

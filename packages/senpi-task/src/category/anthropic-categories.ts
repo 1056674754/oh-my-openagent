@@ -42,7 +42,7 @@ export const ANTHROPIC_CATEGORIES = [
   },
   {
     name: "unspecified-high",
-    config: { model: "apitopia/kimi-k3", variant: "max" },
+    config: { model: "kimi-coding/k3", variant: "max" },
     description: "Tasks that don't fit other categories, high effort required",
     promptAppend: UNSPECIFIED_HIGH_CATEGORY_PROMPT_APPEND,
   },

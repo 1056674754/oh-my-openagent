@@ -114,6 +114,9 @@ describe("runOpenCodeStartupMigration", () => {
     expect(recovered.migratedFrom).toEqual([])
     expect(fileSystem.existsSync(rootSourcePath)).toBe(false)
     expect(fileSystem.existsSync(`${homeDir}/.omo/.migration-journal.json`)).toBe(false)
-    expect(parseFile(fileSystem, targetPath)._migrations).toEqual(["2026-07-opencode-config-unification"])
+    expect(parseFile(fileSystem, targetPath)._migrations).toEqual([
+      "2026-07-opencode-config-unification",
+      "2026-08-reasoning-unification",
+    ])
   })
 })

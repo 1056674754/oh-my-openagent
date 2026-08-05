@@ -5903,7 +5903,7 @@ var package_default;
 var init_package = __esm(() => {
   package_default = {
     name: "@oh-my-opencode/omo-codex",
-    version: "4.19.3-sscity",
+    version: "4.19.4-sscity",
     type: "module",
     private: true,
     description: "Codex harness adapter for oh-my-openagent. Vendored Codex plugin namespace (omo) + TypeScript installer + telemetry.",
@@ -8840,6 +8840,24 @@ function stripUnquotedInlineComment3(line) {
 
 // packages/omo-codex/src/install/codex-config-reasoning.ts
 var MANAGED_KEYS = ["model", "model_context_window", "model_reasoning_effort", "plan_mode_reasoning_effort"];
+var CODEX_REASONING_BY_UNIFIED_LEVEL = {
+  off: "none",
+  none: "none",
+  minimal: "minimal",
+  low: "low",
+  medium: "medium",
+  high: "high",
+  xhigh: "xhigh",
+  max: "max"
+};
+function applyReasoningOverride(catalog, reasoning) {
+  if (reasoning === undefined)
+    return catalog;
+  const wireEffort = CODEX_REASONING_BY_UNIFIED_LEVEL[reasoning.trim().toLowerCase()];
+  if (wireEffort === undefined)
+    return catalog;
+  return { ...catalog, current: { ...catalog.current, modelReasoningEffort: wireEffort } };
+}
 function ensureCodexReasoningConfig(config, catalog) {
   const current = readRootReasoningSettings(config);
   if (Object.keys(current).length > 0 && !matchesProfile(current, catalog.current) && !catalog.managedProfiles.some((profile) => matchesProfile(current, profile))) {
@@ -9180,7 +9198,7 @@ async function updateCodexConfig(input) {
   config = ensureFeatureEnabled(config, "plugin_hooks");
   config = ensureFeatureEnabled(config, "multi_agent");
   config = removeUnsupportedCodexMultiAgentModeConfig(config);
-  config = ensureCodexReasoningConfig(config, await readCodexModelCatalog(input.repoRoot));
+  config = ensureCodexReasoningConfig(config, applyReasoningOverride(await readCodexModelCatalog(input.repoRoot), input.reasoning));
   config = ensureCodexMultiAgentV2Config(config, {
     multiAgentVersion: resolveCodexMultiAgentVersion(config, input.configPath)
   });
@@ -9369,7 +9387,7 @@ var MANAGED_REASONING_DEFAULT_UPGRADES = new Map([
     "explorer",
     [
       {
-        previous: { model: "gpt-5.4-mini", effort: "low" },
+        previous: { model: "gpt-5.6-luna-fast", effort: "low" },
         current: { model: "gpt-5.6-terra", effort: "medium" }
       },
       {
@@ -9382,7 +9400,7 @@ var MANAGED_REASONING_DEFAULT_UPGRADES = new Map([
     "librarian",
     [
       {
-        previous: { model: "gpt-5.4-mini", effort: "low" },
+        previous: { model: "gpt-5.6-luna-fast", effort: "low" },
         current: { model: "gpt-5.6-terra", effort: "medium" }
       },
       {
@@ -11015,7 +11033,8 @@ async function runCodexInstaller(options = {}) {
     gitBashEnabled: platform === "win32" && gitBashResolution.found,
     trustedHookStates,
     agentConfigs: [...agentConfigs.values()].sort((left, right) => left.name.localeCompare(right.name)),
-    autonomousPermissions: options.autonomousPermissions !== false
+    autonomousPermissions: options.autonomousPermissions !== false,
+    ...options.reasoning === undefined ? {} : { reasoning: options.reasoning }
   });
   await seedAndMigrateOmoSot({ env: env2, log, repoRoot, runCommand });
   const projectCleanup = await repairProjectLocalCodexArtifactsBestEffort({

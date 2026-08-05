@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { OmoConfigSchema } from "../index"
 
 describe("omo config schema", () => {
-  test("#given a full omo config #when parsed #then task defaults and category camelCase keys are preserved", () => {
+  test("#given a full omo config #when parsed #then task defaults and deprecated category keys normalize", () => {
     // given
     const config = {
       $schema: "https://example.com/omo.schema.json",
@@ -60,10 +60,12 @@ describe("omo config schema", () => {
     expect(result.data.task?.default_execution_mode).toBe("in-process")
     expect(result.data.task?.default_concurrency).toBe(5)
     expect(result.data.task?.residency_max_children).toBe(8)
-    expect(result.data.categories?.deep?.maxTokens).toBe(12000)
-    expect(result.data.categories?.deep?.reasoningEffort).toBe("high")
-    expect(result.data.categories?.deep?.textVerbosity).toBe("medium")
-    expect(result.data.categories?.deep?.thinking?.budgetTokens).toBe(2048)
+    expect(result.data.categories?.deep?.max_tokens).toBe(12000)
+    expect(result.data.categories?.deep?.reasoning).toBe("high")
+    expect(result.data.categories?.deep?.provider_options).toEqual({
+      thinking: { type: "enabled", budgetTokens: 2048 },
+      textVerbosity: "medium",
+    })
   })
 
   test("#given an empty codegraph config #when parsed #then daemon defaults on", () => {

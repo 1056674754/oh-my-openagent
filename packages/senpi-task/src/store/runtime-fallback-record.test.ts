@@ -20,17 +20,17 @@ describe("task record runtime fallback metadata", () => {
     const store = createTaskRecordStore({ project_dir: project })
     const requestedModel = {
       source: "category",
-      provider: "apitopia",
+      provider: "kimi-coding",
       model_id: "kimi-for-coding-highspeed-unlocked",
-      display: "apitopia/kimi-for-coding-highspeed-unlocked",
+      display: "kimi-coding/kimi-for-coding-highspeed-unlocked",
       reasoning_effort: "minimal",
     } as const
     const fallbackModels = [
       {
         source: "category",
         provider: "quotio-openai",
-        model_id: "gpt-5.4-mini-fast",
-        display: "quotio-openai/gpt-5.4-mini-fast",
+        model_id: "gpt-5.6-luna-fast",
+        display: "quotio-openai/gpt-5.6-luna-fast",
         reasoning_effort: "minimal",
       },
     ] as const

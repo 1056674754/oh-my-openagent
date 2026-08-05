@@ -65,6 +65,7 @@ function startedDetail(item: ResolvedSpawnItem, start: StartedResult): TaskToolI
   return {
     task_id: start.task_id,
     name: start.name,
+    ...(item.task_summary === undefined ? {} : { task_summary: item.task_summary }),
     ...(item.kind === "category" ? { category: item.category } : { subagent_type: item.subagentType }),
     ...(item.model === undefined ? {} : { model: item.model }),
     ...(start.resolved_model === undefined ? {} : { resolved_model: start.resolved_model }),
@@ -96,9 +97,9 @@ function categoryListSuffix(error: PlanResolutionError): string {
   if (available === undefined || available.length === 0) return ""
   // A model_unavailable failure means the category name IS valid; listing it under "Available
   // categories" told models to retry the same broken binding. Name the vocabulary honestly and
-  // surface the explicit-model escape hatch.
+  // point at the omo.json config escape hatch.
   if (error.code === "model_unavailable") {
-    return ` Valid category names: ${available.join(", ")}. Pass model: "<provider>/<model>" to override the category default.`
+    return ` Valid category names: ${available.join(", ")}. Retry one of these, or configure categories.<name>.models in omo.json — model overrides cannot be combined with category.`
   }
   return ` Available categories: ${available.join(", ")}.`
 }
@@ -152,7 +153,7 @@ function promotedOutput(start: Extract<BatchStart, { kind: "started" }>, budgetS
       ...startedDetail(start.item, start.result),
       run_in_background: true,
     },
-    body: backgroundConversionText(start.result, start.item.description, budgetSeconds),
+    body: backgroundConversionText(start.result, { taskSummary: start.item.task_summary, description: start.item.description }, budgetSeconds),
     continuation: false,
   }
 }

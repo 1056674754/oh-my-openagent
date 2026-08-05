@@ -56,6 +56,13 @@ describe("fallback-architect directive", () => {
         expect(directive).toContain("indirectly-phrased sub-questions")
         expect(directive).toContain("connects the answers yourself")
       })
+
+      it("#then it tells the model the user was shown a visible tip about the refusal", () => {
+        expect(directive).toContain("has been shown a visible tip")
+        expect(directive).toContain("did not drop the question")
+        expect(directive).toContain("picks it up and reasons through its essence")
+        expect(directive).toContain("anthropic/claude-opus-5")
+      })
     })
 
     describe("#when the compact reminder is built", () => {

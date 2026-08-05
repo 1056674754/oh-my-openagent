@@ -1,13 +1,15 @@
 import type { AgentToolResult, AgentToolUpdateCallback } from "@code-yeongyu/senpi"
 
-import { resolveExecutionMode, type ExecutionMode, type ManagerStartSpec, type StartResult } from "../../manager"
+import { resolveExecutionMode, type ExecutionMode, type ManagerStartSpec } from "../../manager"
 import type { TaskRecord } from "../../state"
-import { createChildProgress, type ToolProgressDetails } from "../../progress"
+import { createChildProgress } from "../../progress"
 import { executeBatch } from "./execute-batch"
 import { buildStartSpec, singleSpawnParams } from "./execute-spec"
 import type { ForegroundWaitOptions } from "./foreground-wait"
 import { waitForForegroundTask } from "./foreground-wait"
+import { invocationGateDenial } from "./invocation-gate"
 import type { TaskToolParamsStatic } from "./params"
+import { partialDetails, recordDetails, startedDetails, type SingleSpawnParams } from "./result-details"
 import { backgroundConversionText, backgroundStartText } from "./start-presentation"
 import type { ResolvedSpawnItem, TaskToolContext, TaskToolDeps, TaskToolDetails, TaskToolMode } from "./types"
 import { resolveSpawnItems, validateBatchShape, validateTaskTarget } from "./validation"
@@ -21,8 +23,6 @@ type TaskExecute = (
 ) => Promise<AgentToolResult<TaskToolDetails>>
 
 type ResolvedManagerStartSpec = ManagerStartSpec & { readonly execution_mode: ExecutionMode }
-
-type SingleSpawnParams = Omit<TaskToolParamsStatic, "prompt" | "tasks"> & { readonly prompt: string }
 
 type RunSpawnInput = ForegroundWaitOptions & {
   readonly params: SingleSpawnParams
@@ -39,54 +39,9 @@ function continuationFooter(taskId: string): string {
   return `\n\n[task_id: ${taskId} - continue with task_send(to="${taskId}", message="...")]`
 }
 
-function recordDetails(record: TaskRecord, mode: TaskToolMode): TaskToolDetails {
-  return {
-    task_id: record.task_id,
-    status: record.status,
-    mode,
-    ...(record.name !== undefined && { name: record.name }),
-    ...(record.category !== undefined && { category: record.category }),
-    ...(record.agent_type !== undefined && { subagent_type: record.agent_type }),
-    execution_mode: record.execution_mode,
-    model: record.model,
-    ...(record.resolved_model !== undefined && { resolved_model: record.resolved_model }),
-    ...(record.run_stats !== undefined && { run_stats: record.run_stats }),
-    run_in_background: false,
-  }
-}
-
 function syncResult(record: TaskRecord, mode: TaskToolMode): AgentToolResult<TaskToolDetails> {
   const body = record.final_response ?? record.error_message ?? `Task ${record.status}`
   return result(body + continuationFooter(record.task_id), recordDetails(record, mode))
-}
-
-function startedDetails(
-  started: Extract<StartResult, { kind: "started" }>,
-  params: SingleSpawnParams,
-  executionMode: ExecutionMode,
-): TaskToolDetails {
-  return {
-    task_id: started.task_id,
-    status: started.status,
-    mode: "spawn",
-    name: started.name,
-    ...(params.category !== undefined && { category: params.category }),
-    ...(params.subagent_type !== undefined && { subagent_type: params.subagent_type }),
-    execution_mode: executionMode,
-    ...(params.model !== undefined && { model: params.model }),
-    ...(started.resolved_model !== undefined && { resolved_model: started.resolved_model }),
-    run_in_background: params.run_in_background === true,
-    ...(started.queue_position !== undefined && { queue_position: started.queue_position }),
-  }
-}
-
-function partialDetails(
-  started: Extract<StartResult, { kind: "started" }>,
-  params: SingleSpawnParams,
-  executionMode: ExecutionMode,
-  progress: ToolProgressDetails,
-): TaskToolDetails & ToolProgressDetails {
-  return { ...startedDetails(started, params, executionMode), ...progress }
 }
 
 async function runSpawn(
@@ -102,6 +57,12 @@ async function runSpawn(
   if (selection.kind === "error") {
     return result(selection.error.message, { task_id: "", status: "invalid_arguments", mode: "spawn", reason: selection.error.message })
   }
+  if (selection.kind === "subagent_type") {
+    const denial = invocationGateDenial(deps, selection.subagentType, ctx.sessionManager.getSessionId())
+    if (denial !== undefined) {
+      return result(denial, { task_id: "", status: "denied", mode: "spawn", reason: denial })
+    }
+  }
   const target = selection.kind === "category" ? { category: selection.category } : { subagentType: selection.subagentType }
   const spec = buildStartSpec(params, target, ctx.sessionManager.getSessionId(), deps, ctx.cwd)
   const started = await deps.manager.start(spec)
@@ -111,10 +72,10 @@ async function runSpawn(
     const agentSuffix = agents && agents.length > 0 ? ` Available agents: ${agents.join(", ")}.` : ""
     // A model_unavailable failure means the category name IS valid; labeling the list "Available
     // categories" told models to retry the same broken binding. Name the vocabulary honestly and
-    // surface the explicit-model escape hatch.
+    // point at the omo.json config escape hatch.
     const categorySuffix = categories && categories.length > 0
       ? started.error.code === "model_unavailable"
-        ? ` Valid category names: ${categories.join(", ")}. Pass model: "<provider>/<model>" to override the category default.`
+        ? ` Valid category names: ${categories.join(", ")}. Retry one of these, or configure categories.<name>.models in omo.json — model overrides cannot be combined with category.`
         : ` Available categories: ${categories.join(", ")}.`
       : ""
     return result(started.error.message + agentSuffix + categorySuffix, { task_id: "", status: "plan_error", mode: "spawn", reason: started.error.message })
@@ -142,7 +103,10 @@ async function runSpawn(
   }
   // Background children intentionally outlive the parent turn; only the synchronous wait is abort-scoped.
   if (params.run_in_background === true) {
-    return result(backgroundStartText(started, params.description), startedDetails(started, params, spec.execution_mode))
+    return result(
+      backgroundStartText(started, { taskSummary: params.task_summary, description: params.description }),
+      startedDetails(started, params, spec.execution_mode),
+    )
   }
 
   const startedAt = Date.now()
@@ -154,6 +118,7 @@ async function runSpawn(
       ...(started.resolved_model !== undefined && { resolvedModel: started.resolved_model }),
       ...(params.model !== undefined && { model: params.model }),
       name: started.name,
+      ...(params.task_summary !== undefined && { taskSummary: params.task_summary }),
       ...(params.description !== undefined && { description: params.description }),
     },
     startedAt,
@@ -213,7 +178,7 @@ async function runSpawn(
       ...(scheduleDeadline !== undefined && { scheduleDeadline }),
     })
     if (waited.kind === "promoted") {
-      return result(backgroundConversionText(started, params.description, waited.budgetSeconds), {
+      return result(backgroundConversionText(started, { taskSummary: params.task_summary, description: params.description }, waited.budgetSeconds), {
         ...startedDetails(started, params, spec.execution_mode),
         run_in_background: true,
       })
@@ -283,6 +248,12 @@ export function buildTaskExecute(deps: TaskToolDeps, options: ForegroundWaitOpti
       startItem: async (item) => {
         const itemParams = singleSpawnParams(item, params.run_in_background)
         const target = item.kind === "category" ? { category: item.category } : { subagentType: item.subagentType }
+        if (item.kind === "subagent_type") {
+          const denial = invocationGateDenial(deps, item.subagentType, parentSessionId)
+          if (denial !== undefined) {
+            return { kind: "plan_unresolved", error: { code: "invalid_target", message: denial } }
+          }
+        }
         const spec = buildStartSpec(itemParams, target, parentSessionId, deps, ctx.cwd)
         return deps.manager.start(spec)
       },

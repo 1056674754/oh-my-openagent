@@ -1,5 +1,8 @@
 import {
   excerptRendererText,
+  formatSpend,
+  formatStatusTarget,
+  formatTargetWithModel,
   normalizeRendererText,
   rendererVisibleWidth,
   taskIdentityLabel,
@@ -30,18 +33,16 @@ function optionalRendererText(value: string | undefined): string | undefined {
   return normalized.length === 0 ? undefined : normalized
 }
 
-function targetLabel(record: TaskRecord): string {
-  const category = optionalRendererText(record.category)
-  if (category !== undefined) return `category:${category}`
-  return `agent:${optionalRendererText(record.agent_type) ?? "?"}`
-}
-
-function modelDisplay(record: TaskRecord): string {
-  return optionalRendererText(record.resolved_model?.display) ?? normalizeRendererText(record.model)
-}
-
-function liveModelDisplay(record: TaskRecord): string {
-  return optionalRendererText(record.resolved_model?.model_id) ?? modelDisplay(record)
+// One target for every row shape: the shared status-line grammar (`category:<n>(<model>:<effort>)`
+// | `agent:<n>(<model>:<effort>)`), so agent-routed rows read exactly like category-routed rows.
+function recordStatusTarget(record: TaskRecord): string {
+  return formatStatusTarget({
+    category: record.category,
+    agentType: record.agent_type,
+    resolvedModel: record.resolved_model,
+    model: record.model,
+    fallbackCount: record.fallback_attempts?.length,
+  }) ?? "task"
 }
 
 function progressHead(record: TaskRecord): string | undefined {
@@ -51,14 +52,10 @@ function progressHead(record: TaskRecord): string | undefined {
 }
 
 export function formatTaskRow(record: TaskRecord): string {
-  const identity = taskIdentityLabel({ taskId: record.task_id, name: record.name, description: record.description })
+  const identity = taskIdentityLabel({ taskId: record.task_id, name: record.name, description: record.description, taskSummary: record.task_summary })
   const parts = [identity]
   if (identity !== normalizeRendererText(record.task_id)) parts.push(`(${normalizeRendererText(record.task_id)})`)
-  parts.push(targetLabel(record), `model:${modelDisplay(record)}`)
-  const reasoning = optionalRendererText(record.resolved_model?.reasoning_effort)
-  if (reasoning !== undefined) parts.push(`reasoning:${reasoning}`)
-  const variant = optionalRendererText(record.resolved_model?.variant)
-  if (variant !== undefined && variant !== reasoning) parts.push(`variant:${variant}`)
+  parts.push(recordStatusTarget(record))
   parts.push(`mode:${normalizeRendererText(record.execution_mode)}`, `status:${normalizeRendererText(record.status)}`)
   if (record.pid !== undefined) parts.push(`pid:${record.pid}`)
   const progress = progressHead(record)
@@ -78,6 +75,8 @@ export function buildWidgetRows(records: readonly TaskRecord[]): string[] {
 function liveStatsTokens(stats: TaskRunStats | undefined): string[] {
   if (stats === undefined) return []
   const tokens = [`turn ${stats.turns}${toolCountSuffix(stats.tool_calls)}`]
+  const spend = formatSpend(stats)
+  if (spend !== undefined) tokens.push(spend)
   if (stats.tokens_per_second !== undefined) tokens.push(`${stats.tokens_per_second} tok/s`)
   return tokens
 }
@@ -90,7 +89,7 @@ function formatLiveBackgroundRow(
   stats?: TaskRunStats,
 ): string {
   const identity = excerptRendererText(
-    taskIdentityLabel({ taskId: record.task_id, name: record.name, description: record.description }),
+    taskIdentityLabel({ taskId: record.task_id, name: record.name, description: record.description, taskSummary: record.task_summary }),
     stats === undefined ? LIVE_DESCRIPTION_MAX : LIVE_DESCRIPTION_MAX_WITH_STATS,
   )
   const elapsed = formatElapsed(record.created_at, now)
@@ -98,8 +97,7 @@ function formatLiveBackgroundRow(
   const parts = [
     frame,
     identity,
-    targetLabel(record),
-    `model:${liveModelDisplay(record)}`,
+    recordStatusTarget(record),
     ...liveStatsTokens(stats),
     activity,
     elapsed,
@@ -142,17 +140,14 @@ function formatCompactTaskRow(record: TaskRecord, maxWidth: number, includeName:
 function compactTaskIdentity(record: TaskRecord, maxWidth: number, includeName: boolean): string {
   if (!includeName) return excerptRendererText(record.task_id, maxWidth)
   return excerptRendererText(
-    taskIdentityLabel({ taskId: record.task_id, name: record.name, description: record.description }),
+    taskIdentityLabel({ taskId: record.task_id, name: record.name, description: record.description, taskSummary: record.task_summary }),
     maxWidth,
   )
 }
 
 function compactTaskContext(record: TaskRecord): string {
-  const reasoning = optionalRendererText(record.resolved_model?.reasoning_effort)
   return [
-    excerptRendererText(targetLabel(record), 20),
-    excerptRendererText(modelDisplay(record), 15),
-    reasoning === undefined ? undefined : excerptRendererText(reasoning, 5),
+    excerptRendererText(recordStatusTarget(record), 46),
     excerptRendererText(record.execution_mode, 10),
     excerptRendererText(record.status, 7),
   ].filter((part): part is string => part !== undefined).join(" ")

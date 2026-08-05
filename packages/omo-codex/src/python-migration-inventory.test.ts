@@ -11,6 +11,7 @@ const requiredRetainedPythonFiles = [
 const optionalGeneratedPythonFiles = [
   "packages/omo-codex/plugin/skills/ast-grep/scripts/ast_grep_helper.py",
   "packages/omo-codex/plugin/skills/coding-agent-sessions/scripts/agent_sessions/__init__.py",
+  "packages/omo-codex/plugin/skills/coding-agent-sessions/scripts/agent_sessions/aside_scanner.py",
   "packages/omo-codex/plugin/skills/coding-agent-sessions/scripts/agent_sessions/claude.py",
   "packages/omo-codex/plugin/skills/coding-agent-sessions/scripts/agent_sessions/cli.py",
   "packages/omo-codex/plugin/skills/coding-agent-sessions/scripts/agent_sessions/codex.py",
@@ -26,6 +27,7 @@ const optionalGeneratedPythonFiles = [
   "packages/omo-codex/plugin/skills/coding-agent-sessions/scripts/agent_sessions/transcript.py",
   "packages/omo-codex/plugin/skills/coding-agent-sessions/scripts/agent_sessions/types.py",
   "packages/omo-codex/plugin/skills/coding-agent-sessions/scripts/find-agent-sessions.py",
+  "packages/omo-codex/plugin/skills/data-scientist/scripts/quick-query.py",
   "packages/omo-codex/plugin/skills/frontend/references/ui-ux-db/scripts/core.py",
   "packages/omo-codex/plugin/skills/frontend/references/ui-ux-db/scripts/design_system.py",
   "packages/omo-codex/plugin/skills/frontend/references/ui-ux-db/scripts/search.py",

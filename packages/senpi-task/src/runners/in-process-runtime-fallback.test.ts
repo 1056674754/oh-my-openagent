@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import type { CreateAgentSessionOptions } from "@code-yeongyu/senpi"
 
+import { resolveCategory } from "../category"
 import { InProcessRunner } from "./in-process"
 import type { ChildSession, ChildSpec } from "./in-process"
 
@@ -51,23 +52,23 @@ describe("InProcessRunner runtime fallback", () => {
     })
     const fallbackModels = [
       {
-        source: "category",
+        source: "category" as const,
         provider: "quotio-openai",
-        model_id: "gpt-5.4-mini-fast",
-        display: "quotio-openai/gpt-5.4-mini-fast",
+        model_id: "gpt-5.6-luna-fast",
+        display: "quotio-openai/gpt-5.6-luna-fast",
         reasoning_effort: "minimal",
       },
       {
-        source: "category",
-        provider: "apitopia",
+        source: "category" as const,
+        provider: "example-gateway",
         model_id: "z-ai/glm-5.2-ultrafast-unlocked",
-        display: "apitopia/z-ai/glm-5.2-ultrafast-unlocked",
+        display: "example-gateway/z-ai/glm-5.2-ultrafast-unlocked",
         reasoning_effort: "none",
       },
     ] as const
     const spec = {
       ...baseSpec(),
-      selectedModel: "apitopia/kimi-for-coding-highspeed-unlocked",
+      selectedModel: "kimi-coding/kimi-for-coding-highspeed-unlocked",
       fallbackModels,
     }
 
@@ -79,15 +80,91 @@ describe("InProcessRunner runtime fallback", () => {
     expect(capturedRetrySettings(captured)).toMatchObject({
       modelFallback: true,
       chains: {
-        "apitopia/kimi-for-coding-highspeed-unlocked": [
-          "quotio-openai/gpt-5.4-mini-fast:minimal",
-          "apitopia/z-ai/glm-5.2-ultrafast-unlocked:none",
+        "kimi-coding/kimi-for-coding-highspeed-unlocked": [
+          "quotio-openai/gpt-5.6-luna-fast:minimal",
+          "example-gateway/z-ai/glm-5.2-ultrafast-unlocked:none",
         ],
       },
     })
   })
 
-  test("#given no runtime fallbacks #when the child session is created #then no fallback settings manager is injected", async () => {
+  test("#given runtime fallback models with both reasoning effort and variant #when the child session is created #then reasoning effort wins over variant", async () => {
+    // given
+    let captured: CreateAgentSessionOptions | undefined
+    const runner = new InProcessRunner({
+      createSession: async (options) => {
+        captured = options
+        return completedSession()
+      },
+    })
+    const spec = {
+      ...baseSpec(),
+      selectedModel: "kimi-coding/kimi-for-coding-highspeed-unlocked",
+      fallbackModels: [
+        {
+          source: "category" as const,
+          provider: "quotio-openai",
+          model_id: "gpt-5.6-luna-fast",
+          display: "quotio-openai/gpt-5.6-luna-fast",
+          reasoning_effort: "high",
+          variant: "max",
+        },
+      ],
+    }
+
+    // when
+    const handle = await runner.start(spec)
+    await handle.waitForIdle()
+
+    // then
+    expect(capturedRetrySettings(captured)).toMatchObject({
+      chains: {
+        "kimi-coding/kimi-for-coding-highspeed-unlocked": ["quotio-openai/gpt-5.6-luna-fast:high"],
+      },
+    })
+  })
+
+  test("#given a builtin category resolving to a chain rung #when the child session is created #then the remaining chain rungs land in retry fallback chains", async () => {
+    // given
+    const models = [
+      { provider: "quotio-openai", id: "gpt-5.6-luna-fast" },
+      { provider: "opencode-go", id: "minimax-m3" },
+    ] as const
+    const registry = {
+      getAvailable: () => models,
+      find: (provider: string, modelId: string) =>
+        models.find((candidate) => candidate.provider === provider && candidate.id === modelId),
+    }
+    const resolution = resolveCategory("quick", {}, registry)
+    if (resolution.kind !== "resolved") throw new Error(`Expected resolved category, got ${resolution.kind}`)
+    const spec = resolution.spec
+    let captured: CreateAgentSessionOptions | undefined
+    const runner = new InProcessRunner({
+      createSession: async (options) => {
+        captured = options
+        return completedSession()
+      },
+    })
+
+    // when
+    const handle = await runner.start({
+      ...baseSpec(),
+      selectedModel: `${spec.provider}/${spec.modelId}`,
+      ...(spec.fallback_models !== undefined ? { fallbackModels: spec.fallback_models } : {}),
+    })
+    await handle.waitForIdle()
+
+    // then
+    expect(`${spec.provider}/${spec.modelId}`).toBe("quotio-openai/gpt-5.6-luna-fast")
+    expect(capturedRetrySettings(captured)).toMatchObject({
+      modelFallback: true,
+      chains: {
+        "quotio-openai/gpt-5.6-luna-fast": ["opencode-go/minimax-m3:max"],
+      },
+    })
+  })
+
+  test("#given no runtime fallbacks #when the child session is created #then global model fallback is disabled", async () => {
     // given
     let captured: CreateAgentSessionOptions | undefined
     const runner = new InProcessRunner({
@@ -102,6 +179,9 @@ describe("InProcessRunner runtime fallback", () => {
     await handle.waitForIdle()
 
     // then
-    expect(capturedRetrySettings(captured)).toBeUndefined()
+    expect(capturedRetrySettings(captured)).toMatchObject({
+      modelFallback: false,
+      chains: {},
+    })
   })
 })

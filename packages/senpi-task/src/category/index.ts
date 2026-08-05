@@ -5,6 +5,8 @@ export {
   CATEGORY_PROMPT_APPENDS,
   DEFAULT_CATEGORIES,
   categoryGateModel,
+  isCategoryChainRungResolvable,
+  isCategoryChainViable,
   isCategoryGateSatisfied,
 } from "./builtins"
 export { resolveCategory } from "./resolver"

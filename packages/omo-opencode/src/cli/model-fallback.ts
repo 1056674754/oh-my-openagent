@@ -194,13 +194,13 @@ export function generateModelConfig(config: InstallConfig): GeneratedOmoConfig {
     if (role === "explore") {
       let agentConfig: AgentConfig
       if (avail.native.openai) {
-        agentConfig = { model: "openai/gpt-5.4-mini-fast" }
+        agentConfig = { model: "openai/gpt-5.6-luna-fast", variant: "low" }
       } else if (avail.native.claude) {
         agentConfig = { model: "anthropic/claude-haiku-4-5" }
       } else if (avail.opencodeZen) {
         agentConfig = { model: "opencode/gpt-5-nano" }
       } else if (avail.opencodeGo) {
-        agentConfig = { model: "opencode-go/qwen3.5-plus" }
+        agentConfig = { model: "opencode-go/qwen3.7-plus" }
       } else if (avail.copilot) {
         agentConfig = { model: "github-copilot/gpt-5-mini" }
       } else {

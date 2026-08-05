@@ -301,7 +301,7 @@ describe("buildTaskExecute batch fanout", () => {
     expect(output.details.items?.map((item) => item.error_message)).toEqual(IDS.map((taskId) => `failed:${taskId}`))
   })
 
-  test(" w2batch #given a model_unavailable start failure #when executed #then the error names valid category names with an override hint", async () => {
+  test(" w2batch #given a model_unavailable start failure #when executed #then the error names valid category names with the omo.json config hint", async () => {
     // given
     const manager = createFakeManager({
       start: async (): Promise<StartResult> => ({
@@ -326,7 +326,8 @@ describe("buildTaskExecute batch fanout", () => {
     // then
     const text = textOf(output)
     expect(text).toContain("Valid category names: deep, quick")
-    expect(text).toContain("model:")
+    expect(text).toContain("omo.json")
+    expect(text).not.toContain('Pass model:')
     expect(text).not.toContain("Available categories:")
   })
 })
