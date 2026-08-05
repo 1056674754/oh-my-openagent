@@ -25,6 +25,7 @@ export function createFallbackState(originalModel: unknown): FallbackState {
     failedModels: new Map<string, number>(),
     attemptCount: 0,
     pendingFallbackModel: undefined,
+    maxRetryAttemptObserved: 0,
   }
 }
 
@@ -92,6 +93,7 @@ export function prepareFallback(
   state.attemptCount++
   state.currentModel = nextModel
   state.pendingFallbackModel = nextModel
+  state.maxRetryAttemptObserved = 0
 
   return { success: true, newModel: nextModel }
 }

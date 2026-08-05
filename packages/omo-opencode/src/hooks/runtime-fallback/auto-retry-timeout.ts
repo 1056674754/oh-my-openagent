@@ -5,6 +5,7 @@ import { getFallbackModelsForSession } from "./fallback-models"
 import { prepareFallback } from "./fallback-state"
 import { restoreFallbackState, snapshotFallbackState } from "./fallback-state-snapshot"
 import { subagentSessions } from "../../features/claude-code-session-state"
+import { getFallbackApprovalRequester } from "./fallback-approval"
 
 declare function setTimeout(callback: () => void | Promise<void>, delay?: number): RuntimeFallbackTimeout
 declare function clearTimeout(timeout: RuntimeFallbackTimeout): void
@@ -58,14 +59,12 @@ export function createFallbackTimeoutHelpers(
         log(`[${HOOK_NAME}] Overriding in-flight retry due to session timeout`, { sessionID })
       }
 
-      await abortSessionRequest(sessionID, "session.timeout")
-      sessionRetryInFlight.delete(sessionID)
-
       if (state.pendingFallbackModel) {
         state.pendingFallbackModel = undefined
       }
       state.pendingFallbackPromptMayHaveBeenAccepted = false
       const stateSnapshot = snapshotFallbackState(state)
+      const unavailableModels = new Set<string>()
 
       const fallbackModels = getFallbackModelsForSession(sessionID, resolvedAgent, pluginConfig)
       if (fallbackModels.length === 0) return
@@ -76,11 +75,39 @@ export function createFallbackTimeoutHelpers(
         currentModel: state.currentModel,
       })
 
-      const result = prepareFallback(sessionID, state, fallbackModels, config)
-      if (result.success && result.newModel) {
+      while (true) {
+        const result = prepareFallback(sessionID, state, fallbackModels, config)
+        if (!result.success || !result.newModel) return
+
+        const approval = await getFallbackApprovalRequester(deps).request(
+          sessionID,
+          stateSnapshot.currentModel,
+          result.newModel,
+          "session.timeout",
+        )
+        if (approval.action === "skip") {
+          unavailableModels.add(result.newModel)
+          restoreFallbackState(state, stateSnapshot)
+          const failedAt = Date.now()
+          for (const model of unavailableModels) {
+            state.failedModels.set(model, failedAt)
+          }
+          continue
+        }
+        if (approval.action === "cancel") {
+          restoreFallbackState(state, stateSnapshot)
+          return
+        }
+
+        await abortSessionRequest(sessionID, "session.timeout")
+        sessionRetryInFlight.delete(sessionID)
         const dispatchOutcome = await autoRetryWithFallback(sessionID, result.newModel, resolvedAgent, "session.timeout")
         if (!dispatchOutcome.accepted) {
           restoreFallbackState(state, stateSnapshot)
+          const failedAt = Date.now()
+          for (const model of unavailableModels) {
+            state.failedModels.set(model, failedAt)
+          }
           if (deps.sessionAwaitingFallbackResult.has(sessionID)) {
             scheduleSessionFallbackTimeout(sessionID, resolvedAgent)
           }
@@ -90,6 +117,7 @@ export function createFallbackTimeoutHelpers(
             reason: dispatchOutcome.reason,
           })
         }
+        return
       }
     }, timeoutMs)
 

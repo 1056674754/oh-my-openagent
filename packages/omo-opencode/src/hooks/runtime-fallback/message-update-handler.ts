@@ -189,8 +189,10 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
       }
 
       if (classifyErrorType(error) === "quota_exceeded") {
-        await helpers.abortSessionRequest(sessionID, "message.updated.quota-fallback")
-        sessionRetryInFlight.delete(sessionID)
+        log(`[${HOOK_NAME}] Quota fallback awaiting OpenChamber approval before abort`, {
+          sessionID,
+          model,
+        })
       }
 
       await dispatchFallbackRetry(deps, helpers, {
@@ -199,6 +201,8 @@ export function createMessageUpdateHandler(deps: HookDeps, helpers: AutoRetryHel
         fallbackModels,
         resolvedAgent,
         source: "message.updated",
+        abortBeforeDispatch: classifyErrorType(error) === "quota_exceeded",
+        abortSource: "message.updated.quota-fallback",
       })
     }
   }

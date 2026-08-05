@@ -42,7 +42,7 @@ function createDeps(promptCalls: { count: number }): HookDeps {
       cooldown_seconds: 60,
       timeout_seconds: 0,
       notify_on_fallback: false,
-      restore_primary_after_cooldown: false,
+      restore_primary_after_cooldown: false, same_model_retries_before_swap: 3, immediate_swap_on_errors: ["quota_exceeded"], provider_overrides: {},
     },
     options: undefined,
     pluginConfig: undefined,
@@ -136,7 +136,7 @@ describe("createAutoRetryHelpers", () => {
     expect(String(firstPart["text"] ?? "")).toContain("OMO_INTERNAL_INITIATOR")
   })
 
-  test("#given a persisted user message with id and part ids #when auto retry runs #then the fallback prompt reuses the original messageID and part ids", async () => {
+  test("#given a persisted user message with id and part ids #when auto retry runs #then it preserves history with a fresh internal continuation", async () => {
     // given
     const promptCalls = { count: 0 }
     const deps = createDeps(promptCalls)
@@ -164,8 +164,15 @@ describe("createAutoRetryHelpers", () => {
 
     // then
     expect(promptCalls.count).toBe(1)
-    expect(capturedBody?.messageID).toBe("msg_original_user")
-    expect(capturedBody?.parts).toEqual([{ type: "text", text: "retry this", id: "prt_original" }])
+    expect(capturedBody?.messageID).toBe(undefined)
+    expect(capturedBody?.parts).toEqual([
+      expect.objectContaining({
+        type: "text",
+        synthetic: true,
+      }),
+    ])
+    expect(String((capturedBody?.parts as Array<{ text?: string }> | undefined)?.[0]?.text ?? ""))
+      .toContain("OMO_INTERNAL_INITIATOR")
   })
 
   test("#given internal abort marker is set #when abort request runs #then stale cleanup TTL is refreshed", async () => {

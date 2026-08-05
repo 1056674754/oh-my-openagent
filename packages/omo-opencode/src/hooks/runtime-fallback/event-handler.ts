@@ -12,6 +12,7 @@ import { dispatchFallbackRetry } from "./fallback-retry-dispatcher"
 import { createSessionStatusHandler } from "./session-status-handler"
 import { resolveMessageEventSessionID, resolveSessionEventID } from "../../shared/event-session-id"
 import { normalizeModelToCanonicalString } from "./normalize-model"
+import { cancelFallbackApproval } from "./fallback-approval"
 
 function isRuntimeFallbackRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
@@ -65,6 +66,7 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     deps.internallyAbortedSessions.delete(sessionID)
     sessionStatusRetryKeys.delete(sessionID)
     helpers.clearSessionFallbackTimeout(sessionID)
+    cancelFallbackApproval(deps, sessionID)
   }
 
   const handleSessionCreated = (props: Record<string, unknown> | undefined) => {
@@ -165,6 +167,18 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     if (hadTimeout) {
       log(`[${HOOK_NAME}] Cleared fallback timeout after session completion`, { sessionID })
     }
+  }
+
+  const handleAssistantProgress = (props: Record<string, unknown> | undefined) => {
+    const sessionID = resolveMessageEventSessionID(props)
+    if (!sessionID || !sessionAwaitingFallbackResult.has(sessionID)) return
+
+    cancelFallbackApproval(deps, sessionID)
+    helpers.scheduleSessionFallbackTimeout(sessionID)
+    sessionLastAccess.set(sessionID, Date.now())
+    log(`[${HOOK_NAME}] Assistant progress observed; refreshed fallback inactivity timeout`, {
+      sessionID,
+    })
   }
 
   const handleSessionError = async (props: Record<string, unknown> | undefined) => {
@@ -284,6 +298,10 @@ export function createEventHandler(deps: HookDeps, helpers: AutoRetryHelpers) {
     if (event.type === "session.deleted") { handleSessionDeleted(props); return }
     if (event.type === "session.stop") { await handleSessionStop(props); return }
     if (event.type === "message.updated") { handleMessageUpdated(props); return }
+    if (event.type === "message.part.updated" || event.type === "message.part.delta") {
+      handleAssistantProgress(props)
+      return
+    }
     if (event.type === "session.idle") { handleSessionIdle(props); return }
     if (event.type === "session.status") { await sessionStatusHandler(props); return }
     if (event.type === "session.error") { await handleSessionError(props); return }

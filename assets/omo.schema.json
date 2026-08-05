@@ -9059,6 +9059,42 @@
                 },
                 "restore_primary_after_cooldown": {
                   "type": "boolean"
+                },
+                "same_model_retries_before_swap": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 15
+                },
+                "immediate_swap_on_errors": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "quota_exceeded",
+                      "missing_api_key",
+                      "invalid_api_key",
+                      "model_not_found",
+                      "context_overflow",
+                      "abort"
+                    ]
+                  }
+                },
+                "provider_overrides": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "same_model_retries_before_swap": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 15
+                      }
+                    },
+                    "additionalProperties": false
+                  }
                 }
               },
               "additionalProperties": false
@@ -21233,6 +21269,42 @@
                       },
                       "restore_primary_after_cooldown": {
                         "type": "boolean"
+                      },
+                      "same_model_retries_before_swap": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 15
+                      },
+                      "immediate_swap_on_errors": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "quota_exceeded",
+                            "missing_api_key",
+                            "invalid_api_key",
+                            "model_not_found",
+                            "context_overflow",
+                            "abort"
+                          ]
+                        }
+                      },
+                      "provider_overrides": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {
+                          "type": "object",
+                          "properties": {
+                            "same_model_retries_before_swap": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 15
+                            }
+                          },
+                          "additionalProperties": false
+                        }
                       }
                     },
                     "additionalProperties": false

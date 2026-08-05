@@ -37,7 +37,7 @@ describe("createRuntimeFallbackHook dispose retry-key cleanup", () => {
         cooldown_seconds: 60,
         timeout_seconds: 30,
         notify_on_fallback: false,
-      restore_primary_after_cooldown: false,
+      restore_primary_after_cooldown: false, same_model_retries_before_swap: 0, immediate_swap_on_errors: ["quota_exceeded"], provider_overrides: {},
       },
       pluginConfig: {
         categories: {

@@ -71,13 +71,10 @@ export function createAutoRetryDispatcher(
       })
       const retryPayload = getLastUserRetryPayload(messagesResp, sessionID)
       const originalRetryMetadata = resolveOriginalUserRetryMetadata(messagesResp)
-      const fetchedParts = originalRetryMetadata.parts.length > 0
-        ? originalRetryMetadata.parts
-        : retryPayload.retryParts
-      const usingFetchedUserParts = originalRetryMetadata.parts.length > 0
-      const retryParts =
-        fetchedParts.length > 0
-          ? fetchedParts
+      const retryParts = originalRetryMetadata.messageID
+        ? [createInternalAgentContinuationTextPart("continue")]
+        : retryPayload.retryParts.length > 0
+          ? retryPayload.retryParts
           : (() => {
               log(
                 `[${HOOK_NAME}] No user message parts found for auto-retry (${source}); using synthetic continuation`,
@@ -86,11 +83,8 @@ export function createAutoRetryDispatcher(
                   hint: "This can occur when the working directory contains .git and messages are not yet persisted",
                 },
               )
-              // Mark the retry as internally initiated so continuation hooks
-              // do not render a user-visible bare "continue" turn (#4085).
               return [createInternalAgentContinuationTextPart("continue")]
             })()
-      const retryMessageID = usingFetchedUserParts ? originalRetryMetadata.messageID : undefined
       log(`[${HOOK_NAME}] Auto-retrying with fallback model (${source})`, {
         sessionID,
         model: newModel,
@@ -110,7 +104,6 @@ export function createAutoRetryDispatcher(
           ...retryModelPayload,
           ...(retryPayload.system ? { system: retryPayload.system } : {}),
           ...(retryPayload.tools ? { tools: retryPayload.tools } : {}),
-          ...(retryMessageID ? { messageID: retryMessageID } : {}),
           parts: retryParts,
         },
         query: { directory: ctx.directory },

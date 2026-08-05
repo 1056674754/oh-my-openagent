@@ -30,7 +30,7 @@ function createDeps(): HookDeps {
       cooldown_seconds: 60,
       timeout_seconds: 30,
       notify_on_fallback: false,
-      restore_primary_after_cooldown: false,
+      restore_primary_after_cooldown: false, same_model_retries_before_swap: 0, immediate_swap_on_errors: ["quota_exceeded"], provider_overrides: {},
     },
     options: undefined,
     pluginConfig: {},
@@ -44,7 +44,12 @@ function createDeps(): HookDeps {
   }
 }
 
-function createHelpers(deps: HookDeps, abortCalls: string[], clearCalls: string[]): AutoRetryHelpers {
+function createHelpers(
+  deps: HookDeps,
+  abortCalls: string[],
+  clearCalls: string[],
+  scheduleCalls: string[] = [],
+): AutoRetryHelpers {
   return {
     abortSessionRequest: async (sessionID: string) => {
       abortCalls.push(sessionID)
@@ -53,7 +58,9 @@ function createHelpers(deps: HookDeps, abortCalls: string[], clearCalls: string[
       clearCalls.push(sessionID)
       deps.sessionFallbackTimeouts.delete(sessionID)
     },
-    scheduleSessionFallbackTimeout: () => {},
+    scheduleSessionFallbackTimeout: (sessionID: string) => {
+      scheduleCalls.push(sessionID)
+    },
     autoRetryWithFallback: async () => {},
     resolveAgentForSessionFromContext: async () => undefined,
     cleanupStaleSessions: () => {},
@@ -61,6 +68,27 @@ function createHelpers(deps: HookDeps, abortCalls: string[], clearCalls: string[
 }
 
 describe("createEventHandler", () => {
+  for (const [eventType, properties] of [
+    ["message.part.updated", { part: { sessionID: "session-progress", type: "reasoning", text: "working" } }],
+    ["message.part.updated", { part: { sessionID: "session-progress", type: "tool", state: { status: "completed" } } }],
+    ["message.part.updated", { part: { sessionID: "session-progress", type: "patch", files: ["src/a.ts"] } }],
+    ["message.part.delta", { sessionID: "session-progress", field: "text", delta: "partial reasoning" }],
+  ] as const) {
+    it(`#given an awaiting fallback result #when ${eventType} reports assistant work #then the inactivity timeout is refreshed`, async () => {
+      const deps = createDeps()
+      const sessionID = "session-progress"
+      deps.sessionStates.set(sessionID, createFallbackState("deepseek/deepseek-v4-pro"))
+      deps.sessionAwaitingFallbackResult.add(sessionID)
+      const scheduleCalls: string[] = []
+      const handler = createEventHandler(deps, createHelpers(deps, [], [], scheduleCalls))
+
+      await handler({ event: { type: eventType, properties } })
+
+      expect(scheduleCalls).toEqual([sessionID])
+      expect(deps.sessionAwaitingFallbackResult.has(sessionID)).toBe(true)
+    })
+  }
+
   it("#given a session retry dedupe key #when session.stop fires #then the retry dedupe key is cleared", async () => {
     // given
     const sessionID = "session-stop"

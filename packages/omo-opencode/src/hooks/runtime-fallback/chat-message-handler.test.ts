@@ -20,7 +20,7 @@ function createDeps(): HookDeps {
       cooldown_seconds: 0,
       timeout_seconds: 30,
       notify_on_fallback: true,
-      restore_primary_after_cooldown: false,
+      restore_primary_after_cooldown: false, same_model_retries_before_swap: 3, immediate_swap_on_errors: ["quota_exceeded"], provider_overrides: {},
     },
     options: undefined,
     pluginConfig: undefined,
@@ -35,6 +35,40 @@ function createDeps(): HookDeps {
 }
 
 describe("createChatMessageHandler runtime fallback model override", () => {
+  test("#given a fallback timeout is armed #when the user manually switches models #then stale retry state is cancelled", async () => {
+    const deps = createDeps()
+    const sessionID = "session-manual-model-change"
+    const state = createFallbackState("openai/gpt-5.4")
+    state.currentModel = "zhipuai-coding-plan/glm-5.2"
+    state.pendingFallbackModel = "zhipuai-coding-plan/glm-5.2"
+    deps.sessionStates.set(sessionID, state)
+    deps.sessionAwaitingFallbackResult.add(sessionID)
+    deps.sessionRetryInFlight.add(sessionID)
+    deps.sessionFallbackTimeouts.set(sessionID, 1)
+    const cleared: string[] = []
+    const handler = createChatMessageHandler(deps, (id) => {
+      cleared.push(id)
+      deps.sessionFallbackTimeouts.delete(id)
+    })
+
+    await handler(
+      {
+        sessionID,
+        model: {
+          providerID: "deepseek",
+          modelID: "deepseek-v4-pro",
+        },
+      },
+      { message: {} },
+    )
+
+    expect(cleared).toEqual([sessionID])
+    expect(deps.sessionFallbackTimeouts.has(sessionID)).toBe(false)
+    expect(deps.sessionAwaitingFallbackResult.has(sessionID)).toBe(false)
+    expect(deps.sessionRetryInFlight.has(sessionID)).toBe(false)
+    expect(deps.sessionStates.get(sessionID)?.currentModel).toBe("deepseek/deepseek-v4-pro")
+  })
+
   test("#given session is on an accepted fallback #when a later user message is transformed after cooldown #then it stays on the fallback model", async () => {
     // given
     const deps = createDeps()

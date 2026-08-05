@@ -33,7 +33,7 @@ function createDeps(): HookDeps {
       cooldown_seconds: 60,
       timeout_seconds: 30,
       notify_on_fallback: false,
-      restore_primary_after_cooldown: false,
+      restore_primary_after_cooldown: false, same_model_retries_before_swap: 0, immediate_swap_on_errors: ["quota_exceeded"], provider_overrides: {},
     },
     options: undefined,
     pluginConfig: {
@@ -122,7 +122,7 @@ describe("createSessionStatusHandler", () => {
 
   it("#given pending fallback prompt may already be accepted #when provider retry status arrives #then it keeps waiting for that accepted prompt", async () => {
     // given
-    SessionCategoryRegistry.clear()
+    SessionCategoryRegistry.remove("session-status-ambiguous-pending")
     const sessionID = "session-status-ambiguous-pending"
     SessionCategoryRegistry.register(sessionID, "test")
 
@@ -156,12 +156,12 @@ describe("createSessionStatusHandler", () => {
     expect(state.currentModel).toBe("openai/gpt-5.4")
     expect(state.pendingFallbackModel).toBe("openai/gpt-5.4")
     expect(state.pendingFallbackPromptMayHaveBeenAccepted).toBe(true)
-    SessionCategoryRegistry.clear()
+    SessionCategoryRegistry.remove("session-status-ambiguous-pending")
   })
 
   it("#given a pending fallback model #when a new provider cooldown retry arrives #then the handler overrides the pending fallback and advances the chain", async () => {
     // given
-    SessionCategoryRegistry.clear()
+    SessionCategoryRegistry.remove("session-status-pending-fallback")
     const sessionID = "session-status-pending-fallback"
     SessionCategoryRegistry.register(sessionID, "test")
 
@@ -200,6 +200,109 @@ describe("createSessionStatusHandler", () => {
     ])
     expect(state.currentModel).toBe("google/gemini-2.5-pro")
     expect(state.pendingFallbackModel).toBe("google/gemini-2.5-pro")
-    SessionCategoryRegistry.clear()
+    SessionCategoryRegistry.remove("session-status-pending-fallback")
+  })
+})
+
+describe("createSessionStatusHandler retry budget", () => {
+  it("#given attempt within budget #when retry signal arrives #then lets opencode retry without swapping", async () => {
+    SessionCategoryRegistry.remove("session-status-pending-fallback")
+    const sessionID = "session-budget-within"
+    SessionCategoryRegistry.register(sessionID, "test")
+
+    const deps = createDeps()
+    deps.config.same_model_retries_before_swap = 3
+    const abortCalls: string[] = []
+    const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const state = createFallbackState("openai/gpt-5.4")
+    deps.sessionStates.set(sessionID, state)
+
+    const handler = createSessionStatusHandler(deps, createHelpers(abortCalls, retryCalls), deps.sessionStatusRetryKeys)
+
+    await handler({
+      sessionID,
+      model: "openai/gpt-5.4",
+      status: { type: "retry", attempt: 1, message: "rate limit exceeded [retrying in 5s attempt #1]" },
+    })
+
+    expect(abortCalls).toEqual([])
+    expect(retryCalls).toEqual([])
+    expect(state.maxRetryAttemptObserved).toBe(1)
+    expect(state.currentModel).toBe("openai/gpt-5.4")
+    SessionCategoryRegistry.remove(sessionID)
+  })
+
+  it("#given attempt exceeds budget #when retry signal arrives #then swaps to fallback", async () => {
+    const sessionID = "session-budget-exceeded"
+    SessionCategoryRegistry.register(sessionID, "test")
+
+    const deps = createDeps()
+    deps.config.same_model_retries_before_swap = 2
+    const abortCalls: string[] = []
+    const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const state = createFallbackState("openai/gpt-5.4")
+    state.maxRetryAttemptObserved = 3
+    deps.sessionStates.set(sessionID, state)
+
+    const handler = createSessionStatusHandler(deps, createHelpers(abortCalls, retryCalls), deps.sessionStatusRetryKeys)
+
+    await handler({
+      sessionID,
+      model: "openai/gpt-5.4",
+      status: { type: "retry", attempt: 4, message: "rate limit exceeded [retrying in 5s attempt #4]" },
+    })
+
+    expect(retryCalls.length).toBe(1)
+    expect(retryCalls[0]?.model).toBe("google/gemini-2.5-pro")
+    SessionCategoryRegistry.remove(sessionID)
+  })
+
+  it("#given quota_exceeded error #when first retry signal arrives #then swaps immediately ignoring budget", async () => {
+    const sessionID = "session-quota-immediate"
+    SessionCategoryRegistry.register(sessionID, "test")
+
+    const deps = createDeps()
+    deps.config.same_model_retries_before_swap = 5
+    const abortCalls: string[] = []
+    const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const state = createFallbackState("openai/gpt-5.4")
+    deps.sessionStates.set(sessionID, state)
+
+    const handler = createSessionStatusHandler(deps, createHelpers(abortCalls, retryCalls), deps.sessionStatusRetryKeys)
+
+    await handler({
+      sessionID,
+      model: "openai/gpt-5.4",
+      status: { type: "retry", attempt: 1, message: "Insufficient balance or no resource package. Please recharge. [retrying in 5s attempt #1]" },
+    })
+
+    expect(retryCalls.length).toBe(1)
+    SessionCategoryRegistry.remove(sessionID)
+  })
+
+  it("#given provider override #when kimi rate-limited #then uses higher budget", async () => {
+    const sessionID = "session-provider-override"
+    SessionCategoryRegistry.register(sessionID, "test")
+
+    const deps = createDeps()
+    deps.config.same_model_retries_before_swap = 1
+    deps.config.provider_overrides = { bailian: { same_model_retries_before_swap: 4 } }
+    const abortCalls: string[] = []
+    const retryCalls: Array<{ sessionID: string; model: string; source: string }> = []
+    const state = createFallbackState("bailian/kimi/kimi-k3")
+    deps.sessionStates.set(sessionID, state)
+
+    const handler = createSessionStatusHandler(deps, createHelpers(abortCalls, retryCalls), deps.sessionStatusRetryKeys)
+
+    await handler({
+      sessionID,
+      model: "bailian/kimi/kimi-k3",
+      status: { type: "retry", attempt: 2, message: "rate limit exceeded [retrying in 3s attempt #2]" },
+    })
+
+    expect(abortCalls).toEqual([])
+    expect(retryCalls).toEqual([])
+    expect(state.maxRetryAttemptObserved).toBe(2)
+    SessionCategoryRegistry.remove(sessionID)
   })
 })

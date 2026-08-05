@@ -34,7 +34,7 @@ function createDeps(toastMessages: string[]): HookDeps {
       cooldown_seconds: 60,
       timeout_seconds: 30,
       notify_on_fallback: true,
-      restore_primary_after_cooldown: false,
+      restore_primary_after_cooldown: false, same_model_retries_before_swap: 3, immediate_swap_on_errors: ["quota_exceeded"], provider_overrides: {},
     },
     options: undefined,
     pluginConfig: undefined,
@@ -63,8 +63,7 @@ function createRejectedDispatchHelpers(dispatchCalls: string[]): AutoRetryHelper
 }
 
 describe("dispatchFallbackRetry", () => {
-  test("#given fallback dispatch is blocked #when fallback retry runs #then state is restored and no success toast is shown", async () => {
-    // given
+  test("#given fallback dispatch is blocked #when fallback retry runs #then state is restored and error toast notifies user", async () => {
     const toastMessages: string[] = []
     const dispatchCalls: string[] = []
     const deps = createDeps(toastMessages)
@@ -73,7 +72,6 @@ describe("dispatchFallbackRetry", () => {
     const state = createFallbackState("openai/gpt-5.4")
     deps.sessionStates.set(sessionID, state)
 
-    // when
     await dispatchFallbackRetry(deps, helpers, {
       sessionID,
       state,
@@ -81,13 +79,41 @@ describe("dispatchFallbackRetry", () => {
       source: "message.updated",
     })
 
-    // then
     expect(dispatchCalls).toEqual(["litellm/openai.eu.gpt-5.5"])
-    expect(toastMessages).toEqual([])
+    expect(toastMessages).toEqual([
+      "Could not switch to litellm/openai.eu.gpt-5.5: test gate blocked dispatch. Please retry or select a model manually.",
+    ])
     expect(state.currentModel).toBe("openai/gpt-5.4")
     expect(state.fallbackIndex).toBe(-1)
     expect(state.attemptCount).toBe(0)
     expect(state.pendingFallbackModel).toBe(undefined)
     expect(state.failedModels.size).toBe(0)
+  })
+
+  test("#given all fallback candidates exhausted #when fallback retry runs #then error toast lists exhausted models", async () => {
+    const toastMessages: string[] = []
+    const deps = createDeps(toastMessages)
+    const helpers: AutoRetryHelpers = {
+      abortSessionRequest: async () => {},
+      clearSessionFallbackTimeout: () => {},
+      scheduleSessionFallbackTimeout: () => {},
+      autoRetryWithFallback: async () => undefined,
+      resolveAgentForSessionFromContext: async () => undefined,
+      cleanupStaleSessions: () => {},
+    }
+    const sessionID = "session-all-exhausted"
+    const state = createFallbackState("openai/gpt-5.4")
+    deps.sessionStates.set(sessionID, state)
+
+    await dispatchFallbackRetry(deps, helpers, {
+      sessionID,
+      state,
+      fallbackModels: [],
+      source: "session.status",
+    })
+
+    expect(toastMessages).toEqual([
+      "Primary model and all fallback candidates failed (no fallback models were available). Please recharge quota or select a different model manually.",
+    ])
   })
 })

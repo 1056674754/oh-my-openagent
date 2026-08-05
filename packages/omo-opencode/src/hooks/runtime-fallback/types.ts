@@ -38,13 +38,14 @@ export interface RuntimeFallbackPluginInput {
 }
 
 export interface FallbackState {
-  originalModel: string
-  currentModel: string
-  fallbackIndex: number
-  failedModels: Map<string, number>
-  attemptCount: number
-  pendingFallbackModel?: string
-  pendingFallbackPromptMayHaveBeenAccepted?: boolean
+  originalModel: string;
+  currentModel: string;
+  fallbackIndex: number;
+  failedModels: Map<string, number>;
+  attemptCount: number;
+  pendingFallbackModel?: string;
+  pendingFallbackPromptMayHaveBeenAccepted?: boolean;
+  maxRetryAttemptObserved: number;
 }
 
 export interface FallbackResult {

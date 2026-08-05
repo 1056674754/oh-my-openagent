@@ -5,6 +5,7 @@ import { createEventHandler } from "./event-handler"
 import { createFirstPromptWatchdog, observeEventForWatchdog } from "./first-prompt-watchdog"
 import { createMessageUpdateHandler } from "./message-update-handler"
 import type { HookDeps, RuntimeFallbackHook, RuntimeFallbackInterval, RuntimeFallbackOptions, RuntimeFallbackPluginInput, RuntimeFallbackTimeout } from "./types"
+import { disposeFallbackApprovalRequester } from "./fallback-approval"
 
 declare function setInterval(callback: () => void, delay?: number): RuntimeFallbackInterval
 declare function clearInterval(interval: RuntimeFallbackInterval): void
@@ -43,6 +44,9 @@ export function createRuntimeFallbackHook(
     timeout_seconds: options?.config?.timeout_seconds ?? DEFAULT_CONFIG.timeout_seconds,
     notify_on_fallback: options?.config?.notify_on_fallback ?? DEFAULT_CONFIG.notify_on_fallback,
     restore_primary_after_cooldown: options?.config?.restore_primary_after_cooldown ?? DEFAULT_CONFIG.restore_primary_after_cooldown,
+    same_model_retries_before_swap: options?.config?.same_model_retries_before_swap ?? DEFAULT_CONFIG.same_model_retries_before_swap,
+    immediate_swap_on_errors: options?.config?.immediate_swap_on_errors ?? DEFAULT_CONFIG.immediate_swap_on_errors,
+    provider_overrides: options?.config?.provider_overrides ?? DEFAULT_CONFIG.provider_overrides,
   }
 
   const deps: HookDeps = {
@@ -62,7 +66,7 @@ export function createRuntimeFallbackHook(
   const helpers = factories.createAutoRetryHelpers(deps)
   const baseEventHandler = factories.createEventHandler(deps, helpers)
   const messageUpdateHandler = factories.createMessageUpdateHandler(deps, helpers)
-  const chatMessageHandler = factories.createChatMessageHandler(deps)
+  const chatMessageHandler = factories.createChatMessageHandler(deps, helpers.clearSessionFallbackTimeout)
   const firstPromptWatchdog = factories.createFirstPromptWatchdog(deps, helpers)
 
   let cleanupInterval: RuntimeFallbackInterval | null = null
@@ -105,6 +109,7 @@ export function createRuntimeFallbackHook(
     }
 
     firstPromptWatchdog.dispose()
+    disposeFallbackApprovalRequester(deps)
 
     deps.sessionStates.clear()
     deps.sessionLastAccess.clear()

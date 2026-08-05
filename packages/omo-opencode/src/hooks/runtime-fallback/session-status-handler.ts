@@ -2,7 +2,7 @@ import type { HookDeps } from "./types"
 import type { AutoRetryHelpers } from "./auto-retry"
 import { HOOK_NAME, RETRYABLE_ERROR_PATTERNS } from "./constants"
 import { log } from "../../shared/logger"
-import { extractAutoRetrySignal } from "./error-classifier"
+import { classifyErrorType, extractAutoRetrySignal } from "./error-classifier"
 import { createFallbackState } from "./fallback-state"
 import { getFallbackModelsForSession } from "./fallback-models"
 import { normalizeRetryStatusMessage, extractRetryAttempt } from "../../shared/retry-status-utils"
@@ -35,14 +35,9 @@ export function createSessionStatusHandler(
     const retryMessage = typeof status.message === "string" ? status.message : ""
     const retrySignal = extractAutoRetrySignal({ status: retryMessage, message: retryMessage })
     if (!retrySignal) {
-      // Fallback: status.type is already "retry", so check the message against
-      // retryable error patterns directly. This handles providers like Gemini whose
-      // retry status message may not contain "retrying in" text alongside the error.
       const messageLower = retryMessage.toLowerCase()
       const matchesRetryablePattern = RETRYABLE_ERROR_PATTERNS.some((pattern) => pattern.test(messageLower))
       if (!matchesRetryablePattern) {
-        // Diagnostic: capture the actual retry message content so we can extend
-        // RETRYABLE_ERROR_PATTERNS if a provider emits a phrasing we don't yet match.
         if (retryMessage) {
           log(`[${HOOK_NAME}] session.status retry with non-matching message`, {
             sessionID,
@@ -59,20 +54,6 @@ export function createSessionStatusHandler(
       return
     }
     sessionStatusRetryKeys.set(sessionID, retryKey)
-
-    if (sessionRetryInFlight.has(sessionID)) {
-      if (timeoutEnabled) {
-        log(`[${HOOK_NAME}] Overriding in-flight retry due to provider auto-retry signal`, {
-          sessionID,
-          model,
-        })
-        await helpers.abortSessionRequest(sessionID, "session.status.retry-signal")
-        sessionRetryInFlight.delete(sessionID)
-      } else {
-        log(`[${HOOK_NAME}] session.status retry skipped - retry already in flight`, { sessionID })
-        return
-      }
-    }
 
     const resolvedAgent = await helpers.resolveAgentForSessionFromContext(sessionID, agent)
     const fallbackModels = getFallbackModelsForSession(sessionID, resolvedAgent, pluginConfig)
@@ -104,6 +85,59 @@ export function createSessionStatusHandler(
 
     sessionLastAccess.set(sessionID, Date.now())
 
+    const parsedAttempt = extractRetryAttempt(status.attempt, retryMessage)
+    const attemptNumber = typeof status.attempt === "number" && Number.isFinite(status.attempt)
+      ? status.attempt
+      : parsedAttempt === "?"
+        ? 1
+        : parseInt(parsedAttempt, 10) || 1
+    state.maxRetryAttemptObserved = Math.max(state.maxRetryAttemptObserved, attemptNumber)
+
+    const errorType = classifyErrorType(retryMessage)
+    const immediateSwapErrors = deps.config.immediate_swap_on_errors
+    const isImmediateSwap = errorType !== undefined && immediateSwapErrors.includes(errorType)
+
+    const providerPrefix = state.currentModel.split("/")[0]?.toLowerCase() ?? ""
+    const providerOverride = providerPrefix
+      ? deps.config.provider_overrides?.[providerPrefix]
+      : undefined
+    const budget = providerOverride?.same_model_retries_before_swap
+      ?? deps.config.same_model_retries_before_swap
+
+    if (!isImmediateSwap && budget > 0 && state.maxRetryAttemptObserved <= budget) {
+      log(`[${HOOK_NAME}] Within same-model retry budget, letting opencode retry`, {
+        sessionID,
+        model: state.currentModel,
+        attempt: attemptNumber,
+        budget,
+        errorType: errorType ?? "unknown",
+      })
+      return
+    }
+
+    log(`[${HOOK_NAME}] Retry budget exhausted or immediate-swap error, proceeding to fallback`, {
+      sessionID,
+      model: state.currentModel,
+      attempt: attemptNumber,
+      budget,
+      errorType: errorType ?? "unknown",
+      isImmediateSwap,
+    })
+
+    if (sessionRetryInFlight.has(sessionID)) {
+      if (timeoutEnabled) {
+        log(`[${HOOK_NAME}] Overriding in-flight retry due to provider auto-retry signal`, {
+          sessionID,
+          model,
+        })
+        await helpers.abortSessionRequest(sessionID, "session.status.retry-signal")
+        sessionRetryInFlight.delete(sessionID)
+      } else {
+        log(`[${HOOK_NAME}] session.status retry skipped - retry already in flight`, { sessionID })
+        return
+      }
+    }
+
     if (state.pendingFallbackModel) {
       if (state.pendingFallbackPromptMayHaveBeenAccepted) {
         log(`[${HOOK_NAME}] session.status retry skipped (pending fallback prompt may already be accepted)`, {
@@ -134,14 +168,14 @@ export function createSessionStatusHandler(
       retryAttempt: status.attempt,
     })
 
-    await helpers.abortSessionRequest(sessionID, "session.status.retry-signal")
-
     await dispatchFallbackRetry(deps, helpers, {
       sessionID,
       state,
       fallbackModels,
       resolvedAgent,
       source: "session.status",
+      abortBeforeDispatch: true,
+      abortSource: "session.status.retry-signal",
     })
   }
 }

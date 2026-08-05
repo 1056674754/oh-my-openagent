@@ -2,9 +2,20 @@ import type { HookDeps } from "./types"
 import { HOOK_NAME } from "./constants"
 import { log } from "../../shared/logger"
 import { createFallbackState, isModelInCooldown } from "./fallback-state"
+import { cancelFallbackApproval } from "./fallback-approval"
 
-export function createChatMessageHandler(deps: HookDeps) {
-  const { config, sessionStates, sessionLastAccess } = deps
+export function createChatMessageHandler(
+  deps: HookDeps,
+  clearSessionFallbackTimeout: (sessionID: string) => void = () => {},
+) {
+  const {
+    config,
+    sessionStates,
+    sessionLastAccess,
+    sessionRetryInFlight,
+    sessionAwaitingFallbackResult,
+    sessionStatusRetryKeys,
+  } = deps
 
   return async (
     input: { sessionID: string; agent?: string; model?: { providerID: string; modelID: string } },
@@ -35,6 +46,11 @@ export function createChatMessageHandler(deps: HookDeps) {
         from: state.currentModel,
         to: requestedModel,
       })
+      clearSessionFallbackTimeout(sessionID)
+      cancelFallbackApproval(deps, sessionID)
+      sessionRetryInFlight.delete(sessionID)
+      sessionAwaitingFallbackResult.delete(sessionID)
+      sessionStatusRetryKeys.delete(sessionID)
       state = createFallbackState(requestedModel)
       sessionStates.set(sessionID, state)
       return
