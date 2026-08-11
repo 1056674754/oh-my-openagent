@@ -37,6 +37,9 @@ const entryPath = join(packageRoot, "src", "extension", "index.ts")
 const outputPath = join(pluginRoot, "extensions", "omo.js")
 const memberEntryPath = join(repoRoot, "packages", "senpi-task", "src", "team", "member-extension", "index.ts")
 const memberOutputPath = join(pluginRoot, "extensions", "omo-member.js")
+const memoryMcpEntryPath = join(packageRoot, "src", "mcp", "memory-server.ts")
+const memoryMcpOutputPath = join(pluginRoot, "extensions", "omo-memory-mcp.js")
+const reflectionPersonaSource = join(repoRoot, "packages", "memory-core", "src", "reflection", "assets", "reflection-persona.md")
 const builtinModuleNames = builtinModules
   .filter((moduleName) => !moduleName.startsWith("_"))
   .sort()
@@ -58,9 +61,16 @@ export async function buildExtension(options = {}) {
   const memberOutput = options.memberOutputPath ?? (options.outputPath === undefined
     ? memberOutputPath
     : join(dirname(output), "omo-member.js"))
+  const memoryMcpOutput = options.memoryMcpOutputPath ?? (options.outputPath === undefined
+    ? memoryMcpOutputPath
+    : join(dirname(output), "omo-memory-mcp.js"))
   const mainInputs = await buildEntry(entryPath, output)
   const memberInputs = await buildEntry(memberEntryPath, memberOutput)
-  return { mainInputs, memberInputs }
+  const memoryMcpInputs = await buildEntry(memoryMcpEntryPath, memoryMcpOutput)
+  // Bundling inlines assets.ts but its markdown is read from disk at runtime next to the bundle,
+  // so the persona must be staged into the extension output directory the loader executes from.
+  await writeFile(join(dirname(output), "reflection-persona.md"), await readFile(reflectionPersonaSource, "utf8"))
+  return { mainInputs, memberInputs, memoryMcpInputs }
 }
 
 async function buildEntry(entry, output) {
@@ -84,21 +94,35 @@ export async function checkExtensionCurrent(options = {}) {
   const memberOutput = options.memberOutputPath ?? (options.outputPath === undefined
     ? memberOutputPath
     : join(dirname(output), "omo-member.js"))
+  const memoryMcpOutput = options.memoryMcpOutputPath ?? (options.outputPath === undefined
+    ? memoryMcpOutputPath
+    : join(dirname(output), "omo-memory-mcp.js"))
   const currentMain = await readBuiltEntry(output)
   if (currentMain === undefined) return { ok: false, reason: "missing-output", output }
   const currentMember = await readBuiltEntry(memberOutput)
   if (currentMember === undefined) return { ok: false, reason: "missing-output", output: memberOutput }
+  const currentMemoryMcp = await readBuiltEntry(memoryMcpOutput)
+  if (currentMemoryMcp === undefined) return { ok: false, reason: "missing-output", output: memoryMcpOutput }
 
   const tempRoot = await mkdtemp(join(repoRoot, ".build-check-"))
   const expectedOutput = join(tempRoot, "omo.js")
   const expectedMemberOutput = join(tempRoot, "omo-member.js")
+  const expectedMemoryMcpOutput = join(tempRoot, "omo-memory-mcp.js")
   try {
-    await buildExtension({ outputPath: expectedOutput, memberOutputPath: expectedMemberOutput })
+    await buildExtension({ outputPath: expectedOutput, memberOutputPath: expectedMemberOutput, memoryMcpOutputPath: expectedMemoryMcpOutput })
     if (!artifactsMatch(currentMain, await readFile(expectedOutput, "utf8"))) {
       return { ok: false, reason: "stale-output", output }
     }
     if (!artifactsMatch(currentMember, await readFile(expectedMemberOutput, "utf8"))) {
       return { ok: false, reason: "stale-output", output: memberOutput }
+    }
+    if (!artifactsMatch(currentMemoryMcp, await readFile(expectedMemoryMcpOutput, "utf8"))) {
+      return { ok: false, reason: "stale-output", output: memoryMcpOutput }
+    }
+    const expectedPersona = await readFile(join(tempRoot, "reflection-persona.md"), "utf8")
+    const currentPersona = await readFile(join(dirname(output), "reflection-persona.md"), "utf8").catch(() => undefined)
+    if (currentPersona !== expectedPersona) {
+      return { ok: false, reason: "stale-output", output: join(dirname(output), "reflection-persona.md") }
     }
     return { ok: true, output, memberOutput }
   } finally {
@@ -192,6 +216,9 @@ async function readBuiltEntry(output) {
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (process.argv.includes("--check")) {
+    run("node", [join(scriptDir, "stage-lsp-daemon-runtime.mjs"), "--check"])
+    run("node", [join(scriptDir, "stage-ast-grep-mcp-runtime.mjs"), "--check"])
+    run("node", [join(scriptDir, "stage-agent-toolkit.mjs"), "--check"])
     const result = await checkExtensionCurrent()
     if (!result.ok) {
       console.error(`omo-senpi extension build is not current: ${result.reason}`)

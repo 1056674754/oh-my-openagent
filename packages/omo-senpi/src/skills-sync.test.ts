@@ -35,6 +35,7 @@ const CODEX_DERIVED_SKILL_NAMES: Record<string, true> = {}
 const NATIVE_SENPI_SKILL_NAMES: Record<string, true> = {
   "give-me-tips": true,
   hyperplan: true,
+  "init-deep": true,
   ultrawork: true,
   "ulw-loop": true,
   "ulw-research": true,
@@ -187,9 +188,41 @@ describe("OMO Senpi scoped skill sync", () => {
     expect(content.includes("codex:<session_id>"), "start-work must not reference codex:<session_id>").toBe(false)
   })
 
+  test("#given start-work skill #when inspected #then the senpi banner advertises senpi watcher tools, not a codex wait idiom", () => {
+    const skillFile = join(skillsRoot, "start-work", "SKILL.md")
+    const content = readFileSync(skillFile, "utf8")
+
+    expect(/\bmonitor\b/.test(content), "start-work must name the senpi tool that arms a lane watcher").toBe(true)
+    expect(/\bkill_bash\b/.test(content), "start-work must name the senpi tool that tears a watcher down").toBe(true)
+    expect(/\bwait_agent\b/.test(content), "start-work must not carry the codex wait_agent polling idiom").toBe(false)
+  })
+
   test("#given synced skill tree #when inspected #then no codex-only display metadata is packaged", () => {
     const openaiFiles = listFiles(skillsRoot).filter((file) => file.endsWith("agents/openai.yaml"))
     expect(openaiFiles.map((file) => relative(repoRoot, file))).toEqual([])
+  })
+
+  test("#given ported orchestration skills #when scanned #then no foreign-harness delegation guidance survives", () => {
+    const portedOrchestrationSkillNames = ["start-work", "ulw-plan"] as const
+    const foreignDelegationPattern = /\b(?:multi_agent|spawn_agent|lazycodex)\b/i
+    const leaks: string[] = []
+
+    for (const skillName of portedOrchestrationSkillNames) {
+      const skillRoot = join(skillsRoot, skillName)
+      if (!existsSync(skillRoot)) continue
+
+      for (const file of listFiles(skillRoot)) {
+        const content = readFileSync(file, "utf8")
+        if (foreignDelegationPattern.test(content)) {
+          leaks.push(`${relative(repoRoot, file)}: foreign delegation tool guidance`)
+        }
+        if (skillName === "ulw-plan" && /\boracle\b/i.test(content)) {
+          leaks.push(`${relative(repoRoot, file)}: oracle reviewer does not exist in omo-senpi`)
+        }
+      }
+    }
+
+    expect(leaks).toEqual([])
   })
 
   test("#given frontend skill #when inspected #then materialized design references exist", () => {

@@ -1,6 +1,8 @@
+import type { SessionShutdownEvent } from "@code-yeongyu/senpi"
 import type { ComponentContext, SenpiExtensionAPI } from "../../extension/types"
 import type { TaskEngine } from "./engine"
 import type { LeadPollerLifecycle } from "./lead-poller-lifecycle"
+import type { ResumptionChannelEmitter } from "./resumption-channel-emitter"
 import type { LiveTaskContext } from "./runtime-context"
 import { wireReloadGuard } from "./reload-guard"
 import type { SessionTransitionBridge } from "./session-transition-bridge"
@@ -12,10 +14,15 @@ export const TASK_USAGE_HINT_FLAG = "omo-task-usage-hint"
 type EventBridgeState = {
   readonly reconcileTeamMailbox: () => Promise<void>
   readonly leadPollers: Pick<LeadPollerLifecycle, "tick" | "shutdown">
+  readonly resumptionChannels: Pick<ResumptionChannelEmitter, "emitSessionStart" | "emitShutdown">
 }
 
-// Session start runs the durable recovery chain in strict order: reattach process members, reclaim
-// mailbox reservations, retry failed completion notices, then opportunistically poll owned leads.
+// Session start runs the durable recovery chain in strict order: flush/drop buffered completions
+// BEFORE reconcile (revived children must not double-deliver buffered terminals), revive/reattach
+// the resumed session's children (undefined session id still runs the legacy crash-orphan sweep),
+// re-observe owned-member liveness, reclaim mailbox reservations, redeliver unnotified completions,
+// await TTL cleanup (its retention predicate keeps anything with an undelivered notification, so
+// cleanup cannot delete what the previous step just queued), then poll owned leads and sync status.
 export function wireEventBridge(
   pi: SenpiExtensionAPI,
   ctx: ComponentContext,
@@ -29,8 +36,9 @@ export function wireEventBridge(
 
   pi.on("session_start", async (_payload, eventCtx) => {
     engine.runtime.captureFrom(asLiveContext(eventCtx))
-    transitions.onSessionStart(engine.runtime.sessionId())
-    const reconciliation = await engine.lifecycle.reconcileOnSessionStart()
+    const sessionId = engine.runtime.sessionId()
+    transitions.onSessionStart(sessionId)
+    const reconciliation = await engine.lifecycle.reconcileOnSessionStart(sessionId)
     for (const outcome of reconciliation.outcomes) {
       const record = engine.manager.get(outcome.task_id)
       // A previous process can persist the terminal transition before its queued team-liveness steer
@@ -38,14 +46,14 @@ export function wireEventBridge(
       // its persisted liveness epoch suppresses records already delivered in an earlier process.
       if (record !== undefined) await engine.notifyOwnedMemberLiveness(record)
     }
-    const cleanup = engine.lifecycle.cleanupExpiredRecords()
+    await state.resumptionChannels.emitSessionStart()
+    await reconcileTeamMailboxBestEffort(ctx, state)
+    if (sessionId !== undefined) {
+      engine.notifier.reconcileUnnotifiedNotifications({ sessionId, parentState: engine.runtime.parentState() })
+    }
+    const cleanup = await engine.lifecycle.cleanupExpiredRecords()
     if (cleanup.deleted.length > 0) {
       ctx.logger.info("senpi-task ttl cleanup", { deleted: cleanup.deleted.length, retained: cleanup.retained.length })
-    }
-    await reconcileTeamMailboxBestEffort(ctx, state)
-    const sessionId = engine.runtime.sessionId()
-    if (sessionId !== undefined) {
-      engine.notifier.reconcileFailedNotifications({ sessionId, parentState: engine.runtime.parentState() })
     }
     await tickLeadPollersBestEffort(ctx, state)
     statusUi.scheduleSync()
@@ -68,13 +76,24 @@ export function wireEventBridge(
     statusUi.scheduleSync()
   })
 
-  pi.on("session_shutdown", async (_payload, eventCtx) => {
+  pi.on("session_shutdown", async (payload, eventCtx) => {
     engine.runtime.captureFrom(asLiveContext(eventCtx))
     transitions.onShutdown(engine.runtime.sessionId())
     engine.runtime.clearUi()
     statusUi.dispose()
     state.leadPollers.shutdown()
-    await engine.lifecycle.teardownOnSessionShutdown()
+    await state.resumptionChannels.emitShutdown()
+    const shutdownEvent = payload as SessionShutdownEvent
+    const parentSessionId = engine.runtime.sessionId()
+    const reason = shutdownEvent.reason
+    if (parentSessionId === undefined || typeof reason !== "string") {
+      ctx.logger.warn(
+        "omo-senpi task session_shutdown skipped: no captured session id or malformed reason",
+        { parentSessionId, reason },
+      )
+      return
+    }
+    await engine.lifecycle.suspendOnSessionShutdown({ parentSessionId, reason })
   })
 
   pi.on("model_select", (_payload, eventCtx) => {

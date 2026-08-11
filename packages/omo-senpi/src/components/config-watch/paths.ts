@@ -1,4 +1,5 @@
 import { lstatSync, statSync } from "node:fs"
+import { resolveAgentHome } from "../agent-home/resolve-agent-home"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 
 import {
@@ -15,7 +16,7 @@ const SENPI_AGENT_DIR_ENV = "SENPI_CODING_AGENT_DIR"
 
 // Root-anchored: senpi maps a `dir` target to a RECURSIVE watch, so unanchored
 // globs make it hash the entire subtree. A `.omo` directory also holds runtime
-// state (senpi-task/, runtime/, codegraph/), which reached tens of thousands of
+// state (senpi-task/ and runtime/ including runtime/ast-grep/), which reached tens of thousands of
 // files and gigabytes of hashing per watcher rebuild. Config lives only at the
 // top level, so anchoring keeps the scan to those two files.
 export const OMO_CONFIG_FILE_FILTER_GLOBS = ["/omo.jsonc", "/omo.json"] as const
@@ -64,7 +65,7 @@ function containsPath(parent: string, child: string): boolean {
  * are unaffected).
  */
 function resolveSenpiProtectedPaths(env: OmoConfigEnv): readonly string[] {
-  const agentDir = resolve(env[SENPI_AGENT_DIR_ENV] ?? join(resolveHomeDir(env), ".senpi", "agent"))
+  const agentDir = resolveAgentHome({ env, homeDir: resolveHomeDir(env) })
   return [join(agentDir, "auth.json"), join(agentDir, "sessions"), join(agentDir, "logs")]
 }
 

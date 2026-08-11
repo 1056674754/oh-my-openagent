@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs"
+import { resolveAgentHome } from "../agent-home/resolve-agent-home"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import type { OmoSenpiComponent } from "../../extension/types"
@@ -99,7 +100,7 @@ function createRecordDailyActiveInput(options: SenpiTelemetryOptions): RecordDai
 }
 
 function getSenpiAgentDir(env: TelemetryEnv): string {
-  return env[SENPI_AGENT_DIR_ENV]?.trim() || join(homedir(), ".senpi", "agent")
+  return resolveAgentHome({ env })
 }
 
 function withTimeout(operation: Promise<void>, timeoutMs: number): Promise<void> {

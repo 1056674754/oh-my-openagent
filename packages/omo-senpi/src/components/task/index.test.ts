@@ -90,6 +90,10 @@ function fakeUi(): CapturedUi {
 }
 
 const noopStatusUi = { scheduleSync: () => {}, syncNow: () => {}, dispose: () => {} }
+const noopResumptionChannels = {
+  emitSessionStart: () => Promise.resolve(),
+  emitShutdown: () => Promise.resolve(),
+}
 
 // Build the real engine and wire its event bridge over a fake ExtensionAPI so tests can drive the
 // registered handlers and observe the captured-ui bridge (todo 18: cleared on switch/shutdown).
@@ -118,6 +122,7 @@ function wiredBridge(): {
       },
       shutdown: () => { leadCalls.shutdowns += 1 },
     },
+    resumptionChannels: noopResumptionChannels,
   })
   return { pi, engine, reconcileCalls, leadCalls }
 }
@@ -150,6 +155,7 @@ function terminalRecord(teamRunId: string, memberName = "crash"): TaskRecord {
     updated_at: "2026-07-29T00:00:01.000Z",
     error_message: "RPC child exited with code 1",
     notification: { run_epoch: 0, notified_epoch: 0 },
+    notify_on_terminal: false,
   }
 }
 
@@ -277,18 +283,18 @@ describe("omo-senpi task component wiring", () => {
       ...base,
       lifecycle: {
         ...base.lifecycle,
-        reconcileOnSessionStart: async () => {
-          order.push("reattach")
+        reconcileOnSessionStart: async (sessionId) => {
+          order.push(`reattach:${sessionId}`)
           return { outcomes: [] }
         },
-        cleanupExpiredRecords: () => {
+        cleanupExpiredRecords: async () => {
           order.push("cleanup")
           return { deleted: [], retained: [] }
         },
       },
       notifier: {
         ...base.notifier,
-        reconcileFailedNotifications: () => { order.push("notify") },
+        reconcileUnnotifiedNotifications: () => { order.push("notify") },
       },
     }
     const transitions = createSessionTransitionBridge({ runtime: engine.runtime, notifier: engine.notifier })
@@ -304,6 +310,7 @@ describe("omo-senpi task component wiring", () => {
         },
         shutdown: () => undefined,
       },
+      resumptionChannels: noopResumptionChannels,
     })
 
     // when
@@ -314,7 +321,7 @@ describe("omo-senpi task component wiring", () => {
     })
 
     // then
-    expect(order).toEqual(["reattach", "cleanup", "reclaim", "notify", "poll"])
+    expect(order).toEqual(["reattach:session-a", "reclaim", "notify", "cleanup", "poll"])
   })
 
   it("#given a terminal member owned by lead A #when lead B reconciles then lead A reconciles #then only the owning lead receives replay", async () => {
@@ -330,13 +337,14 @@ describe("omo-senpi task component wiring", () => {
       lifecycle: {
         ...base.lifecycle,
         reconcileOnSessionStart: async () => ({ outcomes: [{ task_id: terminal.task_id, kind: "resumed" }] }),
-        cleanupExpiredRecords: () => ({ deleted: [], retained: [] }),
+        cleanupExpiredRecords: async () => ({ deleted: [], retained: [] }),
       },
     }
     const transitions = createSessionTransitionBridge({ runtime: engine.runtime, notifier: engine.notifier })
     wireEventBridge(pi, ctxFor(pi, logger), engine, noopStatusUi, transitions, {
       reconcileTeamMailbox: () => Promise.resolve(),
       leadPollers: { tick: () => Promise.resolve(), shutdown: () => undefined },
+      resumptionChannels: noopResumptionChannels,
     })
 
     await pi.dispatch("session_start", {}, {
@@ -384,13 +392,14 @@ describe("omo-senpi task component wiring", () => {
       lifecycle: {
         ...base.lifecycle,
         reconcileOnSessionStart: async () => ({ outcomes: [{ task_id: terminal.task_id, kind: "resumed" }] }),
-        cleanupExpiredRecords: () => ({ deleted: [], retained: [] }),
+        cleanupExpiredRecords: async () => ({ deleted: [], retained: [] }),
       },
     }
     const transitions = createSessionTransitionBridge({ runtime: engine.runtime, notifier: engine.notifier })
     wireEventBridge(replayPi, ctxFor(replayPi, logger), engine, noopStatusUi, transitions, {
       reconcileTeamMailbox: () => Promise.resolve(),
       leadPollers: { tick: () => Promise.resolve(), shutdown: () => undefined },
+      resumptionChannels: noopResumptionChannels,
     })
     const sessionFile = join(cwd, "lead-session.jsonl")
     const liveContext = {
