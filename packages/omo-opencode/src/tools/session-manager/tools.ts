@@ -158,7 +158,7 @@ export function createSessionManagerTools(
             return resolvedDeps.searchInSession(args.session_id, args.query, args.case_sensitive, resultLimit)
           }
 
-          const allSessions = await resolvedDeps.getAllSessions()
+          const allSessions = await resolvedDeps.getAllSessions(ctx.directory)
           const sessionsToScan = allSessions.slice(0, MAX_SESSIONS_TO_SCAN)
 
           const allResults: SearchResult[] = []

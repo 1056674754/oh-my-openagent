@@ -173,8 +173,8 @@ export async function getMainSessions(options: GetMainSessionsOptions): Promise<
   return getFileMainSessions(directory)
 }
 
-export async function getAllSessions(): Promise<string[]> {
-  const listClient = pickListClient() ?? sdkClient
+export async function getAllSessions(queryDirectory?: string): Promise<string[]> {
+  const listClient = pickListClient(queryDirectory) ?? sdkClient
   if (isSqliteBackend() && listClient) {
     try {
       const sdkSessionIds = await getSdkAllSessions(listClient)
