@@ -135,7 +135,14 @@ describe("createFallbackTimeoutHelpers", () => {
         setTimeout(() => reject(new Error("timer did not fire")), 1000)
       }),
     ])
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    // Wait for the timer callback's async continuation (re-arm) to complete.
+    // Must use queueMicrotask, NOT setTimeout(resolve, 0): the re-armed 1ms
+    // timer and setTimeout(resolve, 0) both expire in the same macrotask phase,
+    // and Bun processes them FIFO — the re-armed timer fires first, deletes
+    // from the map, and yields at an await before the test can observe the
+    // populated map. queueMicrotask drains the microtask queue (where re-arm
+    // happens) without entering the macrotask phase where the timer interferes.
+    await new Promise((resolve) => queueMicrotask(resolve))
 
     // then
     expect(deps.sessionAwaitingFallbackResult.has(sessionID)).toBe(true)
