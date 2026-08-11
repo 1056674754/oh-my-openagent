@@ -98,6 +98,18 @@ function extractClientConfig(client: PluginInput["client"]): {
     if (key.toLowerCase() === "x-opencode-directory") continue
     headers[key] = String(value)
   }
+  // Robustness fallback: if no Authorization header was extracted from the client
+  // (e.g. ServerAuth.headers() returned undefined at plugin load time), construct
+  // Basic auth from the environment. This keeps session-manager functional even
+  // when ctx.client has no auth headers.
+  const hasAuthorization = Object.keys(headers).some((k) => k.toLowerCase() === "authorization")
+  if (!hasAuthorization) {
+    const password = process.env.OPENCODE_SERVER_PASSWORD
+    if (password) {
+      const username = process.env.OPENCODE_SERVER_USERNAME ?? "opencode"
+      headers["Authorization"] = `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`
+    }
+  }
   return { headers, fetch: config.fetch as typeof fetch | undefined }
 }
 
