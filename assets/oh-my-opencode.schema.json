@@ -6229,6 +6229,152 @@
             "minimum": 0
           }
         },
+        "quotaRouting": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "default": true,
+                "type": "boolean"
+              },
+              "quotaProvider": {
+                "type": "string",
+                "enum": [
+                  "zai-coding-plan",
+                  "zhipuai-coding-plan",
+                  "kimi-for-coding"
+                ]
+              },
+              "windows": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "windowSeconds": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "gracePeriodSeconds": {
+                      "default": 3600,
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "paceThresholdRatio": {
+                      "default": 0.95,
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "windowSeconds",
+                    "gracePeriodSeconds",
+                    "paceThresholdRatio"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "refreshIntervalSeconds": {
+                "default": 60,
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "requestTimeoutMs": {
+                "default": 5000,
+                "type": "integer",
+                "minimum": 1000,
+                "maximum": 9007199254740991
+              },
+              "fallbackModels": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "model": {
+                          "type": "string"
+                        },
+                        "variant": {
+                          "type": "string"
+                        },
+                        "reasoningEffort": {
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "minimal",
+                            "low",
+                            "medium",
+                            "high",
+                            "xhigh",
+                            "max"
+                          ]
+                        },
+                        "temperature": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 2
+                        },
+                        "top_p": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        "maxTokens": {
+                          "type": "number"
+                        },
+                        "thinking": {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "enabled",
+                                "disabled"
+                              ]
+                            },
+                            "budgetTokens": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "type"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "model"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            },
+            "required": [
+              "enabled",
+              "quotaProvider",
+              "windows",
+              "refreshIntervalSeconds",
+              "requestTimeoutMs",
+              "fallbackModels"
+            ],
+            "additionalProperties": false
+          }
+        },
         "maxDepth": {
           "type": "integer",
           "minimum": 1,
@@ -6549,8 +6695,16 @@
       "type": "object",
       "properties": {
         "auto_init": {
-          "default": true,
-          "type": "boolean"
+          "default": "safe",
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "safe"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
         },
         "auto_provision": {
           "default": true,
@@ -6573,6 +6727,12 @@
         "install_dir": {
           "type": "string"
         },
+        "max_index_db_bytes": {
+          "default": 2147483648,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
         "telemetry": {
           "type": "boolean"
         },
@@ -6585,7 +6745,8 @@
         "auto_init",
         "auto_provision",
         "daemon",
-        "enabled"
+        "enabled",
+        "max_index_db_bytes"
       ],
       "additionalProperties": false
     },

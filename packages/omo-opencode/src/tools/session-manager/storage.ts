@@ -8,6 +8,7 @@ import type { SessionInfo, SessionMessage, SessionMetadata, TodoItem } from "./t
 
 export interface GetMainSessionsOptions {
   directory?: string
+  serverUrl?: URL
 }
 
 export interface SetStorageClientOptions {
@@ -134,24 +135,49 @@ export function setStorageClient(
 
 // Build (or fetch from cache) a list client for the given query directory, so the
 // server-side ?directory= filter matches session.directory for that project.
-function pickListClient(queryDirectory?: string): PluginInput["client"] | null {
+// overrideServerUrl lets each tool invocation pass its own ctx.serverUrl,
+// preventing a remote-instance load from hijacking the module-level singleton.
+function pickListClient(queryDirectory?: string, overrideServerUrl?: URL): PluginInput["client"] | null {
   if (!sdkClient) return null
-  if (!listClientBase.serverUrl) return sdkClient
+  const effectiveServerUrl = overrideServerUrl ?? listClientBase.serverUrl
+  if (!effectiveServerUrl) return sdkClient
   const normalized = queryDirectory !== undefined ? normalizeProjectFilter(queryDirectory) : undefined
   if (!normalized) return sdkClient
-  const cached = directoryClientCache.get(normalized)
+  const cacheKey = `${normalized}::${effectiveServerUrl.toString()}`
+  const cached = directoryClientCache.get(cacheKey)
   if (cached) return cached
   try {
     const cfg: { baseUrl: string; headers?: Record<string, string>; fetch?: typeof fetch; directory: string } = {
-      baseUrl: listClientBase.serverUrl.toString(),
+      baseUrl: effectiveServerUrl.toString(),
       directory: normalized,
     }
-    if (listClientBase.headers && Object.keys(listClientBase.headers).length > 0) {
-      cfg.headers = listClientBase.headers
+    // When the override server differs from the module-level one, the stored
+    // headers may be for the wrong server. Reconstruct auth from env in that case.
+    let hdrs = listClientBase.headers
+    const serverMismatch = !!overrideServerUrl
+      && !!listClientBase.serverUrl
+      && effectiveServerUrl.toString() !== listClientBase.serverUrl.toString()
+    if (serverMismatch) {
+      hdrs = undefined
+    }
+    if (hdrs && Object.keys(hdrs).length > 0) {
+      cfg.headers = hdrs
+    }
+    // Env-based auth fallback (also covers serverMismatch case where hdrs was cleared)
+    const hasAuth = cfg.headers && Object.keys(cfg.headers).some((k) => k.toLowerCase() === "authorization")
+    if (!hasAuth) {
+      const password = process.env.OPENCODE_SERVER_PASSWORD
+      if (password) {
+        const username = process.env.OPENCODE_SERVER_USERNAME ?? "opencode"
+        cfg.headers = {
+          ...(cfg.headers ?? {}),
+          Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`,
+        }
+      }
     }
     if (listClientBase.fetch) cfg.fetch = listClientBase.fetch
     const client = createOpencodeClient(cfg) as PluginInput["client"]
-    directoryClientCache.set(normalized, client)
+    directoryClientCache.set(cacheKey, client)
     return client
   } catch (error) {
     log("[session-manager] failed to build directory-corrected list client; falling back to ctx client", {
@@ -170,7 +196,7 @@ export function resetStorageClient(): void {
 
 export async function getMainSessions(options: GetMainSessionsOptions): Promise<SessionMetadata[]> {
   const directory = normalizeProjectFilter(options.directory)
-  const listClient = pickListClient(options.directory)
+  const listClient = pickListClient(options.directory, options.serverUrl)
   if (isSqliteBackend() && listClient) {
     try {
       const sdkSessions = await getSdkMainSessions(listClient, directory)
@@ -185,8 +211,8 @@ export async function getMainSessions(options: GetMainSessionsOptions): Promise<
   return getFileMainSessions(directory)
 }
 
-export async function getAllSessions(queryDirectory?: string): Promise<string[]> {
-  const listClient = pickListClient(queryDirectory) ?? sdkClient
+export async function getAllSessions(queryDirectory?: string, overrideServerUrl?: URL): Promise<string[]> {
+  const listClient = pickListClient(queryDirectory, overrideServerUrl) ?? sdkClient
   if (isSqliteBackend() && listClient) {
     try {
       const sdkSessionIds = await getSdkAllSessions(listClient)

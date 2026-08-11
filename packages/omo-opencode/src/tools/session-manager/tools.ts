@@ -87,7 +87,7 @@ export function createSessionManagerTools(
     execute: async (args: SessionListArgs, _context) => {
       try {
         const directory = args.project_path ?? ctx.directory
-        let sessions = await resolvedDeps.getMainSessions({ directory })
+        let sessions = await resolvedDeps.getMainSessions({ directory, serverUrl: ctx.serverUrl })
         let sessionIDs = sessions.map((s) => s.id)
 
         if (args.from_date || args.to_date) {
@@ -158,7 +158,7 @@ export function createSessionManagerTools(
             return resolvedDeps.searchInSession(args.session_id, args.query, args.case_sensitive, resultLimit)
           }
 
-          const allSessions = await resolvedDeps.getAllSessions(ctx.directory)
+          const allSessions = await resolvedDeps.getAllSessions(ctx.directory, ctx.serverUrl)
           const sessionsToScan = allSessions.slice(0, MAX_SESSIONS_TO_SCAN)
 
           const allResults: SearchResult[] = []
