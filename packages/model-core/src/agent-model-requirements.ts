@@ -8,8 +8,6 @@ export const AGENT_MODEL_REQUIREMENTS: Record<string, ModelRequirement> = {
         model: "claude-opus-5",
         variant: "max",
       },
-      { providers: ["opencode-go", "vercel"], model: "kimi-k2.6" },
-      { providers: ["kimi-for-coding"], model: "k2p5" },
       {
         providers: [
           "opencode-go",
