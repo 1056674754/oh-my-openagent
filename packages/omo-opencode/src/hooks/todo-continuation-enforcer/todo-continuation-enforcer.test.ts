@@ -1553,7 +1553,7 @@ describe("todo-continuation-enforcer", () => {
     expect(promptCalls).toHaveLength(0)
   }, { timeout: 15000 })
 
-  test("should clear abort flag on assistant message activity", async () => {
+  test("should keep abort flag on assistant message activity", async () => {
     // given - session with abort detected
     const sessionID = "main-clear-on-assistant"
     setMainSession(sessionID)
@@ -1572,7 +1572,7 @@ describe("todo-continuation-enforcer", () => {
       },
     })
 
-    // when - assistant starts responding (clears abort flag)
+    // when - late assistant activity arrives after abort
     await hook.handler({
       event: {
         type: "message.updated",
@@ -1587,11 +1587,11 @@ describe("todo-continuation-enforcer", () => {
 
     await fakeTimers.advanceBy(2500, true)
 
-    // then - continuation injected (abort flag was cleared by assistant activity)
-    expect(promptCalls.length).toBeGreaterThan(0)
+    // then - no continuation because only a real user message clears manual stop
+    expect(promptCalls).toHaveLength(0)
   }, { timeout: 15000 })
 
-  test("should clear abort flag on tool execution", async () => {
+  test("should keep abort flag on tool execution", async () => {
     // given - session with abort detected
     const sessionID = "main-clear-on-tool"
     setMainSession(sessionID)
@@ -1610,7 +1610,7 @@ describe("todo-continuation-enforcer", () => {
       },
     })
 
-    // when - tool executes (clears abort flag)
+    // when - late tool activity arrives after abort
     await hook.handler({
       event: {
         type: "tool.execute.before",
@@ -1625,8 +1625,8 @@ describe("todo-continuation-enforcer", () => {
 
     await fakeTimers.advanceBy(2500, true)
 
-    // then - continuation injected (abort flag was cleared by tool execution)
-    expect(promptCalls.length).toBeGreaterThan(0)
+    // then - no continuation because only a real user message clears manual stop
+    expect(promptCalls).toHaveLength(0)
   }, { timeout: 15000 })
 
   test("should use event-based detection even when API indicates no abort (event wins)", async () => {

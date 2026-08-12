@@ -4,7 +4,7 @@ import { isSyntheticOrInternalOnlyTextParts } from "../../shared/internal-initia
 import { log } from "../../shared/logger"
 import { isSystemDirective } from "../../shared/system-directive"
 
-import { COUNTDOWN_GRACE_PERIOD_MS, HOOK_NAME } from "./constants"
+import { ABORT_WINDOW_MS, COUNTDOWN_GRACE_PERIOD_MS, HOOK_NAME } from "./constants"
 import type { SessionStateStore } from "./session-state"
 import type { SessionState } from "./types"
 
@@ -92,6 +92,17 @@ function resolveUpdatedPart(
   }
 }
 
+function clearStaleAbortMarker(sessionID: string, sessionStateStore: SessionStateStore): void {
+  const state = sessionStateStore.getExistingState(sessionID)
+  if (!state?.abortDetectedAt) return
+
+  const elapsed = Date.now() - state.abortDetectedAt
+  if (elapsed < ABORT_WINDOW_MS) return
+
+  state.abortDetectedAt = undefined
+  log(`[${HOOK_NAME}] Cleared stale abort timestamp after non-idle activity`, { sessionID, elapsed })
+}
+
 export function handleNonIdleEvent(args: {
   eventType: string
   properties: Record<string, unknown> | undefined
@@ -153,9 +164,8 @@ export function handleNonIdleEvent(args: {
       const state = sessionStateStore.getExistingState(sessionID)
       if (state) {
         markContinuationResponseObserved(state)
-        state.abortDetectedAt = undefined
-        state.wasCancelled = false
       }
+      clearStaleAbortMarker(sessionID, sessionStateStore)
       sessionStateStore.cancelCountdown(sessionID)
       return
     }
@@ -196,8 +206,8 @@ export function handleNonIdleEvent(args: {
         if (info?.role === "assistant") {
           markContinuationResponseObserved(state)
         }
-        state.abortDetectedAt = undefined
       }
+      clearStaleAbortMarker(targetSessionID, sessionStateStore)
       sessionStateStore.cancelCountdown(targetSessionID)
     }
     return
@@ -212,9 +222,8 @@ export function handleNonIdleEvent(args: {
         if (info?.role === "assistant") {
           markContinuationResponseObserved(state)
         }
-        state.abortDetectedAt = undefined
-        state.wasCancelled = false
       }
+      clearStaleAbortMarker(sessionID, sessionStateStore)
       sessionStateStore.cancelCountdown(sessionID)
     }
     return
@@ -226,9 +235,8 @@ export function handleNonIdleEvent(args: {
       const state = sessionStateStore.getExistingState(sessionID)
       if (state) {
         markContinuationResponseObserved(state)
-        state.abortDetectedAt = undefined
-        state.wasCancelled = false
       }
+      clearStaleAbortMarker(sessionID, sessionStateStore)
       sessionStateStore.cancelCountdown(sessionID)
     }
     return

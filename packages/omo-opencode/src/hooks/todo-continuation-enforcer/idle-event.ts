@@ -49,6 +49,16 @@ export async function handleSessionIdle(args: {
     return
   }
 
+  if (state.abortDetectedAt) {
+    const timeSinceAbort = Date.now() - state.abortDetectedAt
+    if (timeSinceAbort < ABORT_WINDOW_MS) {
+      log(`[${HOOK_NAME}] Skipped: abort detected via event ${timeSinceAbort}ms ago`, { sessionID })
+      return
+    }
+    state.abortDetectedAt = undefined
+    log(`[${HOOK_NAME}] Cleared stale abort timestamp after abort window`, { sessionID, timeSinceAbort })
+  }
+
   if (state.wasCancelled) {
     log(`[${HOOK_NAME}] Skipped: session was cancelled`, { sessionID })
     return
@@ -67,16 +77,6 @@ export async function handleSessionIdle(args: {
   if (state.unrecoverableErrorDetected) {
     log(`[${HOOK_NAME}] Skipped: non-retryable request error detected, re-injecting would rebuild the same request`, { sessionID })
     return
-  }
-
-  if (state.abortDetectedAt) {
-    const timeSinceAbort = Date.now() - state.abortDetectedAt
-    if (timeSinceAbort < ABORT_WINDOW_MS) {
-      log(`[${HOOK_NAME}] Skipped: abort detected via event ${timeSinceAbort}ms ago`, { sessionID })
-      state.abortDetectedAt = undefined
-      return
-    }
-    state.abortDetectedAt = undefined
   }
 
   const hasRunningBgTasks = backgroundManager
