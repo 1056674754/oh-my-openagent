@@ -6231,6 +6231,137 @@
             "minimum": 0
           }
         },
+        "quotaRouting": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "default": true,
+                "type": "boolean"
+              },
+              "quotaProvider": {
+                "default": "zhipuai-coding-plan",
+                "type": "string",
+                "const": "zhipuai-coding-plan"
+              },
+              "windowSeconds": {
+                "default": 18000,
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "gracePeriodSeconds": {
+                "default": 3600,
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "paceThresholdRatio": {
+                "default": 0.95,
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 1
+              },
+              "refreshIntervalSeconds": {
+                "default": 60,
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "requestTimeoutMs": {
+                "default": 5000,
+                "type": "integer",
+                "minimum": 1000,
+                "maximum": 9007199254740991
+              },
+              "fallbackModels": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "model": {
+                          "type": "string"
+                        },
+                        "variant": {
+                          "type": "string"
+                        },
+                        "reasoningEffort": {
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "minimal",
+                            "low",
+                            "medium",
+                            "high",
+                            "xhigh",
+                            "max"
+                          ]
+                        },
+                        "temperature": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 2
+                        },
+                        "top_p": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        "maxTokens": {
+                          "type": "number"
+                        },
+                        "thinking": {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "enabled",
+                                "disabled"
+                              ]
+                            },
+                            "budgetTokens": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "type"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "model"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            },
+            "required": [
+              "enabled",
+              "quotaProvider",
+              "windowSeconds",
+              "gracePeriodSeconds",
+              "paceThresholdRatio",
+              "refreshIntervalSeconds",
+              "requestTimeoutMs",
+              "fallbackModels"
+            ],
+            "additionalProperties": false
+          }
+        },
         "maxDepth": {
           "type": "integer",
           "minimum": 1,
@@ -6465,6 +6596,31 @@
           "type": "string"
         }
       },
+      "additionalProperties": false
+    },
+    "hot_reload": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "type": "boolean"
+        },
+        "watch_omo_config": {
+          "default": true,
+          "type": "boolean"
+        },
+        "debounce_ms": {
+          "default": 500,
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "enabled",
+        "watch_omo_config",
+        "debounce_ms"
+      ],
       "additionalProperties": false
     },
     "monitor": {

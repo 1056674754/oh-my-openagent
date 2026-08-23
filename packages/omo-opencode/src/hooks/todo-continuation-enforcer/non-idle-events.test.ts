@@ -98,4 +98,136 @@ describe("handleNonIdleEvent", () => {
     expect(state.wasCancelled).toBe(true)
     expect(state.tokenLimitDetected).toBe(true)
   })
+
+  test("given assistant activity after abort, preserves the manual stop marker", () => {
+    // given
+    const sessionID = "ses_assistant_after_abort"
+    const state = sessionStateStore.getState(sessionID)
+    state.abortDetectedAt = Date.now()
+    state.wasCancelled = true
+    state.countdownStartedAt = Date.now() - 10_000
+
+    // when
+    handleNonIdleEvent({
+      eventType: "message.updated",
+      properties: {
+        sessionID,
+        info: { role: "assistant" },
+      },
+      sessionStateStore,
+    })
+
+    // then
+    expect(state.countdownStartedAt).toBeUndefined()
+    expect(state.abortDetectedAt).toBeDefined()
+    expect(state.wasCancelled).toBe(true)
+  })
+
+  test("given assistant activity after abort window, clears stale manual stop marker", () => {
+    // given
+    const sessionID = "ses_assistant_after_stale_abort"
+    const state = sessionStateStore.getState(sessionID)
+    state.abortDetectedAt = Date.now() - 10_000
+    state.wasCancelled = true
+    state.countdownStartedAt = Date.now() - 10_000
+
+    // when
+    handleNonIdleEvent({
+      eventType: "message.updated",
+      properties: {
+        sessionID,
+        info: { role: "assistant" },
+      },
+      sessionStateStore,
+    })
+
+    // then
+    expect(state.countdownStartedAt).toBeUndefined()
+    expect(state.abortDetectedAt).toBeUndefined()
+    expect(state.wasCancelled).toBe(false)
+  })
+
+  test("given tool activity after abort, preserves the manual stop marker", () => {
+    // given
+    const sessionID = "ses_tool_after_abort"
+    const state = sessionStateStore.getState(sessionID)
+    state.abortDetectedAt = Date.now()
+    state.wasCancelled = true
+    state.countdownStartedAt = Date.now() - 10_000
+
+    // when
+    handleNonIdleEvent({
+      eventType: "tool.execute.before",
+      properties: { sessionID },
+      sessionStateStore,
+    })
+
+    // then
+    expect(state.countdownStartedAt).toBeUndefined()
+    expect(state.abortDetectedAt).toBeDefined()
+    expect(state.wasCancelled).toBe(true)
+  })
+
+  test("given tool activity after abort window, clears stale manual stop marker", () => {
+    // given
+    const sessionID = "ses_tool_after_stale_abort"
+    const state = sessionStateStore.getState(sessionID)
+    state.abortDetectedAt = Date.now() - 10_000
+    state.wasCancelled = true
+    state.countdownStartedAt = Date.now() - 10_000
+
+    // when
+    handleNonIdleEvent({
+      eventType: "tool.execute.before",
+      properties: { sessionID },
+      sessionStateStore,
+    })
+
+    // then
+    expect(state.countdownStartedAt).toBeUndefined()
+    expect(state.abortDetectedAt).toBeUndefined()
+    expect(state.wasCancelled).toBe(false)
+  })
+
+  test("given message delta after abort, preserves the manual stop marker", () => {
+    // given
+    const sessionID = "ses_delta_after_abort"
+    const state = sessionStateStore.getState(sessionID)
+    state.abortDetectedAt = Date.now()
+    state.wasCancelled = true
+    state.countdownStartedAt = Date.now() - 10_000
+
+    // when
+    handleNonIdleEvent({
+      eventType: "message.part.delta",
+      properties: { sessionID },
+      sessionStateStore,
+    })
+
+    // then
+    expect(state.countdownStartedAt).toBeUndefined()
+    expect(state.abortDetectedAt).toBeDefined()
+    expect(state.wasCancelled).toBe(true)
+  })
+
+  test("given message delta after abort window, clears stale manual stop marker", () => {
+    // given
+    const sessionID = "ses_delta_after_stale_abort"
+    const state = sessionStateStore.getState(sessionID)
+    state.abortDetectedAt = Date.now() - 10_000
+    state.wasCancelled = true
+    state.countdownStartedAt = Date.now() - 10_000
+
+    // when
+    handleNonIdleEvent({
+      eventType: "message.part.delta",
+      properties: { sessionID },
+      sessionStateStore,
+    })
+
+    // then
+    expect(state.countdownStartedAt).toBeUndefined()
+    expect(state.abortDetectedAt).toBeUndefined()
+    expect(state.wasCancelled).toBe(false)
+  })
 })

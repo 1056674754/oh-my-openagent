@@ -1350,7 +1350,7 @@ describe("todo-continuation-enforcer", () => {
     expect(promptCalls).toHaveLength(0)
   })
 
-  test("should keep skipping after cancel even when the abort window is stale", async () => {
+  test("should resume after cancel once the abort window is stale", async () => {
     // given - session with incomplete todos and old abort timestamp
     const sessionID = "main-stale-abort"
     setMainSession(sessionID)
@@ -1378,7 +1378,7 @@ describe("todo-continuation-enforcer", () => {
 
     await fakeTimers.advanceBy(3000, true)
 
-    expect(promptCalls).toHaveLength(0)
+    expect(promptCalls.length).toBeGreaterThan(0)
   }, { timeout: 15000 })
 
   test("should clear abort flag on user message activity", async () => {
@@ -1420,7 +1420,7 @@ describe("todo-continuation-enforcer", () => {
     expect(promptCalls.length).toBeGreaterThan(0)
   }, { timeout: 15000 })
 
-  test("should reset failure state and keep skipping after a cancelled run", async () => {
+  test("should reset failure state and resume after a stale cancelled run", async () => {
     const sessionID = "main-reset-after-cancel"
     setMainSession(sessionID)
     mockMessages = [
@@ -1454,10 +1454,10 @@ describe("todo-continuation-enforcer", () => {
 
     await fakeTimers.advanceBy(2500, true)
 
-    expect(promptCalls).toHaveLength(0)
+    expect(promptCalls.length).toBeGreaterThan(0)
   }, { timeout: 15000 })
 
-  test("should clear abort flag on assistant message activity", async () => {
+  test("should keep abort flag on assistant message activity", async () => {
     // given - session with abort detected
     const sessionID = "main-clear-on-assistant"
     setMainSession(sessionID)
@@ -1476,7 +1476,7 @@ describe("todo-continuation-enforcer", () => {
       },
     })
 
-    // when - assistant starts responding (clears abort flag)
+    // when - late assistant activity arrives after abort
     await hook.handler({
       event: {
         type: "message.updated",
@@ -1491,11 +1491,11 @@ describe("todo-continuation-enforcer", () => {
 
     await fakeTimers.advanceBy(2500, true)
 
-    // then - continuation injected (abort flag was cleared by assistant activity)
-    expect(promptCalls.length).toBeGreaterThan(0)
+    // then - no continuation because the abort marker is still inside the drainage window
+    expect(promptCalls).toHaveLength(0)
   }, { timeout: 15000 })
 
-  test("should clear abort flag on tool execution", async () => {
+  test("should keep abort flag on tool execution", async () => {
     // given - session with abort detected
     const sessionID = "main-clear-on-tool"
     setMainSession(sessionID)
@@ -1514,7 +1514,7 @@ describe("todo-continuation-enforcer", () => {
       },
     })
 
-    // when - tool executes (clears abort flag)
+    // when - late tool activity arrives after abort
     await hook.handler({
       event: {
         type: "tool.execute.before",
@@ -1529,7 +1529,38 @@ describe("todo-continuation-enforcer", () => {
 
     await fakeTimers.advanceBy(2500, true)
 
-    // then - continuation injected (abort flag was cleared by tool execution)
+    // then - no continuation because the abort marker is still inside the drainage window
+    expect(promptCalls).toHaveLength(0)
+  }, { timeout: 15000 })
+
+  test("should clear stale abort flag after abort window and continue", async () => {
+    // given - session with abort detected
+    const sessionID = "main-clear-stale-abort"
+    setMainSession(sessionID)
+    mockMessages = [
+      { info: { id: "msg-1", role: "user" } },
+      { info: { id: "msg-2", role: "assistant", finish: "stop" } },
+    ]
+
+    const hook = createTodoContinuationEnforcer(createMockPluginInput(), {})
+
+    // when - abort error fires
+    await hook.handler({
+      event: {
+        type: "session.error",
+        properties: { sessionID, error: { name: "MessageAbortedError" } },
+      },
+    })
+
+    // when - abort drainage window expires and the session goes idle again
+    await fakeTimers.advanceBy(3100, true)
+    await hook.handler({
+      event: { type: "session.idle", properties: { sessionID } },
+    })
+
+    await fakeTimers.advanceBy(2500, true)
+
+    // then - stale abort marker was cleared and continuation can resume
     expect(promptCalls.length).toBeGreaterThan(0)
   }, { timeout: 15000 })
 
@@ -2028,7 +2059,7 @@ describe("todo-continuation-enforcer", () => {
     expect(promptCalls).toHaveLength(0)
   })
 
-  test("should reset consecutiveFailures after user-initiated abort and resume after fresh activity [regression #2984]", async () => {
+  test("should reset consecutiveFailures after user-initiated abort and resume after abort window [regression #2984]", async () => {
     const sessionID = "main-abort-recovery"
     setMainSession(sessionID)
     const mockInput = createMockPluginInput()
@@ -2068,17 +2099,6 @@ describe("todo-continuation-enforcer", () => {
 
     shouldFail = false
     await fakeTimers.advanceBy(9000, true)
-    await hook.handler({ event: { type: "session.idle", properties: { sessionID } } })
-    await fakeTimers.advanceBy(2500, true)
-    expect(promptCallCount).toBe(1)
-
-    await hook.handler({
-      event: {
-        type: "message.updated",
-        properties: { info: { sessionID, role: "user" } },
-      },
-    })
-
     await hook.handler({ event: { type: "session.idle", properties: { sessionID } } })
     await fakeTimers.advanceBy(2500, true)
 

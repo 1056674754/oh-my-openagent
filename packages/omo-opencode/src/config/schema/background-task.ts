@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { FallbackModelMixedArraySchema } from "./fallback-models"
 
 const CircuitBreakerConfigSchema = z.object({
   enabled: z.boolean().optional(),
@@ -6,10 +7,32 @@ const CircuitBreakerConfigSchema = z.object({
   consecutiveThreshold: z.number().int().min(5).optional(),
 })
 
+const QuotaRoutingRuleSchema = z.object({
+  enabled: z.boolean().default(true),
+  quotaProvider: z.literal("zhipuai-coding-plan").default("zhipuai-coding-plan"),
+  windowSeconds: z.number().int().positive().default(5 * 60 * 60),
+  gracePeriodSeconds: z.number().int().nonnegative().default(60 * 60),
+  paceThresholdRatio: z.number().positive().max(1).default(0.95),
+  refreshIntervalSeconds: z.number().int().positive().default(60),
+  requestTimeoutMs: z.number().int().min(1_000).default(5_000),
+  fallbackModels: FallbackModelMixedArraySchema.min(1),
+}).superRefine((rule, context) => {
+  if (rule.gracePeriodSeconds >= rule.windowSeconds) {
+    context.addIssue({
+      code: "custom",
+      message: "gracePeriodSeconds must be shorter than windowSeconds",
+      path: ["gracePeriodSeconds"],
+    })
+  }
+})
+
+export type QuotaRoutingRule = z.infer<typeof QuotaRoutingRuleSchema>
+
 export const BackgroundTaskConfigSchema = z.object({
   defaultConcurrency: z.number().min(1).optional(),
   providerConcurrency: z.record(z.string(), z.number().min(0)).optional(),
   modelConcurrency: z.record(z.string(), z.number().min(0)).optional(),
+  quotaRouting: z.record(z.string(), QuotaRoutingRuleSchema).optional(),
   maxDepth: z.number().int().min(1).optional(),
   /** Stale timeout in milliseconds - interrupt tasks with no activity for this duration (default: 180000 = 3 minutes, minimum: 60000 = 1 minute) */
   staleTimeoutMs: z.number().min(60000).optional(),

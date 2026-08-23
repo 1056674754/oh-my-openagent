@@ -86,3 +86,12 @@ When `enabled: true`:
 3. Reference via `z.infer<typeof YourSchema>` for the TypeScript type
 4. Access in handlers via `pluginConfig.{field_name}` (snake_case JSON, snake_case TS field)
 5. Run `bun run build:schema` to regenerate `assets/oh-my-opencode.schema.json`
+
+## HOT RELOAD
+
+`hot_reload` watches the effective OMO config layers.
+
+- OMO JSON/JSONC updates are fully validated, reconciled into the stable runtime config object, and applied to future task launches. Invalid edits leave the last valid runtime config untouched.
+- `background_task` updates rebuild quota routing and change concurrency limits for future acquisitions without disturbing active slots or running tasks.
+- Startup topology remains startup-only: adding or removing plugin hooks, tools, MCP processes, or other registries still requires an instance rebuild. OMO hot reload updates values consumed by already-registered runtime paths.
+- `opencode.json` is owned by the OpenCode host lifecycle. OpenChamber watches that file separately and performs a managed reload after sessions become idle.

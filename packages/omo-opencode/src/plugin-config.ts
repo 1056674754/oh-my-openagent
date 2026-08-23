@@ -1,4 +1,4 @@
-export { loadPluginConfig } from "./plugin-config/layered-config-loader";
+export { getPluginConfigWatchPaths, loadPluginConfig } from "./plugin-config/layered-config-loader";
 export { mergeConfigs } from "./plugin-config/config-merger";
 export {
   loadConfigFromPath,

@@ -12,6 +12,7 @@ import { initializeOpenClaw } from "../openclaw"
 import { createPluginDispose } from "../plugin-dispose"
 import { createPluginInterface } from "../plugin-interface"
 import { loadPluginConfig } from "../plugin-config"
+import { createConfigHotReloader } from "../plugin-config/config-hot-reloader"
 import { createModelCacheState } from "../plugin-state"
 import {
   createCompactionAutocontinueHandler,
@@ -60,6 +61,7 @@ export type PluginModuleDeps = {
   setLiveParentWakeRoutingDisabled: typeof setLiveParentWakeRoutingDisabled
   warmLiveServerProbe: typeof warmLiveServerProbe
   loadPluginConfig: typeof loadPluginConfig
+  createConfigHotReloader: typeof createConfigHotReloader
   recordPluginTelemetry: typeof recordPluginTelemetry
   initI18n: typeof initI18n
   initializeOpenClaw: typeof initializeOpenClaw
@@ -91,6 +93,7 @@ const defaultPluginModuleDeps: PluginModuleDeps = {
   setLiveParentWakeRoutingDisabled,
   warmLiveServerProbe,
   loadPluginConfig,
+  createConfigHotReloader,
   recordPluginTelemetry,
   initI18n,
   initializeOpenClaw,
@@ -238,6 +241,15 @@ export function createPluginModule(overrides: Partial<PluginModuleDeps> = {}): P
       tools: toolsResult.filteredTools,
     })
 
+    const configHotReloader = pluginConfig.hot_reload?.enabled
+      ? deps.createConfigHotReloader({
+          directory: input.directory,
+          ctx: input,
+          pluginConfig,
+          backgroundManager: managers.backgroundManager,
+        })
+      : undefined
+
     const dispose = createPluginDispose({
       backgroundManager: managers.backgroundManager,
       skillMcpManager: managers.skillMcpManager,
@@ -252,6 +264,7 @@ export function createPluginModule(overrides: Partial<PluginModuleDeps> = {}): P
       "experimental.compaction.autocontinue": createCompactionAutocontinueHandler(hooks),
 
       dispose: async (): Promise<void> => {
+        configHotReloader?.dispose()
         runtimeSkillSource?.stop()
         await dispose()
       },

@@ -225,6 +225,21 @@ describe("ConcurrencyManager.acquire/release", () => {
     expect(manager.getCount("model-a")).toBe(2)
   })
 
+  test("uses new limits for future acquires without remapping an active slot", async () => {
+    manager = new ConcurrencyManager({
+      modelConcurrency: { "anthropic/claude-sonnet-4-6": 1 },
+    })
+    await manager.acquire("anthropic/claude-sonnet-4-6")
+
+    manager.updateConfig({
+      providerConcurrency: { anthropic: 2 },
+    })
+    manager.release("anthropic/claude-sonnet-4-6")
+
+    expect(manager.getCount("anthropic/claude-sonnet-4-6")).toBe(0)
+    expect(manager.getConcurrencyLimit("anthropic/claude-opus-4-7")).toBe(2)
+  })
+
   test("should allow acquires up to default limit of 5", async () => {
     // given - no config = default limit of 5
 

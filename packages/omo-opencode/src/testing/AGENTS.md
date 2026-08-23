@@ -20,6 +20,7 @@ Naming gotcha: despite the directory name, this is PRODUCTION init code. `create
 
 - `experimental.session.compacting` + `experimental.compaction.autocontinue` — the 2 hook handlers beyond the 12 in `src/plugin-interface.ts`, built via `createSessionCompactingHandler(hooks)` / `createCompactionAutocontinueHandler(hooks)` from `src/plugin/session-compacting`.
 - `dispose` — stops the runtime skill-source server, then `createPluginDispose()` (backgroundManager shutdown + skillMcpManager disconnect + disposeHooks).
+- `hot_reload` — creates `createConfigHotReloader()` after tools/hooks are assembled and closes its filesystem watchers before normal plugin disposal.
 - `recordPluginTelemetry({ configEnabled })` — try/catch-wrapped PostHog call right after `loadPluginConfig()`.
 - `ensureTuiPluginEntry()` — tui.json self-heal unless `tui.sidebar.enabled === false`.
 - `initLiveServerRoute` / `setLiveParentWakeRoutingDisabled` / `warmLiveServerProbe` — live-listener wake routing (`src/shared/live-server-route`); disable via `experimental.disable_live_parent_wake_routing`.

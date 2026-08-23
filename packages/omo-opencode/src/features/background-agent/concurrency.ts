@@ -22,6 +22,10 @@ export class ConcurrencyManager {
     this.config = config
   }
 
+  updateConfig(config?: BackgroundTaskConfig): void {
+    this.config = config
+  }
+
   getConcurrencyLimit(model: string): number {
     const modelLimit = this.config?.modelConcurrency?.[model]
     if (modelLimit !== undefined) {
@@ -85,7 +89,9 @@ export class ConcurrencyManager {
   }
 
   release(model: string): void {
-    const key = this.getConcurrencyKey(model)
+    const key = this.counts.has(model) || this.queues.has(model)
+      ? model
+      : this.getConcurrencyKey(model)
     const queue = this.queues.get(key)
 
     // Try to hand off to a waiting entry (skip any settled entries from cancelWaiters)
@@ -113,7 +119,7 @@ export class ConcurrencyManager {
    * Returns true if a matching waiter was found and cancelled.
    */
   cancelWaiter(model: string, taskId: string): boolean {
-    const key = this.getConcurrencyKey(model)
+    const key = this.queues.has(model) ? model : this.getConcurrencyKey(model)
     const queue = this.queues.get(key)
     if (!queue) return false
 
@@ -134,7 +140,7 @@ export class ConcurrencyManager {
    * Cancel all waiting acquires for a model. Used during cleanup.
    */
   cancelWaiters(model: string): void {
-    const key = this.getConcurrencyKey(model)
+    const key = this.queues.has(model) ? model : this.getConcurrencyKey(model)
     const queue = this.queues.get(key)
     if (queue) {
       for (const entry of queue) {

@@ -3,6 +3,55 @@ import { ZodError } from "zod"
 import { BackgroundTaskConfigSchema } from "./background-task"
 
 describe("BackgroundTaskConfigSchema", () => {
+  describe("quotaRouting", () => {
+    test("applies pacing defaults to a configured model", () => {
+      const result = BackgroundTaskConfigSchema.parse({
+        quotaRouting: {
+          "zhipuai-coding-plan/glm-5.2": {
+            fallbackModels: ["bailian/deepseek-v4-pro"],
+          },
+        },
+      })
+
+      expect(result.quotaRouting?.["zhipuai-coding-plan/glm-5.2"]).toEqual({
+        enabled: true,
+        quotaProvider: "zhipuai-coding-plan",
+        windowSeconds: 18_000,
+        gracePeriodSeconds: 3_600,
+        paceThresholdRatio: 0.95,
+        refreshIntervalSeconds: 60,
+        requestTimeoutMs: 5_000,
+        fallbackModels: ["bailian/deepseek-v4-pro"],
+      })
+    })
+
+    test("rejects an empty fallback model list", () => {
+      const result = BackgroundTaskConfigSchema.safeParse({
+        quotaRouting: {
+          "zhipuai-coding-plan/glm-5.2": {
+            fallbackModels: [],
+          },
+        },
+      })
+
+      expect(result.success).toBe(false)
+    })
+
+    test("rejects a grace period as long as the quota window", () => {
+      const result = BackgroundTaskConfigSchema.safeParse({
+        quotaRouting: {
+          "zhipuai-coding-plan/glm-5.2": {
+            windowSeconds: 3_600,
+            gracePeriodSeconds: 3_600,
+            fallbackModels: ["bailian/deepseek-v4-pro"],
+          },
+        },
+      })
+
+      expect(result.success).toBe(false)
+    })
+  })
+
   describe("maxDepth", () => {
     describe("#given valid maxDepth (3)", () => {
       test("#when parsed #then returns correct value", () => {

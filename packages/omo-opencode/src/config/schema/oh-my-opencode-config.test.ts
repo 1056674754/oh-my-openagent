@@ -1,6 +1,18 @@
 import { describe, expect, it } from "bun:test"
 import { OhMyOpenCodeConfigSchema } from "./oh-my-opencode-config"
 
+describe("OhMyOpenCodeConfigSchema hot_reload", () => {
+  it("applies safe defaults when hot reload is enabled", () => {
+    const result = OhMyOpenCodeConfigSchema.parse({ hot_reload: {} })
+
+    expect(result.hot_reload).toEqual({
+      enabled: true,
+      watch_omo_config: true,
+      debounce_ms: 500,
+    })
+  })
+})
+
 describe("OhMyOpenCodeConfigSchema team_mode", () => {
   it("accepts team_mode when provided", () => {
     // given

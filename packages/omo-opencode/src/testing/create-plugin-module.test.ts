@@ -34,7 +34,11 @@ const mockCreateRuntimeTmuxConfig = mock(() => ({
   isolation: "inline" as const,
 }))
 const mockCreateManagers = mock(() => ({
-  backgroundManager: { shutdown: async () => {} },
+  backgroundManager: {
+    shutdown: async () => {},
+    hasActiveTasks: () => false,
+    updateConfig: () => {},
+  },
   skillMcpManager: { disconnectAll: async () => {} },
   configHandler: async () => {},
 }))
@@ -57,6 +61,8 @@ const mockCreateHooks = mock(() => ({
   claudeCodeHooks: undefined,
 }))
 const mockCreatePluginInterface = mock(() => ({}))
+const mockConfigHotReloaderDispose = mock(() => {})
+const mockCreateConfigHotReloader = mock(() => ({ dispose: mockConfigHotReloaderDispose }))
 const mockInitializeOpenClaw = mock(async () => {})
 const mockStartTmuxCheck = mock(() => {})
 const mockInstallAgentSortShim = mock(() => {})
@@ -88,6 +94,7 @@ function createTestPluginModule(): ReturnType<typeof createPluginModule> {
     createTools: mockCreateTools as never,
     createHooks: mockCreateHooks as never,
     createPluginInterface: mockCreatePluginInterface as never,
+    createConfigHotReloader: mockCreateConfigHotReloader as never,
     initializeOpenClaw: mockInitializeOpenClaw as never,
     startTmuxCheck: mockStartTmuxCheck,
     installAgentSortShim: mockInstallAgentSortShim,
@@ -110,6 +117,8 @@ describe("createPluginModule()", () => {
     mockCreateTools.mockClear()
     mockCreateHooks.mockClear()
     mockCreatePluginInterface.mockClear()
+    mockCreateConfigHotReloader.mockClear()
+    mockConfigHotReloaderDispose.mockClear()
     mockDetectDuplicateOmoPlugin.mockReturnValue({
       detected: false,
       pluginName: null,
@@ -268,6 +277,30 @@ describe("createPluginModule()", () => {
 
       // then
       expect(mockRuntimeSkillSourceStop).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe("#given config hot reload is enabled", () => {
+    it("#then startup creates the reloader and plugin disposal closes it", async () => {
+      const pluginModule = createTestPluginModule()
+      mockLoadPluginConfig.mockReturnValue({
+        hot_reload: {
+          enabled: true,
+          watch_omo_config: true,
+          debounce_ms: 500,
+        },
+      })
+
+      const hooks: Awaited<ReturnType<typeof pluginModule.server>> & {
+        dispose?: () => Promise<void>
+      } = await pluginModule.server({
+        directory: "/tmp/project",
+        client: {},
+      } as Parameters<typeof pluginModule.server>[0])
+      await hooks.dispose?.()
+
+      expect(mockCreateConfigHotReloader).toHaveBeenCalledTimes(1)
+      expect(mockConfigHotReloaderDispose).toHaveBeenCalledTimes(1)
     })
   })
 

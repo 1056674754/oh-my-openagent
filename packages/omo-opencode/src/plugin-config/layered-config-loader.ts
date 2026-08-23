@@ -90,6 +90,16 @@ function getCanonicalAncestorPathsNearestFirst(directory: string): string[] {
   });
 }
 
+export function getPluginConfigWatchPaths(directory: string): string[] {
+  const userPaths = getUserConfigLayers()
+    .map((layer) => layer.configPath)
+    .filter((configPath): configPath is string => configPath !== null)
+  return Array.from(new Set([
+    ...userPaths,
+    ...getCanonicalAncestorPathsNearestFirst(directory),
+  ]))
+}
+
 function resolveUserAgentDefinitions(
   config: Partial<OhMyOpenCodeConfig>,
   configDir: string,

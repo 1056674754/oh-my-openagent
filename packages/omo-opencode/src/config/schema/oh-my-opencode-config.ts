@@ -14,6 +14,7 @@ import { DefaultModeConfigSchema } from "./default-mode"
 import { ExperimentalConfigSchema } from "./experimental"
 import { GitMasterConfigSchema } from "./git-master"
 import { I18nConfigSchema } from "./i18n"
+import { HotReloadConfigSchema } from "./hot-reload"
 import { KeywordDetectorConfigSchema } from "./keyword-detector"
 import { NotificationConfigSchema } from "./notification"
 import { OpenClawConfigSchema } from "./openclaw"
@@ -83,6 +84,7 @@ export const OhMyOpenCodeConfigSchema = z.object({
   openclaw: OpenClawConfigSchema.optional(),
   /** Plugin i18n settings */
   i18n: I18nConfigSchema.optional(),
+  hot_reload: HotReloadConfigSchema.optional(),
   monitor: MonitorConfigSchema.optional(),
   codegraph: CodegraphConfigSchema.optional(),
   team_mode: TeamModeConfigSchema.optional(),
