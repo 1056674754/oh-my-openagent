@@ -173,7 +173,8 @@ describe("createAutoRetryHelpers", () => {
 
     // then
     expect(promptCalls.count).toBe(1)
-    // beta.21 dispatch dropped the messageID echo; part identity + retry marker carry the acknowledgement.
+    // Fork (session-single-flight) intentionally omits upstream beta.21's retryMessageID echo;
+    // part identity + retry marker carry the acknowledgement instead.
     expect(capturedBody?.messageID).toBe(undefined)
     expect(capturedBody?.parts).toEqual([
       {
