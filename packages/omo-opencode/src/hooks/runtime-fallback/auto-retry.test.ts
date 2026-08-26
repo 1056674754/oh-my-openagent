@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
+import { OMO_INTERNAL_INITIATOR_MARKER } from "../../shared/internal-initiator-marker"
+import { OMO_RUNTIME_FALLBACK_RETRY_MARKER } from "../../shared/runtime-fallback-retry-marker"
 import { createAutoRetryHelpers } from "./auto-retry"
 import { createFallbackState } from "./fallback-state"
 import type { HookDeps, RuntimeFallbackPluginInput } from "./types"
@@ -81,7 +83,7 @@ describe("createAutoRetryHelpers", () => {
     expect(state.pendingFallbackPromptMayHaveBeenAccepted).toBe(true)
   })
 
-  test("#given an existing fallback result is pending #when a new fallback retry is skipped by the prompt gate #then the previous pending state is preserved", async () => {
+  test("#given an existing fallback result is pending #when the next retry is accepted as queued #then queued pending state supersedes the previous fallback", async () => {
     // given
     const promptCalls = { count: 0 }
     const deps = createDeps(promptCalls)
@@ -93,12 +95,18 @@ describe("createAutoRetryHelpers", () => {
     deps.sessionAwaitingFallbackResult.add(sessionID)
 
     // when
-    await helpers.autoRetryWithFallback(sessionID, "google/gemini-2.5-pro", undefined, "session.status")
+    const outcome = await helpers.autoRetryWithFallback(
+      sessionID,
+      "google/gemini-2.5-pro",
+      undefined,
+      "session.status",
+    )
 
     // then
+    expect(outcome).toEqual({ accepted: true, status: "queued" })
     expect(promptCalls.count).toBe(0)
     expect(deps.sessionAwaitingFallbackResult.has(sessionID)).toBe(true)
-    expect(state.pendingFallbackModel).toBe("openai/gpt-5.4")
+    expect(state.pendingFallbackModel).toBe("google/gemini-2.5-pro")
   })
   test("#given compact-flushed session with no recoverable user parts #when auto-retry fires the synthetic continuation #then the injected prompt is marked synthetic and carries the internal initiator marker (#4085)", async () => {
     // given - capture the actual parts forwarded to client.session.promptAsync
@@ -134,9 +142,49 @@ describe("createAutoRetryHelpers", () => {
     // that the user never typed (see #4085 / Discord report).
     expect(firstPart["synthetic"]).toBe(true)
     expect(String(firstPart["text"] ?? "")).toContain("OMO_INTERNAL_INITIATOR")
+    expect(String(firstPart["text"] ?? "")).toContain("OMO_RUNTIME_FALLBACK_RETRY")
   })
 
-  test("#given a persisted user message with id and part ids #when auto retry runs #then it preserves history with a fresh internal continuation", async () => {
+  test("#given a reused internal continuation part #when auto retry dispatches a fallback #then it preserves the part identity and appends the fallback acknowledgement marker", async () => {
+    // given
+    const promptCalls = { count: 0 }
+    const deps = createDeps(promptCalls)
+    const internalText = `continue\n${OMO_INTERNAL_INITIATOR_MARKER}`
+    let capturedBody: Record<string, unknown> | undefined
+    deps.ctx.client.session.messages = async () => ({
+      data: [
+        {
+          info: { role: "user", id: "msg_internal_continuation" },
+          parts: [{ type: "text", text: internalText, id: "prt_internal_continuation" }],
+        },
+      ],
+    })
+    deps.ctx.client.session.promptAsync = async (input: { body: Record<string, unknown> }) => {
+      promptCalls.count += 1
+      capturedBody = input.body
+      return {}
+    }
+    const helpers = createAutoRetryHelpers(deps)
+    const sessionID = "session-reused-internal-continuation"
+    deps.sessionStates.set(sessionID, createFallbackState("anthropic/claude-opus-4-7"))
+
+    // when
+    await helpers.autoRetryWithFallback(sessionID, "openai/gpt-5.4", undefined, "session.error")
+
+    // then
+    expect(promptCalls.count).toBe(1)
+    // beta.21 dispatch dropped the messageID echo; part identity + retry marker carry the acknowledgement.
+    expect(capturedBody?.messageID).toBe(undefined)
+    expect(capturedBody?.parts).toEqual([
+      {
+        type: "text",
+        text: `${internalText}\n${OMO_RUNTIME_FALLBACK_RETRY_MARKER}`,
+        id: "prt_internal_continuation",
+      },
+    ])
+  })
+
+  test("#given a persisted user message with id and part ids #when auto retry runs #then it replays the persisted parts with their identities", async () => {
     // given
     const promptCalls = { count: 0 }
     const deps = createDeps(promptCalls)
@@ -166,13 +214,12 @@ describe("createAutoRetryHelpers", () => {
     expect(promptCalls.count).toBe(1)
     expect(capturedBody?.messageID).toBe(undefined)
     expect(capturedBody?.parts).toEqual([
-      expect.objectContaining({
+      {
         type: "text",
-        synthetic: true,
-      }),
+        text: "retry this",
+        id: "prt_original",
+      },
     ])
-    expect(String((capturedBody?.parts as Array<{ text?: string }> | undefined)?.[0]?.text ?? ""))
-      .toContain("OMO_INTERNAL_INITIATOR")
   })
 
   test("#given internal abort marker is set #when abort request runs #then stale cleanup TTL is refreshed", async () => {
@@ -181,7 +228,7 @@ describe("createAutoRetryHelpers", () => {
     const deps = createDeps(promptCalls)
     const helpers = createAutoRetryHelpers(deps)
     const sessionID = "session-internal-abort-refresh"
-    const staleLastAccess = Date.now() - 31 * 60 * 1000
+    const staleLastAccess = Date.now() - 13 * 60 * 60 * 1000
     deps.sessionLastAccess.set(sessionID, staleLastAccess)
 
     // when
@@ -199,7 +246,7 @@ describe("createAutoRetryHelpers", () => {
     const helpers = createAutoRetryHelpers(deps)
     const sessionID = "session-stale-internal-abort"
     deps.sessionStates.set(sessionID, createFallbackState("anthropic/claude-opus-4-7"))
-    deps.sessionLastAccess.set(sessionID, Date.now() - 31 * 60 * 1000)
+    deps.sessionLastAccess.set(sessionID, Date.now() - 13 * 60 * 60 * 1000)
     deps.internallyAbortedSessions.add(sessionID)
 
     // when

@@ -33,7 +33,7 @@ const QuotaRoutingRuleSchema = z.object({
 export type QuotaRoutingRule = z.infer<typeof QuotaRoutingRuleSchema>
 
 export const BackgroundTaskConfigSchema = z.object({
-  defaultConcurrency: z.number().min(1).optional(),
+  defaultConcurrency: z.number().min(0).optional(),
   providerConcurrency: z.record(z.string(), z.number().min(0)).optional(),
   modelConcurrency: z.record(z.string(), z.number().min(0)).optional(),
   quotaRouting: z.record(z.string(), QuotaRoutingRuleSchema).optional(),

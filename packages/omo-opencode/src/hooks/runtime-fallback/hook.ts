@@ -66,7 +66,7 @@ export function createRuntimeFallbackHook(
   const helpers = factories.createAutoRetryHelpers(deps)
   const baseEventHandler = factories.createEventHandler(deps, helpers)
   const messageUpdateHandler = factories.createMessageUpdateHandler(deps, helpers)
-  const chatMessageHandler = factories.createChatMessageHandler(deps, helpers.clearSessionFallbackTimeout)
+  const chatMessageHandler = factories.createChatMessageHandler(deps)
   const firstPromptWatchdog = factories.createFirstPromptWatchdog(deps, helpers)
 
   let cleanupInterval: RuntimeFallbackInterval | null = null

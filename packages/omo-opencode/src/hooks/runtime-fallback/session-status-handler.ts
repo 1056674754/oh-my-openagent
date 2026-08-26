@@ -14,7 +14,7 @@ import { normalizeModelToCanonicalString } from "./normalize-model"
 export function createSessionStatusHandler(
   deps: HookDeps,
   helpers: AutoRetryHelpers,
-  sessionStatusRetryKeys: Map<string, string>,
+  sessionStatusRetryKeys: Map<string, Set<string>>,
 ) {
   const {
     pluginConfig,
@@ -35,9 +35,14 @@ export function createSessionStatusHandler(
     const retryMessage = typeof status.message === "string" ? status.message : ""
     const retrySignal = extractAutoRetrySignal({ status: retryMessage, message: retryMessage })
     if (!retrySignal) {
+      // Fallback: status.type is already "retry", so check the message against
+      // retryable error patterns directly. This handles providers like Gemini whose
+      // retry status message may not contain "retrying in" text alongside the error.
       const messageLower = retryMessage.toLowerCase()
       const matchesRetryablePattern = RETRYABLE_ERROR_PATTERNS.some((pattern) => pattern.test(messageLower))
       if (!matchesRetryablePattern) {
+        // Diagnostic: capture the actual retry message content so we can extend
+        // RETRYABLE_ERROR_PATTERNS if a provider emits a phrasing we don't yet match.
         if (retryMessage) {
           log(`[${HOOK_NAME}] session.status retry with non-matching message`, {
             sessionID,
@@ -49,11 +54,32 @@ export function createSessionStatusHandler(
       }
     }
 
-    const retryKey = `${extractRetryAttempt(status.attempt, retryMessage)}:${normalizeRetryStatusMessage(retryMessage)}`
-    if (sessionStatusRetryKeys.get(sessionID) === retryKey) {
+    const retryModel = model ?? "unknown"
+    const retryKey = `${retryModel}:${extractRetryAttempt(status.attempt, retryMessage)}:${normalizeRetryStatusMessage(retryMessage)}`
+    const seenRetryKeys = sessionStatusRetryKeys.get(sessionID) ?? new Set<string>()
+    if (seenRetryKeys.has(retryKey)) {
       return
     }
-    sessionStatusRetryKeys.set(sessionID, retryKey)
+    seenRetryKeys.add(retryKey)
+    sessionStatusRetryKeys.set(sessionID, seenRetryKeys)
+
+    if (sessionRetryInFlight.has(sessionID)) {
+      if (timeoutEnabled) {
+        log(`[${HOOK_NAME}] Overriding in-flight retry due to provider auto-retry signal`, {
+          sessionID,
+          model,
+        })
+        await helpers.abortSessionRequest(sessionID, "session.status.retry-signal")
+        sessionRetryInFlight.delete(sessionID)
+      } else {
+        log(`[${HOOK_NAME}] session.status retry skipped - retry already in flight`, { sessionID })
+        seenRetryKeys?.delete(retryKey)
+        if (seenRetryKeys?.size === 0) {
+          sessionStatusRetryKeys.delete(sessionID)
+        }
+        return
+      }
+    }
 
     const resolvedAgent = await helpers.resolveAgentForSessionFromContext(sessionID, agent)
     const fallbackModels = getFallbackModelsForSession(sessionID, resolvedAgent, pluginConfig)
@@ -124,20 +150,6 @@ export function createSessionStatusHandler(
       isImmediateSwap,
     })
 
-    if (sessionRetryInFlight.has(sessionID)) {
-      if (timeoutEnabled) {
-        log(`[${HOOK_NAME}] Overriding in-flight retry due to provider auto-retry signal`, {
-          sessionID,
-          model,
-        })
-        await helpers.abortSessionRequest(sessionID, "session.status.retry-signal")
-        sessionRetryInFlight.delete(sessionID)
-      } else {
-        log(`[${HOOK_NAME}] session.status retry skipped - retry already in flight`, { sessionID })
-        return
-      }
-    }
-
     if (state.pendingFallbackModel) {
       if (state.pendingFallbackPromptMayHaveBeenAccepted) {
         log(`[${HOOK_NAME}] session.status retry skipped (pending fallback prompt may already be accepted)`, {
@@ -168,14 +180,14 @@ export function createSessionStatusHandler(
       retryAttempt: status.attempt,
     })
 
+    await helpers.abortSessionRequest(sessionID, "session.status.retry-signal")
+
     await dispatchFallbackRetry(deps, helpers, {
       sessionID,
       state,
       fallbackModels,
       resolvedAgent,
       source: "session.status",
-      abortBeforeDispatch: true,
-      abortSource: "session.status.retry-signal",
     })
   }
 }

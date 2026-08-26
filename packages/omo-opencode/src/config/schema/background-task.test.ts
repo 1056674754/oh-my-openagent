@@ -46,6 +46,14 @@ describe("BackgroundTaskConfigSchema", () => {
     })
   })
 
+  describe("defaultConcurrency", () => {
+    test("#given defaultConcurrency is 0 #then parses successfully", () => {
+      const result = BackgroundTaskConfigSchema.safeParse({ defaultConcurrency: 0 })
+
+      expect(result.success).toBe(true)
+    })
+  })
+
   describe("maxDepth", () => {
     describe("#given valid maxDepth (3)", () => {
       test("#when parsed #then returns correct value", () => {

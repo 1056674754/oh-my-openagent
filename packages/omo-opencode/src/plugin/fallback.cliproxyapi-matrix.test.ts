@@ -170,7 +170,7 @@ function createHarness(args: {
     keywordDetector: null,
     claudeCodeHooks: null,
     autoSlashCommand: null,
-    startWork: null,
+    ulwExecute: null,
     ralphLoop: null,
   }
 
@@ -187,6 +187,10 @@ function createHarness(args: {
         cooldown_seconds: 15,
         timeout_seconds: args.sessionTimeoutMs ? 30 : 0,
         notify_on_fallback: false,
+        // Fork default holds same-model retries within a budget (see
+        // session-status-handler); these matrix tests assert the upstream
+        // immediate-swap path, so opt out of the budget explicitly.
+        same_model_retries_before_swap: 0,
       },
       pluginConfig: unsafeTestValue<EventHandlerArgs["pluginConfig"]>(pluginConfig),
       ...(args.sessionTimeoutMs ? { session_timeout_ms: args.sessionTimeoutMs } : {}),

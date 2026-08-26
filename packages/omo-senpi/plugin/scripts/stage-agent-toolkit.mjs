@@ -2,7 +2,7 @@
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { constants } from "node:fs"
-import { access, chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import { access, chmod, copyFile, cp, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -36,11 +36,15 @@ process.exit(result.status ?? 1)
 `
 const posixShim = "#!/bin/sh\nexec node \"$(dirname \"$0\")/cli.js\" \"$@\"\n"
 const windowsShim = "@echo off\r\nnode \"%~dp0cli.js\" %*\r\n"
+const stagedTopLevelEntries = ["cli.js", "directive.md", "omo-agent-toolkit", "omo-agent-toolkit.cmd", "ulw-loop"]
+const stagedArtifactPaths = ["cli.js", "directive.md", join("ulw-loop", "cli.js"), "omo-agent-toolkit", "omo-agent-toolkit.cmd"]
 
 export async function stageAgentToolkit(options = {}) {
   const sourceEntry = resolve(options.sourceEntry ?? defaultSourceEntry)
   const directiveEntry = resolve(options.directiveEntry ?? defaultDirectiveEntry)
   const targetDir = resolve(options.targetDir ?? defaultTargetDir)
+  const platform = options.platform ?? process.platform
+  const copyDirectory = options.copyDirectory ?? cp
   if (options.buildBundle !== false) await buildAggregateBundle()
   await validateFile(sourceEntry, "aggregate ulw-loop bundle")
   await validateFile(directiveEntry, "ulw-loop directive")
@@ -62,18 +66,59 @@ export async function stageAgentToolkit(options = {}) {
     await chmod(join(tempDir, "omo-agent-toolkit"), 0o755)
     await probeSelfContainment(tempDir)
 
-    if (await fileExists(targetDir)) await rm(targetDir, { recursive: true, force: true })
+    if (await stagedToolkitMatches(tempDir, targetDir)) {
+      return { ok: true, sourceEntry, directiveEntry, targetDir, sha256: await sha256(sourceEntry) }
+    }
+    if (await fileExists(targetDir)) {
+      if (platform === "win32") {
+        try {
+          await copyDirectory(targetDir, backupDir, { recursive: true, force: true, verbatimSymlinks: true })
+        } catch (error) {
+          await rm(backupDir, { recursive: true, force: true })
+          throw error
+        }
+        backupCreated = true
+        await rm(targetDir, { recursive: true, force: true })
+      } else {
+        await rename(targetDir, backupDir)
+        backupCreated = true
+      }
+    }
     await rename(tempDir, targetDir)
     targetMoved = true
+    if (backupCreated) {
+      await rm(backupDir, { recursive: true, force: true })
+      backupCreated = false
+    }
     return { ok: true, sourceEntry, directiveEntry, targetDir, sha256: await sha256(sourceEntry) }
   } catch (error) {
     if (!targetMoved && backupCreated) {
       await rm(targetDir, { recursive: true, force: true })
       await rename(backupDir, targetDir)
+      backupCreated = false
     }
     throw error
   } finally {
     await rm(tempParent, { recursive: true, force: true })
+  }
+}
+
+async function stagedToolkitMatches(tempDir, targetDir) {
+  try {
+    const [topLevelEntries, ulwLoopEntries] = await Promise.all([
+      readdir(targetDir),
+      readdir(join(targetDir, "ulw-loop")),
+    ])
+    if (topLevelEntries.toSorted().join("\n") !== stagedTopLevelEntries.join("\n")) return false
+    if (ulwLoopEntries.join("\n") !== "cli.js") return false
+    const matches = await Promise.all(
+      stagedArtifactPaths.map((path) => filesEqual(join(tempDir, path), join(targetDir, path))),
+    )
+    if (!matches.every(Boolean)) return false
+    return process.platform === "win32" || ((await stat(join(targetDir, "omo-agent-toolkit"))).mode & 0o777) === 0o755
+  } catch (error) {
+    if (isErrno(error, "ENOENT") || isErrno(error, "ENOTDIR") || isErrno(error, "EISDIR")) return false
+    throw error
   }
 }
 

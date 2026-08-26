@@ -1,25 +1,71 @@
 import type { HookDeps } from "./types"
+import type { RuntimeFallbackTimeout } from "./types"
+import { parseModelString } from "@oh-my-opencode/model-core"
 import { HOOK_NAME } from "./constants"
 import { log } from "../../shared/logger"
-import { createFallbackState, isModelInCooldown } from "./fallback-state"
+import { createFallbackState, isModelInCooldown, stringifyRuntimeModelWithVariant } from "./fallback-state"
+import { buildRetryModelPayload } from "./retry-model-payload"
+import { resolveRuntimeModelSettings } from "./runtime-model-settings"
+import { getSessionAgent } from "../../features/claude-code-session-state"
 import { cancelFallbackApproval } from "./fallback-approval"
 
-export function createChatMessageHandler(
-  deps: HookDeps,
-  clearSessionFallbackTimeout: (sessionID: string) => void = () => {},
-) {
+declare function clearTimeout(timeout: RuntimeFallbackTimeout): void
+
+export function createChatMessageHandler(deps: HookDeps) {
   const {
     config,
     sessionStates,
     sessionLastAccess,
-    sessionRetryInFlight,
     sessionAwaitingFallbackResult,
+    sessionFallbackTimeouts,
     sessionStatusRetryKeys,
+    sessionRetryInFlight,
   } = deps
 
+  function clearFallbackWatchdog(sessionID: string): void {
+    sessionAwaitingFallbackResult.delete(sessionID)
+    const timer = sessionFallbackTimeouts.get(sessionID)
+    if (timer) {
+      clearTimeout(timer)
+      sessionFallbackTimeouts.delete(sessionID)
+    }
+  }
+
+  function clearModelLessRetryKeys(sessionID: string): void {
+    const retryKeys = sessionStatusRetryKeys.get(sessionID)
+    if (!retryKeys) return
+
+    for (const retryKey of retryKeys) {
+      if (retryKey.startsWith("unknown:")) {
+        retryKeys.delete(retryKey)
+      }
+    }
+    if (retryKeys.size === 0) {
+      sessionStatusRetryKeys.delete(sessionID)
+    }
+  }
+
+  function applyRuntimeModel(
+    message: { model?: { providerID: string; modelID: string }; variant?: string },
+    runtimeModel: string,
+  ): void {
+    const parsedModel = parseModelString(runtimeModel)
+    if (!parsedModel) return
+
+    message.model = {
+      providerID: parsedModel.providerID,
+      modelID: parsedModel.modelID,
+    }
+    if (parsedModel.variant) {
+      message.variant = parsedModel.variant
+    } else {
+      delete message.variant
+    }
+  }
+
   return async (
-    input: { sessionID: string; agent?: string; model?: { providerID: string; modelID: string } },
-    output: { message: { model?: { providerID: string; modelID: string } }; parts?: Array<{ type: string; text?: string }> }
+    input: { sessionID: string; agent?: string; model?: { providerID: string; modelID: string }; variant?: string },
+    output: { message: { model?: { providerID: string; modelID: string }; variant?: string }; parts?: Array<{ type: string; text?: string }> }
   ) => {
     if (!config.enabled) return
 
@@ -30,29 +76,30 @@ export function createChatMessageHandler(
 
     sessionLastAccess.set(sessionID, Date.now())
 
-    const requestedModel = input.model
-      ? `${input.model.providerID}/${input.model.modelID}`
-      : undefined
+    const requestedModel = stringifyRuntimeModelWithVariant(
+      input.model,
+      output.message.variant ?? input.variant,
+    )
+
+    if (requestedModel && state.pendingFallbackModel === requestedModel) {
+      state.pendingFallbackModel = undefined
+      state.pendingFallbackPromptMayHaveBeenAccepted = false
+      clearModelLessRetryKeys(sessionID)
+      return
+    }
 
     if (requestedModel && requestedModel !== state.currentModel) {
-      if (state.pendingFallbackModel && state.pendingFallbackModel === requestedModel) {
-        state.pendingFallbackModel = undefined
-        state.pendingFallbackPromptMayHaveBeenAccepted = false
-        return
-      }
-
       log(`[${HOOK_NAME}] Detected manual model change, resetting fallback state`, {
         sessionID,
         from: state.currentModel,
         to: requestedModel,
       })
-      clearSessionFallbackTimeout(sessionID)
-      cancelFallbackApproval(deps, sessionID)
-      sessionRetryInFlight.delete(sessionID)
-      sessionAwaitingFallbackResult.delete(sessionID)
-      sessionStatusRetryKeys.delete(sessionID)
       state = createFallbackState(requestedModel)
       sessionStates.set(sessionID, state)
+      clearFallbackWatchdog(sessionID)
+      cancelFallbackApproval(deps, sessionID)
+      sessionRetryInFlight.delete(sessionID)
+      sessionStatusRetryKeys.delete(sessionID)
       return
     }
 
@@ -62,21 +109,20 @@ export function createChatMessageHandler(
       !state.pendingFallbackModel &&
       !isModelInCooldown(state.originalModel, state, config.cooldown_seconds)
     ) {
-      const activeModel = state.originalModel
+      const primaryPayload = buildRetryModelPayload(
+        state.originalModel,
+        resolveRuntimeModelSettings(sessionID, input.agent ?? getSessionAgent(sessionID), deps.pluginConfig),
+      )
+      const activeModel = primaryPayload
+        ? stringifyRuntimeModelWithVariant(primaryPayload.model, primaryPayload.variant) ?? state.originalModel
+        : state.originalModel
       log(`[${HOOK_NAME}] Restoring preferred primary model`, {
         sessionID,
         from: state.currentModel,
         to: activeModel,
       })
       sessionStates.set(sessionID, createFallbackState(activeModel))
-
-      const parts = activeModel.split("/")
-      if (parts.length >= 2) {
-        output.message.model = {
-          providerID: parts[0],
-          modelID: parts.slice(1).join("/"),
-        }
-      }
+      applyRuntimeModel(output.message, activeModel)
       return
     }
 
@@ -90,14 +136,6 @@ export function createChatMessageHandler(
       to: activeModel,
     })
 
-    if (output.message && activeModel) {
-      const parts = activeModel.split("/")
-      if (parts.length >= 2) {
-        output.message.model = {
-          providerID: parts[0],
-          modelID: parts.slice(1).join("/"),
-        }
-      }
-    }
+    if (output.message && activeModel) applyRuntimeModel(output.message, activeModel)
   }
 }
