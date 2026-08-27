@@ -36,3 +36,14 @@ required on top of beta.21.
 
 Remaining: restart OpenChamber so the embedded server (currently 4.19.3 in memory)
 picks up the deployed plugin.
+
+## Addendum — P0 summary-return probe (same day, commit 464c9a0f0)
+
+Deployed rebuilt plugin (P0: deliverable-only default return). Leak-probe E2E:
+subagent ran `echo TOOL-LEAK-MARKER-9f3a` via bash, final answer
+`FINAL-DELIVERABLE-MARKER-7c2e`. Result (05-p0-summary-return-probe.txt):
+1 launch / 1 notification / 1 background_output; deliverable present in bg_output
+result and parent synthesis; summary note present; tool marker appears ONLY in the
+user's own prompt (initial FAIL was a probe artifact — the marker string was in the
+test prompt itself). **VERDICT_P0: PASS** — subagent tool output no longer reaches
+the parent context by default.

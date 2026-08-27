@@ -1,0 +1,5 @@
+task_launches=1 bg_output_calls=1 notifications=1
+deliverable locations (non-user): ['bg_output result msg[4]', 'assistant text msg[5]']
+summary note in bg_output: True
+leak locations OUTSIDE user's own prompt: []
+VERDICT_P0_CORRECTED: PASS
