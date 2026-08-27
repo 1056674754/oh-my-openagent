@@ -1,0 +1,12 @@
+[2026-08-27T04:33:54.533Z] [background-agent] launch() called with: {"agent":"explore","model":{"providerID":"openai","modelID":"gpt-5.6-luna"},"description":"Background echo: alpha","parentSessionID":"ses_fbe81606bffezDa67fDQ1VSmuv"}
+[2026-08-27T04:33:54.899Z] [background-agent] launch() called with: {"agent":"explore","model":{"providerID":"openai","modelID":"gpt-5.6-luna"},"description":"Background echo: beta","parentSessionID":"ses_fbe81606bffezDa67fDQ1VSmuv"}
+[2026-08-27T04:33:55.286Z] [background-agent] launch() called with: {"agent":"explore","model":{"providerID":"openai","modelID":"gpt-5.6-luna"},"description":"Background echo: gamma","parentSessionID":"ses_fbe81606bffezDa67fDQ1VSmuv"}
+[2026-08-27T04:34:00.179Z] [background-agent] Deferred parent wake because parent session is active: {"sessionID":"ses_fbe81606bffezDa67fDQ1VSmuv"}
+[2026-08-27T04:34:01.185Z] [background-agent] Deferred parent wake because parent session is active: {"sessionID":"ses_fbe81606bffezDa67fDQ1VSmuv"}
+[2026-08-27T04:34:02.192Z] [background-agent] Deferred parent wake because parent session is active: {"sessionID":"ses_fbe81606bffezDa67fDQ1VSmuv"}
+[2026-08-27T04:34:03.220Z] [background-agent] Deferred parent wake because parent session is active: {"sessionID":"ses_fbe81606bffezDa67fDQ1VSmuv"}
+[2026-08-27T04:34:04.229Z] [background-agent] Deferred parent wake because parent session is active: {"sessionID":"ses_fbe81606bffezDa67fDQ1VSmuv"}
+[2026-08-27T04:34:48.253Z] [live-server-route] dispatch via live listener {"sessionID":"ses_fbe81606bffezDa67fDQ1VSmuv","source":"background-agent-parent-wake"}
+[2026-08-27T04:34:48.257Z] [prompt-async-gate] remembered semantic prompt dispatch {"sessionID":"ses_fbe81606bffezDa67fDQ1VSmuv","source":"background-agent-parent-wake","holdMs":15000}
+[2026-08-27T04:34:48.257Z] [prompt-async-gate] promptAsync dispatched {"sessionID":"ses_fbe81606bffezDa67fDQ1VSmuv","source":"background-agent-parent-wake"}
+[2026-08-27T04:34:48.257Z] [background-agent] Sent deferred parent wake: {"sessionID":"ses_fbe81606bffezDa67fDQ1VSmuv"}

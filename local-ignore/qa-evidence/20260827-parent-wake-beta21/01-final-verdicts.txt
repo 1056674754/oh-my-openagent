@@ -1,0 +1,10 @@
+== Scenario A (parent idle): 2026-08-27T04:38:19Z
+[Scenario A (parent idle)] task_launches=3 notification_reminders=3 background_output_calls=3 -> PASS
+  reminder: '<system-reminder>\n[BACKGROUND TASK RESULT READY]\n**ID:** `bg_9044ccf2`\n**Description:** Reply with apple\n**Dur'
+  reminder: '<system-reminder>\n[BACKGROUND TASK COMPLETED]\n[ALL BACKGROUND TASKS COMPLETE]\n\n**Completed:**\n- `bg_9044ccf2`:'
+  reminder: '<system-reminder>\n[BACKGROUND TASK COMPLETED]\n[ALL BACKGROUND TASKS COMPLETE]\n\n**Completed:**\n- `bg_9044ccf2`:'
+
+== Scenario B (parent busy): 2026-08-27T04:38:19Z
+[Scenario B (parent busy)] task_launches=3 notification_reminders=2 background_output_calls=3 -> PASS
+  reminder: '<system-reminder>\n[BACKGROUND TASK COMPLETED]\n[ALL BACKGROUND TASKS COMPLETE]\n\n**Completed:**\n- `bg_9d5b826d`:'
+  reminder: '<system-reminder>\n[BACKGROUND TASK COMPLETED]\n[ALL BACKGROUND TASKS COMPLETE]\n\n**Completed:**\n- `bg_9d5b826d`:'
