@@ -1,13 +1,25 @@
 import type { BackgroundTask } from "../../features/background-agent"
 import { extractErrorMessage } from "../../features/background-agent/error-classifier"
 import { consumeNewMessages } from "../../shared/session-cursor"
-import type { BackgroundOutputClient, BackgroundOutputMessagesResult } from "./clients"
+import type { BackgroundOutputClient, BackgroundOutputMessage, BackgroundOutputMessagesResult } from "./clients"
 import { extractMessages, getErrorMessage } from "./session-messages"
 import { formatDuration } from "./time-format"
 import { getBackgroundOutputFetchTimeoutMs, withSdkCallTimeout } from "./with-sdk-call-timeout"
 
 function getTimeString(value: unknown): string {
   return typeof value === "string" ? value : ""
+}
+
+const DELIVERABLE_MAX_CHARS = 8_000
+const DELIVERABLE_HEAD_CHARS = 6_000
+const DELIVERABLE_TAIL_CHARS = 1_500
+
+function truncateMiddleDeliverable(text: string): string {
+  if (text.length <= DELIVERABLE_MAX_CHARS) return text
+  const omittedChars = text.length - DELIVERABLE_HEAD_CHARS - DELIVERABLE_TAIL_CHARS
+  const head = text.slice(0, DELIVERABLE_HEAD_CHARS)
+  const tail = text.slice(text.length - DELIVERABLE_TAIL_CHARS)
+  return `${head}\n\n[... ${omittedChars} chars truncated — call background_output again with full_session=true for complete output ...]\n\n${tail}`
 }
 
 export async function formatTaskResult(task: BackgroundTask, client: BackgroundOutputClient): Promise<string> {
@@ -96,34 +108,52 @@ Session ID: ${task.sessionId}
 (No new output since last check)`
   }
 
-  const extractedContent: string[] = []
-  for (const message of newMessages) {
-    for (const part of message.parts ?? []) {
-      if ((part.type === "text" || part.type === "reasoning") && part.text) {
-        extractedContent.push(part.text)
-        continue
-      }
+  function messageTextParts(message: BackgroundOutputMessage): string[] {
+    return (message.parts ?? [])
+      .filter((part) => part.type === "text" && typeof part.text === "string" && part.text.length > 0)
+      .map((part) => part.text as string)
+  }
 
-      if (part.type === "tool_result") {
-        const toolResult = part as { content?: string | Array<{ type: string; text?: string }> }
-        if (typeof toolResult.content === "string" && toolResult.content) {
-          extractedContent.push(toolResult.content)
-          continue
-        }
+  let deliverableText: string | undefined
+  for (let i = newMessages.length - 1; i >= 0; i -= 1) {
+    const message = newMessages[i]
+    if (message.info?.role !== "assistant") continue
+    const text = messageTextParts(message).join("\n\n").trim()
+    if (text) {
+      deliverableText = text
+      break
+    }
+  }
 
-        if (Array.isArray(toolResult.content)) {
-          for (const block of toolResult.content) {
-            if ((block.type === "text" || block.type === "reasoning") && block.text) {
-              extractedContent.push(block.text)
-            }
-          }
-        }
+  if (!deliverableText) {
+    for (const message of newMessages.slice(-2).reverse()) {
+      const text = messageTextParts(message).join("\n\n").trim()
+      if (text) {
+        deliverableText = text
+        break
       }
     }
   }
 
-  const textContent = extractedContent.filter((text) => text.length > 0).join("\n\n")
+  const toolResultCount = newMessages.reduce((count, message) => {
+    return count + (message.parts ?? []).filter((part) => part.type === "tool_result").length
+  }, 0)
   const duration = formatDuration(task.startedAt ?? new Date(), task.completedAt)
+
+  if (!deliverableText) {
+    return `Task Result
+
+Task ID: ${task.id}
+Description: ${task.description}
+Duration: ${duration}
+Session ID: ${task.sessionId}
+
+---
+
+(No final assistant text — call background_output again with full_session=true for the full transcript)`
+  }
+
+  const summaryNote = `(final-message summary: ${newMessages.length} new messages, ${toolResultCount} tool results omitted — use full_session=true for the full transcript)`
 
   return `Task Result
 
@@ -134,5 +164,7 @@ Session ID: ${task.sessionId}
 
 ---
 
-${textContent || "(No text output)"}`
+${truncateMiddleDeliverable(deliverableText)}
+
+${summaryNote}`
 }

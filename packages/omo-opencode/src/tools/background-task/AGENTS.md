@@ -43,6 +43,15 @@ background_output(task_id, message_limit=N) → last N messages only
 background_output(task_id, include_thinking=true) → include thinking blocks
 ```
 
+## DEFAULT RESULT = DELIVERABLE SUMMARY (not a transcript dump)
+
+`formatTaskResult` (the default, non-`full_session` path) returns ONLY the final
+assistant text deliverable — reasoning parts and tool_result contents are excluded,
+with a one-line `(... omitted — use full_session=true ...)` note. Deliverables over
+8000 chars are middle-truncated. Rationale: the orchestrator's context must not pay
+for the subagent's intermediate grep/read output. Consumers needing raw tool output
+must opt in via `full_session=true` + `include_tool_results=true`.
+
 ## RELATIONSHIP TO BACKGROUND ENGINE
 
 ```
