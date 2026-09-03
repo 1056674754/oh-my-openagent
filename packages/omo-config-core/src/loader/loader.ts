@@ -100,7 +100,9 @@ function hasOnlyRecordLeafIssues(issues: readonly z.core.$ZodIssue[]): boolean {
 
 /**
  * A layer carrying `__proto__`, `prototype`, or `constructor` is hostile input, not a stale key, so it
- * stays fail-closed (whole layer rejected) instead of being stripped and partially loaded.
+ * stays fail-closed (whole layer rejected) instead of being stripped and partially loaded, at ANY
+ * depth: nesting hostile input under `agents.*`/`categories.*` leaves no unrecognized-key issue at
+ * all, so pruning must never run before the tamper check.
  *
  * `prototype` and `constructor` arrive as own properties and surface here as unrecognized keys. A
  * JSON `"__proto__"` member does not: it is written THROUGH the prototype, so the schema sees only the
@@ -201,7 +203,7 @@ function readConfigSource(
   // (nothing for zod to report) would otherwise hand a tampered sub-object to every consumer of it.
   if (hasTamperedPrototype(parsed.data)) {
     return {
-      diagnostic: { kind: "validation", message: `Invalid omo config at ${path}: "__proto__" member is not allowed`, path },
+      diagnostics: [{ kind: "validation", message: `Invalid omo config at ${path}: "__proto__" member is not allowed`, path }],
       source: { exists: true, loaded: false, path, scope },
     }
   }
