@@ -22,6 +22,7 @@ export { sendAndCloseStdin } from "./stdin-delivery"
 export type {
   ApplyPatchAccumulator,
   ApplyPatchFileMetadata,
+  CheckFailure,
   CheckResult,
   CheckerEdit,
   CommentFilter,
