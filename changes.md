@@ -4,6 +4,10 @@ The macOS engine now captures the frontmost application's first on-screen layer-
 
 Background clicks keep the user's frontmost app, visible front window, focused window, cursor, and next-keystroke destination. The target can move directly beneath the front window; macOS QA records that rank without treating it as a focus failure, and foreground sabotage still fails the invariant. The guide, tool reference, and model-facing computer guidance describe the same accepted behavior.
 
+## 2026-09-27 - The computer-use skill says when to stop and ask (#8941)
+
+The `computer-use` skill that `materializeComputerSkill()` writes (`packages/senpi-desktop-tool/src/skill.ts`) was the helper reference plus the safety block. It now opens with the two decisions the reference did not cover: read `computer.capabilities()` before the first action and, when a permission the task needs is not `granted`, name it (on macOS, Screen Recording or Accessibility for the launching app) and stop instead of working around it; and ask the user when the target is ambiguous or an action still fails after a fresh observation.
+
 ## 2026-09-27 - The computer-use QA proves tool_search discovery (#8893)
 
 `computer-use-e2e.mjs` now also drives the path a model takes to a deferred tool. It runs `tool_search` for a desktop-control capability, calls the matched `computer` tool by name, and confirms the eval `computer` global. It passes 5 of 5 against senpi 2026.9.27-2, and the check fails when the query cannot match.
