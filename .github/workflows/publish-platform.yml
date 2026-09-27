@@ -60,8 +60,12 @@ jobs:
         with:
           bun-version: "1.4.2"
 
-      - name: Install Rust target
-        run: rustup target add "${{ matrix.rust_target }}"
+      - name: Install pinned Rust toolchain and target
+        run: |
+          toolchain=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+          rustup target add "${{ matrix.rust_target }}"
 
       - name: Build desktop engine
         run: cargo build --release -p senpi-desktop-engine --locked --target "${{ matrix.rust_target }}"

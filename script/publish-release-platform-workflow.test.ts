@@ -6,9 +6,12 @@ import { createHash } from "node:crypto"
 import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync, unlinkSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { load } from "js-yaml"
+import { z } from "zod"
 
 import { DESKTOP_ENGINE_RELEASE_HOSTS, desktopEngineReleaseAssetName } from "../packages/senpi-desktop-engine/src/release-assets"
 import { PLATFORMS } from "./build-binaries"
+import { DESKTOP_ENGINE_TARGETS } from "./release-desktop-engine-target"
 
 const publishWorkflowPath = new URL("../.github/workflows/publish.yml", import.meta.url)
 const publishPlatformWorkflowPath = new URL("../.github/workflows/publish-platform.yml", import.meta.url)
@@ -111,6 +114,62 @@ describe("release and platform publish workflows", () => {
 })
 
 describe("release binary asset lane in the platform publish workflow", () => {
+  test("builds every available engine with the pinned target before compiled payload staging", () => {
+    // Given the actual GitHub Actions job graph and the canonical target fixture.
+    const stepsSchema = z.array(z.object({ name: z.string().optional(), run: z.string().optional(), if: z.string().optional() }))
+    const workflow = z.object({ jobs: z.object({
+      "desktop-engine": z.object({ strategy: z.object({ matrix: z.object({ include: z.array(z.object({
+        host: z.string(), rust_target: z.string(), binary: z.string(),
+      })) }) }), steps: stepsSchema }),
+      build: z.object({ needs: z.literal("desktop-engine"), steps: stepsSchema }),
+    }) }).parse(load(readFileSync(publishPlatformWorkflowPath, "utf8")))
+    const engine = workflow.jobs["desktop-engine"]
+    const build = workflow.jobs.build
+    const step = (steps: z.infer<typeof stepsSchema>, name: string) => {
+      const index = steps.findIndex((candidate) => candidate.name === name)
+      const value = steps.at(index)
+      if (index < 0 || value === undefined) throw new Error(`missing workflow step: ${name}`)
+      return { index, value }
+    }
+
+    // When the four artifact producers and the twelve platform consumers are resolved.
+    const install = step(engine.steps, "Install pinned Rust toolchain and target")
+    const cargo = step(engine.steps, "Build desktop engine")
+    const asset = step(engine.steps, "Stage desktop engine release asset")
+    const resolve = step(build.steps, "Resolve desktop engine availability")
+    const download = step(build.steps, "Download desktop engine for compiled payload")
+    const stage = step(build.steps, "Stage target-specific Rust engine for compiled payload")
+    const compile = step(build.steps, "Build release binary")
+
+    // Then toolchain, triple, artifact transport and staging preserve the Cargo output path.
+    expect(install.value.run).toContain("rust-toolchain.toml")
+    expect(install.value.run).toContain('rustup toolchain install "$toolchain"')
+    expect(install.value.run).toContain('rustup target add "${{ matrix.rust_target }}"')
+    expect(install.index).toBeLessThan(cargo.index)
+    expect(cargo.value.run).toContain('--target "${{ matrix.rust_target }}"')
+    expect(cargo.index).toBeLessThan(asset.index)
+    expect(asset.value.run).toContain('target/${{ matrix.rust_target }}/release/${{ matrix.binary }}')
+    expect(resolve.index).toBeLessThan(download.index)
+    expect(download.index).toBeLessThan(stage.index)
+    expect(stage.index).toBeLessThan(compile.index)
+    expect(download.value.if).toBe("steps.desktop-engine-target.outputs.host != ''")
+    expect(stage.value.if).toBe(download.value.if)
+    expect(stage.value.run).toContain('cp ".omo/desktop-engine-assets/$ENGINE_ASSET" "$ENGINE_SOURCE"')
+    expect(compile.value.run).toContain("script/build-omo-binary.ts")
+    expect(build.steps.some((candidate) => candidate.run?.includes("cargo build"))).toBe(false)
+    expect(engine.strategy.matrix.include.map((entry) => entry.host)).toEqual([...DESKTOP_ENGINE_RELEASE_HOSTS])
+    for (const target of DESKTOP_ENGINE_TARGETS) {
+      if (!target.available) {
+        expect(target.host).toBeNull()
+        expect(target.source).toBeNull()
+        continue
+      }
+      const producer = engine.strategy.matrix.include.find((entry) => entry.host === target.host)
+      expect(producer).toBeDefined()
+      expect(target.source).toBe(`target/${producer?.rust_target}/release/${producer?.binary}`)
+    }
+  })
+
   test("uploads one engine artifact per canonical host without baseline duplicates", () => {
     // Given the dedicated four-host build matrix.
     const workflow = readFileSync(publishPlatformWorkflowPath, "utf8")
