@@ -47,7 +47,7 @@ export async function fixture(now?: () => Date) {
  * exist - the shipped catalog would otherwise satisfy the quick chain on its own. An in-process
  * child shares this exact instance, so the facts child cannot drift onto another engine's model set.
  */
-export function registrySnapshot(models: readonly { readonly id: string }[] = [{ id: "mock-1" }]): ChildModelRegistry {
+export function registrySnapshot(models: readonly { readonly id: string; readonly contextWindow?: number; readonly maxTokens?: number }[] = [{ id: "mock-1" }]): ChildModelRegistry {
   const registry = new ModelRegistry(ModelRuntime.createSync({ modelsPath: null }))
   registry.registerProvider("omo-mock", {
     api: "openai-completions",
@@ -59,8 +59,8 @@ export function registrySnapshot(models: readonly { readonly id: string }[] = [{
       reasoning: false,
       input: ["text"],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 1,
-      maxTokens: 1,
+      contextWindow: model.contextWindow ?? 1,
+      maxTokens: model.maxTokens ?? 1,
     })),
   })
   return registry
