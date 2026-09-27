@@ -70,6 +70,7 @@ jobs:
           toolchain=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)
           rustup toolchain install "$toolchain" --profile minimal --component clippy
           rustup default "$toolchain"
+          rustup target add "${{ matrix.rust_target }}"
 
       - uses: Swatinem/rust-cache@v2
 
