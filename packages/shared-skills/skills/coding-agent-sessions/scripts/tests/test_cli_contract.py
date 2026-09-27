@@ -14,6 +14,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent_sessions.jsonio import as_map, parse_json_text
@@ -135,6 +137,29 @@ def test_find_matches_a_user_event_between_the_first_and_last_prompts(tmp_path: 
     reasons = _rows(results[0], "match_reasons")
     assert reasons[0]["field"] == "user_message"
     assert reasons[0]["snippet"] == "needle-middle-only"
+
+
+EDGE_AND_MIDDLE_PROMPTS = ("alpha-edge", "needle-middle-only", "omega-edge")
+OWN_FORMAT_TRANSCRIPTS: dict[str, tuple[str, list[JsonMap]]] = {
+    "droid": ("sessions/proj/droid-1.jsonl", [{"type": "message", "message": {"role": "user", "content": prompt}} for prompt in EDGE_AND_MIDDLE_PROMPTS]),
+    "kimi": ("sessions/proj/kimi-1/wire.jsonl", [{"type": "TurnBegin", "payload": {"user_input": prompt}} for prompt in EDGE_AND_MIDDLE_PROMPTS]),
+    "aside": ("sessions/x_aside-1/messages.jsonl", [{"role": "user", "content": [{"type": "text", "text": prompt}]} for prompt in EDGE_AND_MIDDLE_PROMPTS]),
+}
+
+
+@pytest.mark.parametrize("platform", sorted(OWN_FORMAT_TRANSCRIPTS))
+def test_find_matches_a_middle_prompt_in_platform_specific_transcripts(tmp_path: Path, platform: str) -> None:
+    # given: a transcript in the platform's own format whose query text appears only in a middle prompt
+    relative, rows = OWN_FORMAT_TRANSCRIPTS[platform]
+    _write_jsonl(tmp_path / relative, rows)
+
+    # when
+    payload = _run(tmp_path, "find", "needle-middle-only", "--platform", platform)
+
+    # then
+    results = _rows(payload, "results")
+    assert [item["id"] for item in results] == [f"{platform}-1"]
+    assert _rows(results[0], "match_reasons")[0]["field"] == "user_message"
 
 
 def test_entrypoint_rejects_python_older_than_3_11(tmp_path: Path) -> None:
