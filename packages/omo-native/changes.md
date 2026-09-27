@@ -1,4 +1,4 @@
-## 2026-09-27 - omo doctor reports computer-use readiness (#8939)
+## 2026-09-27 - Native doctor reports computer-use readiness (#8939)
 
 ### What changed
 
