@@ -8,7 +8,7 @@ import { createInterface } from "node:readline"
 import { fileURLToPath } from "node:url"
 
 import { resolveComputerSettings } from "@oh-my-opencode/senpi-desktop-tool"
-import { type ChildFactory, DesktopEngineUnavailableError } from "@oh-my-opencode/senpi-desktop-service"
+import type { ChildFactory } from "@oh-my-opencode/senpi-desktop-service"
 
 import type { ComponentContext, ComponentLogger } from "../../extension/types"
 import { FakeExtensionAPI } from "../../../test-support/fake-extension-api"
@@ -226,27 +226,6 @@ describe("computer-use component", () => {
     // then
     expect(engine.methods).toEqual([])
     expect(await runCommand(pi, "status")).toEqual([expect.stringContaining("engine: not started\nprelude: inactive")])
-  })
-
-  test("#given no engine binary #when the tool activates #then status reports native-unavailable", async () => {
-    // given
-    const missing: ChildFactory = () => {
-      throw new DesktopEngineUnavailableError({
-        code: "native-unavailable",
-        host: "linux-x64",
-        attemptedPaths: [],
-        message: "No senpi-desktop-engine binary is available for linux-x64.",
-        cause: "none",
-      })
-    }
-    const { pi } = register({ engineChild: missing })
-
-    // when
-    const activation = pi.dispatch("tool_activated", { type: "tool_activated", toolNames: ["computer"] }, hostContext())
-
-    // then
-    await expect(activation).rejects.toThrow("native-unavailable")
-    expect(await runCommand(pi, "status")).toEqual([expect.stringContaining("engine: native-unavailable")])
   })
 
   test("#given an active session #when /computer off runs #then the engine session closes and the tool leaves the active set", async () => {

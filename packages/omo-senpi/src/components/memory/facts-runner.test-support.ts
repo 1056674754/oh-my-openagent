@@ -28,7 +28,7 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
 })
 
-export async function fixture() {
+export async function fixture(now?: () => Date) {
   const root = await mkdtemp(join(tmpdir(), "omo-facts-runner-"))
   tempDirs.push(root)
   const identity: MemoryIdentity = {
@@ -36,7 +36,7 @@ export async function fixture() {
     safeSlug: "facts-agent",
     paths: buildIdentityPaths(root, "facts-agent"),
   }
-  const queue = new FactsQueue({ identityPaths: identity.paths })
+  const queue = new FactsQueue({ identityPaths: identity.paths, ...(now === undefined ? {} : { now }) })
   await enqueue(queue, identity, "session-1", "m1", "The project uses Bun.")
   return { root, identity, queue }
 }

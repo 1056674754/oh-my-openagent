@@ -5,6 +5,9 @@ import { assertAllowlistCoverage } from "./omo-native-telemetry-qa.mjs"
 
 const EXPECTED_EVENTS = [
   "category_config",
+  "computer_use_activation",
+  "computer_use_engine_error",
+  "computer_use_permission_denied",
   "daily_active",
   "delegation_completed",
   "delegation_started",

@@ -8,6 +8,16 @@ The macOS engine now captures the frontmost application's first on-screen layer-
 
 Background clicks keep the user's frontmost app, visible front window, focused window, cursor, and next-keystroke destination. The target can move directly beneath the front window; macOS QA records that rank without treating it as a focus failure, and foreground sabotage still fails the invariant. The guide, tool reference, and model-facing computer guidance describe the same accepted behavior.
 
+## 2026-09-27 - OmO Native records privacy-safe computer-use outcomes (#8940)
+
+OmO Native telemetry now measures whether computer use activates, what blocks it, and which desktop-engine failures occur without exporting desktop content. Three strict events use only closed vocabularies:
+
+- `computer_use_activation`: active/inactive, source (`tool_call`, `/computer on`, `/computer off`), platform and backend.
+- `computer_use_permission_denied`: OS capability (`capture`, `input`, `ax`) or OmO permission tier (`read`, `exec`), plus platform and backend.
+- `computer_use_engine_error`: the frozen engine error code, startup diagnostics (`native-unavailable`, `quarantined`, `abi-mismatch`), or `other`.
+
+The computer-use adapter publishes through the existing OmO Native telemetry client, so every existing environment, config and component opt-out disables these events too. Session ids remain salted hashes. Screenshots, window and application names, coordinates, typed text, tool code and arguments, permission feedback, paths, error messages and recovery hints never enter an event.
+
 ## 2026-09-27 - The computer-use skill says when to stop and ask (#8941)
 
 The `computer-use` skill that `materializeComputerSkill()` writes (`packages/senpi-desktop-tool/src/skill.ts`) was the helper reference plus the safety block. It now opens with the two decisions the reference did not cover: read `computer.capabilities()` before the first action and, when a permission the task needs is not `granted`, name it (on macOS, Screen Recording or Accessibility for the launching app) and stop instead of working around it; and ask the user when the target is ambiguous or an action still fails after a fresh observation.
