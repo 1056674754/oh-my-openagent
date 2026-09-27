@@ -109,7 +109,7 @@ The schema is `packages/omo-config-core/src/schema/computer.ts`; the defaults ar
 omo --permission computer:read=allow --permission computer:exec=deny
 ```
 
-**The stop chord.** While input is possible, a global stop chord is armed (Control+Option+Command+Escape on macOS, Ctrl+Alt+Shift+Escape on Linux and Windows, or `stop_hotkey`). Pressing it suspends all computer input immediately, and an action cut short by the suspension releases any keys and buttons it was holding; `/computer stop` does the same from the prompt. Input stays suspended until you run `/computer resume`. If the chord cannot be armed, input is refused with `StopPathUnavailable` rather than running without a way to stop it; `allow_host_relay_only_stop: true` accepts `/computer stop` as the only stop path, and is meant for hosts that relay a stop reliably.
+**The stop chord.** While input is possible, a global stop chord is armed (Control+Option+Command+Escape on macOS, Ctrl+Alt+Shift+Escape on Linux and Windows, or `stop_hotkey`). Pressing it suspends all computer input immediately: a `type` already in progress stops at the next character, and an action cut short by the suspension releases any keys and buttons it was holding; `/computer stop` does the same from the prompt. Input stays suspended until you run `/computer resume`. If the chord cannot be armed, input is refused with `StopPathUnavailable` rather than running without a way to stop it; `allow_host_relay_only_stop: true` accepts `/computer stop` as the only stop path, and is meant for hosts that relay a stop reliably.
 
 **Before input reaches an application,** the engine refuses it when input is suspended, the screen is locked, the stop path is gone, or the OS permission is missing.
 
@@ -117,7 +117,7 @@ omo --permission computer:read=allow --permission computer:exec=deny
 
 **Focus.** Input defaults to background delivery. On macOS it leaves your frontmost app, visible front window, keyboard focus, cursor and next-keystroke destination unchanged, although a clicked target may rise directly beneath your front window. Background typing into an app with multiple windows can report `BackgroundUnavailable`; use accessibility actions or foreground delivery instead. Foreground delivery briefly activates the target and then restores the previous window and cursor; a failed restore is reported, not hidden.
 
-**Audit.** Every mutating action is appended to `.computer-audit.jsonl` in the session directory. Typed text is recorded by length and digest, not content. Set `audit_log.enabled: false` to turn it off.
+**Audit.** Every mutating action is appended to `.computer-audit.jsonl` in the session directory. Typed text is recorded by length and digest, never content, and an interrupted `type` also records how many characters were delivered. Set `audit_log.enabled: false` to turn it off.
 
 ## Privacy
 
@@ -145,7 +145,6 @@ omo --permission computer:read=allow --permission computer:exec=deny
 ## Known limitations
 
 - macOS: a background click can raise the clicked window to just below the frontmost window; your frontmost app, front window, focus, cursor and next-keystroke destination are kept. Restoring the full previous window order is tracked in [#8930](https://github.com/code-yeongyu/oh-my-openagent/issues/8930).
-- macOS: the stop chord latches immediately, but a `type` already in progress is not interrupted mid-string yet ([#8937](https://github.com/code-yeongyu/oh-my-openagent/issues/8937)).
 - macOS: `macos_canary: "off"` is accepted but not yet forwarded to the engine, so the delivery check always runs.
 - Wayland: no single-window capture, no per-window input, no `raise()`; the stop chord needs the GlobalShortcuts portal.
 - No released engine for Linux arm64 or Windows arm64 yet.
