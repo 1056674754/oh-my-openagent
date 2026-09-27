@@ -1,17 +1,26 @@
-## Runtime fallback: a stop during the next rung's start, and a failed-rung teardown that rejects
+## A child that starts after its task was stopped, and a child whose cleanup rejects
 
-`manager/manager.ts` `#launchRuntimeFallback` attached whatever `runner.start()` returned. A cancel or interrupt
-landing while that start was in flight terminalized the record with no live handle, and the late child was then
-subscribed and made resident on a cancelled task. It now reloads the record after the start and keeps the child only
-if the task is still `running` on the same run epoch and owner; otherwise it releases the slot, discards the child
-and settles waiters.
+`manager/manager.ts`: every launch now re-reads the record once `runner.start()` resolves and keeps the child only
+while the task is still `running` on the same run epoch and owner (`#ownsLaunch`). This covers the primary launch,
+the `model_unavailable` walk (`#advanceStartFallback`, whose epoch advance is now one fenced `mutate`) and the
+runtime-fallback launch. A cancel, interrupt or another owner that landed during the start used to let the late child
+subscribe and stay resident on the stopped task (an interrupted primary launch, a runtime-fallback launch), or let the
+walk rewrite a cancelled record onto the next model. A stale child is discarded instead: this run's own cancel still
+tears it down through the destruction port, any other stale child is discarded directly, and neither is ever made
+resident. `manager/manager-reattach.ts` likewise refuses a respawned child whose running task ended while it respawned.
 
-`#tryRuntimeFallback` awaited `destroyResidentTask(..., "fallback_handoff")` after committing the handoff, and a
-rejection escaped before any cleanup: the old live mapping and slot stayed, no next rung started, and the task stayed
-`running` behind this owner's pid fence with nothing to finish it. The rejection is now caught; the live mapping and
-slot are released, and the task ends in `error` ("Runtime fallback could not close the failed model's child (...);
-<next> was not started.", event `task_fallback_teardown_failed`) instead of starting the next rung beside a child
-that may still be alive. Tests: `runtime-fallback-launch-races.test.ts`.
+A child whose cleanup rejects may still be alive, so it is not forgotten: its pid or daemon session is written back
+onto its terminal record (epoch-fenced) and the destruction port is asked to end it as an orphan (`reconcile_lost`,
+added to `steering/types.ts` `DestructionCause`), which signals the pid or closes the session now and again at TTL.
+
+`#tryRuntimeFallback`: a rejected `destroyResidentTask(..., "fallback_handoff")` (any rejection value, `undefined`
+included) no longer escapes before cleanup or strands the task `running` behind this owner's pid fence. One fenced
+write restores the failed rung's identity and clears the handoff marker while this owner still holds that handoff, the
+task then fails ("Runtime fallback could not close the failed model's child (...); <next> was not started.", event
+`task_fallback_teardown_failed`) only from `running`, so a cancel that landed first stands, and the next rung is not
+started beside a child that may still be alive. The live mapping and slot are released after that write, waiters
+settle, and the failed child goes to the orphan path. Tests: `runtime-fallback-launch-races.test.ts`,
+`launch-ownership-races.test.ts`.
 
 ## Runtime fallback forgets the closed rung's daemon session before the next one opens
 
