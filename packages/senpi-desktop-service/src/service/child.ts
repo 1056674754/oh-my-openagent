@@ -1,9 +1,19 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { type DesktopEngineLocateDiagnostic, locateDesktopEngine } from "@oh-my-opencode/senpi-desktop-engine";
+import {
+	type AcquireDesktopEngineOptions,
+	type AcquiredDesktopEngine,
+	acquireDesktopEngine,
+	type DesktopEngineLocateDiagnostic,
+	getDesktopEngineHost,
+	locateDesktopEngine,
+} from "@oh-my-opencode/senpi-desktop-engine";
 
-/** Starts one engine child speaking NDJSON JSON-RPC on its stdio; injectable so tests run a script engine. */
-export type ChildFactory = () => ChildProcessWithoutNullStreams;
+/**
+ * Starts one engine child speaking NDJSON JSON-RPC on its stdio; injectable so tests run a script engine.
+ * It may resolve asynchronously when the binary has to be acquired first.
+ */
+export type ChildFactory = () => ChildProcessWithoutNullStreams | Promise<ChildProcessWithoutNullStreams>;
 
 const STDERR_TAIL_CHARS = 4096;
 
@@ -24,7 +34,37 @@ export class DesktopEngineUnavailableError extends Error {
  * `SENPI_DESKTOP_BACKEND` and, on Linux, the display and session-bus variables.
  */
 export function engineChildFactory(enginePath?: string): ChildFactory {
-	return () => spawn(enginePath ?? locateEnginePath(), ["--stdio"], { stdio: "pipe", windowsHide: true });
+	return () => spawnEngine(enginePath ?? locateEnginePath());
+}
+
+export interface AcquiringEngineChildOptions {
+	/** The omo release whose GitHub assets carry this host's engine. */
+	readonly version: string;
+	readonly host?: string;
+	readonly acquire?: (options: AcquireDesktopEngineOptions) => Promise<AcquiredDesktopEngine>;
+	readonly spawnEngine?: (enginePath: string) => ChildProcessWithoutNullStreams;
+}
+
+/**
+ * The npm-channel spawn contract: a locally installed engine when one is found, otherwise the verified
+ * release download for `version`, acquired once and reused for later spawns.
+ */
+export function acquiringEngineChildFactory(options: AcquiringEngineChildOptions): ChildFactory {
+	const acquire = options.acquire ?? acquireDesktopEngine;
+	const start = options.spawnEngine ?? spawnEngine;
+	let acquired: string | undefined;
+	return async () => {
+		if (acquired === undefined) {
+			const result = await acquire({ version: options.version, host: options.host ?? getDesktopEngineHost() });
+			if (result.path === null) throw new DesktopEngineUnavailableError(result.diagnostic);
+			acquired = result.path;
+		}
+		return start(acquired);
+	};
+}
+
+function spawnEngine(enginePath: string): ChildProcessWithoutNullStreams {
+	return spawn(enginePath, ["--stdio"], { stdio: "pipe", windowsHide: true });
 }
 
 function locateEnginePath(): string {

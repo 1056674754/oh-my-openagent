@@ -11,7 +11,13 @@ export { createDesktopFacade, type DesktopFacade, type WindowFilter } from "./ru
 export { ElementHandle, WindowHandle } from "./run/handles";
 export { type ComputerRunHost, type ComputerRunRequest, type ExecuteTool, runComputerCode } from "./run/runtime";
 export type { ScreenshotOptions, ScreenshotResult } from "./run/screenshot";
-export { type ChildFactory, DesktopEngineUnavailableError, engineChildFactory } from "./service/child";
+export {
+	acquiringEngineChildFactory,
+	type AcquiringEngineChildOptions,
+	type ChildFactory,
+	DesktopEngineUnavailableError,
+	engineChildFactory,
+} from "./service/child";
 export { DesktopNotificationError, type Listener, type Unsubscribe } from "./service/notifications";
 export {
 	type CallOptions,

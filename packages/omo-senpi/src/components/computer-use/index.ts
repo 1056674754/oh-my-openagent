@@ -1,4 +1,5 @@
-import { type ChildFactory, engineChildFactory } from "@oh-my-opencode/senpi-desktop-service"
+import type { ChildFactory } from "@oh-my-opencode/senpi-desktop-service"
+import { defaultEngineChild } from "./engine-source"
 import {
   COMPUTER_ACTIONS_TOOL_NAME,
   COMPUTER_COMMAND_USAGE,
@@ -81,7 +82,7 @@ function toolActivatedNames(payload: unknown): readonly string[] {
  */
 export function createComputerUseComponent(options: ComputerUseComponentOptions = {}): OmoSenpiComponent {
   const platform = options.platform ?? process.platform
-  const engineChild = options.engineChild ?? engineChildFactory
+  const engineChild = options.engineChild ?? defaultEngineChild()
   const loadSettings = options.loadSettings ?? defaultLoadSettings
 
   return {
