@@ -62,7 +62,7 @@ describe("runtime fallback over a live daemon session", () => {
       const [original] = host.sessions()
       if (original === undefined) throw new Error("expected the failed rung's session")
       if (!acknowledged) host.withholdReply("close_session")
-      const settled = manager.waitFor(task.task_id, { signal: AbortSignal.timeout(10_000) })
+      const settled = acknowledged ? undefined : manager.waitFor(task.task_id, { signal: AbortSignal.timeout(10_000) })
 
       try {
         // when
@@ -75,6 +75,7 @@ describe("runtime fallback over a live daemon session", () => {
           await nextOpened
           expect(host.sessions().map((session) => session.sessionPath)).not.toContain(original.sessionPath)
         } else {
+          if (settled === undefined) throw new Error("expected a terminal wait for the unconfirmed close")
           const record = await settled
           expect(record.status).toBe("error")
           expect(launched).toHaveLength(1)

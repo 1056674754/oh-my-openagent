@@ -29,6 +29,13 @@ export async function reattachManagedTask(input: {
     await discardManagedHandle(input.handle)
     return { ok: false, kind: "failed", reason: "task ownership claim is not held by this host" }
   }
+  // The revival that launched this handle must still hold the claim it launched under: another revival
+  // may have claimed the task since (at the same epoch when the task was interrupted or terminal), and
+  // an obsolete handle must not attach on that newer claim.
+  if (input.record.residency_claim !== undefined && (fresh.residency_claim !== input.record.residency_claim || fresh.notification.run_epoch !== input.record.notification.run_epoch)) {
+    await discardManagedHandle(input.handle)
+    return { ok: false, kind: "failed", reason: "the revival's residency claim was superseded" }
+  }
   if (input.isAttached(fresh.task_id)) {
     await discardManagedHandle(input.handle)
     return { ok: false, kind: "already_attached", reason: "task already has a live handle" }

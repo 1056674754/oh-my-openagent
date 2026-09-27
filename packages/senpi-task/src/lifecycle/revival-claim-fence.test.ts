@@ -51,4 +51,45 @@ describe("a failed revival and a same-epoch winner", () => {
       }
     })
   }
+
+  test("#given two same-epoch revivals paused in resume #when the older one succeeds first and the newer one then fails #then the older handle never attaches on the newer claim", async () => {
+    // given
+    const entered = [Promise.withResolvers<void>(), Promise.withResolvers<void>()]
+    const outcome = [Promise.withResolvers<void>(), Promise.withResolvers<void>()]
+    let resumes = 0
+    const h = coldReviveHarness({
+      resume: async (_spec, _path, handle) => {
+        const index = resumes
+        resumes += 1
+        entered[index]?.resolve()
+        await outcome[index]?.promise
+        if (index === 1) throw new Error("newer revival failed")
+        return handle
+      },
+    })
+    h.store.mutate(h.record.task_id, (record) => ({ ...record, status: "interrupted" }))
+
+    try {
+      // when
+      const older = h.lifecycle.reconcileOnSessionStart("parent")
+      await entered[0]?.promise
+      const newer = h.lifecycle.reconcileOnSessionStart("parent")
+      await entered[1]?.promise
+      outcome[0]?.resolve()
+      await older
+      const attachedOnNewerClaim = h.manager.getResidentHandle(h.record.task_id) !== undefined
+      outcome[1]?.resolve()
+      await newer
+
+      // then
+      const after = h.store.load(h.record.task_id)
+      const live = h.manager.getResidentHandle(h.record.task_id) !== undefined
+      expect(attachedOnNewerClaim).toBe(false)
+      expect(live && after?.residency_state !== "resident").toBe(false)
+    } finally {
+      for (const gate of outcome) gate.resolve()
+      await h.dispose()
+      h.manager.workpools.dispose()
+    }
+  })
 })

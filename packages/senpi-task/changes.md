@@ -38,6 +38,36 @@ from `running`, so a cancel that landed first stands, and the next rung is not s
 be alive. The failed child gets its cleanup owner (above) before its slot is released and waiters settle. Tests: `runtime-fallback-launch-races.test.ts`,
 `launch-ownership-races.test.ts`.
 
+## A TTL tombstone belongs to the sweep that wrote it until that sweep's close settles
+
+`lifecycle/ttl.ts`, `store/expunge-owner.ts` (new): every tombstone now names the sweep attempt that
+wrote it (`ExpungeOwner`, `<taskId>.json.expunging.owner`), and only that attempt restores or deletes it
+(`completeExpunge`/`restoreExpunging` take the owner; `completeExpunge` now reports whether it deleted).
+Crash recovery takes over (`takeOverExpunging`) only tombstones whose owning process is gone: a second
+sweep used to mistake a live sweep's tombstone for a crashed one and restore it, a revival then claimed
+the task, and the first sweep's late close and unconditional deletion killed the revived run and erased
+its record. A record recovery restores is not swept again in the same sweep, and a throw while ending a
+child restores the owned tombstone before propagating.
+
+`lifecycle/host-session-close.ts` `closeHostSession` tells a refusal from a close still in flight when
+`hostCloseTimeoutMs` passes. TTL keeps the tombstone (the record stays unrevivable) while that close is
+in flight and deletes or restores the record once it settles: restoring at the timeout let a revival
+start and the late close then end the revived run's session.
+
+`manager/manager-reattach.ts`: a revived handle attaches only while the record still holds the
+`residency_claim` and run epoch it was launched under, so an older revival that succeeds after a newer
+same-epoch claim no longer attaches on the newer claim (which the newer revival's failure would then roll
+back under a live handle). A record without a token (written before this change) keeps the old check.
+
+`manager/manager.ts` `#failStrandedHandoff`: a failed handoff now clears only the handoff marker, and
+`#keepUnclosedChild` moves `fallback_closing_child` into the record's own identity in one write.
+Clearing both first left one committed state naming no session; a parent that died there left recovery
+marking the task lost while the failed rung's session kept running.
+
+Tests: `ttl-expunge-owner.test.ts`, `runtime-fallback-rejected-close.test.ts`, and an obsolete-success
+case in `revival-claim-fence.test.ts`; each fails with its fix reverted. `runtime-fallback-live-close`
+no longer leaves an unawaited `AbortSignal.timeout` wait behind in its acknowledged variant.
+
 ## A child is ended only while its owner holds it exclusively, and only on a confirmed close
 
 `lifecycle/ttl.ts`: an expired record's child (its daemon session, or its process) is now ended only

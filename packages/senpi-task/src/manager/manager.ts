@@ -1233,7 +1233,10 @@ class TaskManagerImpl implements TaskManager {
     this.#options.store.mutate(input.taskId, (fresh) => {
       if (!isFallbackHandoff(fresh) || fresh.status !== "running" || fresh.notification.run_epoch !== input.epoch || fresh.host_pid !== input.owner) return fresh
       owned = true
-      return endFallbackHandoff(fresh)
+      // Only the handoff marker goes: fallback_closing_child stays until #keepUnclosedChild hands the
+      // child's identity to its cleanup owner in one write, so no committed state lacks both.
+      const { fallback_handoff_epoch: _ended, ...rest } = fresh
+      return rest
     })
     if (!owned) return
     const message = `Runtime fallback could not close the failed model's child (${reason}); ${input.nextModel} was not started.`
@@ -1307,7 +1310,9 @@ class TaskManagerImpl implements TaskManager {
       if (!isTerminalRecord(fresh) || fresh.notification.run_epoch !== input.epoch) return fresh
       if (!external && this.#cleanupOwners.has(taskId)) return fresh
       owned = true
-      return external ? { ...fresh, ...identity } : fresh
+      if (!external) return fresh
+      const { fallback_closing_child: _transferred, ...rest } = fresh
+      return { ...rest, ...identity }
     })
     if (!owned) {
       this.#options.store.appendEvent(taskId, {
