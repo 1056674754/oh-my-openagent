@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, 
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { senpiWorkerCompileArgs } from "./senpi-worker-compile"
+import { removeTreeSync } from "../test-support/remove-tree"
 
 test.each(["directory", "bun-link", "external-link"])("#given a %s worker engine #when compiled and relocated #then two workers start without source files", (layout) => {
   const scratch = mkdtempSync(join(tmpdir(), "omo-worker-compile-"))
@@ -42,7 +43,7 @@ console.log("two-workers-ready");`)
     mkdirSync(relocated)
     const moved = join(relocated, process.platform === "win32" ? "omo.exe" : "omo")
     renameSync(binary, moved)
-    rmSync(buildRoot, { recursive: true, maxRetries: 10, retryDelay: 100 })
+    removeTreeSync(buildRoot, { maxRetries: 10, retryDelay: 100 })
     const result = spawnSync(moved, [], { cwd: relocated, encoding: "utf8", timeout: 10_000 })
     // then
     expect(result.status, result.stderr).toBe(0)
@@ -50,7 +51,7 @@ console.log("two-workers-ready");`)
   } finally {
     // Windows keeps a just-executed image locked briefly after the process exits; allow the same
     // bounded release window the isolation-core fixtures use for this EBUSY family.
-    rmSync(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 })
+    removeTreeSync(scratch, { maxRetries: 10, retryDelay: 500 })
   }
 }, 45_000)
 
