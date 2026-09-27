@@ -5,6 +5,7 @@ on:
     branches: [master, dev]
     paths:
       - "crates/**"
+      - "packages/senpi-desktop-*/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
@@ -13,6 +14,7 @@ on:
     branches: [master, dev]
     paths:
       - "crates/**"
+      - "packages/senpi-desktop-*/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
@@ -33,6 +35,10 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
 
       - name: Install display test dependencies
         if: runner.os == 'Linux'
@@ -59,6 +65,12 @@ jobs:
       - name: Build desktop engine
         run: cargo build --release -p senpi-desktop-engine --locked
 
+      - name: Install JavaScript dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Desktop package tests
+        run: bun run test:desktop
+
       # Each #[ignore]d display test runs in the environment its module docs name. The X11 input tests need a
       # window manager and QA windows, so they run in the Linux QA driver instead.
       - name: X11 display tests
@@ -84,7 +96,7 @@ jobs:
           JOB_SUMMARY_STATUS: ${{ job.status }}
           JOB_SUMMARY_DETAILS: |
             - Clippy (-D warnings) and tests across the crates/senpi-desktop-* workspace.
-            - Release build of senpi-desktop-engine.
+            - Release build of senpi-desktop-engine, then the packages/senpi-desktop-* vitest suites against it.
             - Linux: X11 and AT-SPI display tests under Xvfb and per-test session buses.
           JOB_SUMMARY_NEXT: Start with the first clippy or test failure; a backend crate failing on one OS is usually a cfg-gated path.
         run: GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" bash .github/scripts/write-job-summary.sh
