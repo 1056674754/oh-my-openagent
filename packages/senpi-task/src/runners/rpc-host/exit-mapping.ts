@@ -11,6 +11,9 @@ import type { HostParkCause } from "./session-client"
 /** `session_closed` reasons that SUSPEND a session instead of ending it. */
 const PARKING_REASONS: readonly HostParkCause[] = ["handoff_parked", "idle_evicted"]
 
+/** The cause a `session_parked` frame stands for: the host announces only its idle sweep of a retained session that way. */
+export const SESSION_PARKED_CAUSE: HostParkCause = "idle_evicted"
+
 /** The reason a lost connection carries: a session has no stderr of its own. */
 const TRANSPORT_GONE_REASON = "transport_gone"
 
@@ -48,8 +51,7 @@ export function classifySessionExit(input: SessionExitInput): SessionExitClassif
   const { cause, intent } = input
   switch (cause.kind) {
     case "session_parked":
-      // The host announces only its idle sweep of a retained session as `session_parked`.
-      return { disposition: "parked", cause: "idle_evicted" }
+      return { disposition: "parked", cause: SESSION_PARKED_CAUSE }
     case "session_closed":
       // Parking wins over this client's intent: a session the daemon suspended is reopenable, so
       // calling it an exit would end a child the manager is supposed to park and wake.

@@ -5,6 +5,7 @@ import { loadSenpiBarrel, type SenpiHostProtocolInfo } from "../../lazy/senpi-ba
 import { buildAutoUiResponse, type AutoAnswerableUiRequest } from "../rpc/ui-auto-answer"
 import type { ChildEventListener, RpcEntriesResult, RpcSwitchSessionResult } from "../types"
 import { HostUnavailableError } from "./daemon"
+import { SESSION_PARKED_CAUSE } from "./exit-mapping"
 import {
   assertHostUsable,
   createSenpiRpcClient,
@@ -47,8 +48,9 @@ export type HostSessionCommand =
 export type HostParkReason = "host_incompatible" | "own_host_unreachable" | "store_index_unavailable"
 
 /**
- * Why the HOST parked a session it holds: its idle sweep (`idle_evicted`; a retained session announces
- * that park as `session_parked`) or a generation handoff that put the session back on disk.
+ * Why the HOST parked a session it holds: its idle sweep (`idle_evicted`) or a generation handoff that
+ * put the session back on disk (`handoff_parked`). A `session_parked` frame maps through
+ * `SESSION_PARKED_CAUSE`.
  */
 export type HostParkCause = "handoff_parked" | "idle_evicted"
 
@@ -246,7 +248,7 @@ export class HostSessionClient {
       case "session_parked": {
         const sessionId = this.routingId ?? control.sessionId
         this.routingId = undefined
-        for (const listener of this.parkedListeners) listener({ sessionId, sessionPath: control.sessionPath, reason: "idle_evicted" })
+        for (const listener of this.parkedListeners) listener({ sessionId, sessionPath: control.sessionPath, reason: SESSION_PARKED_CAUSE })
         return
       }
       case "session_closed": {
