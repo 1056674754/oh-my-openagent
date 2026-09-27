@@ -11,6 +11,7 @@ const EXPECTED_EVENTS = [
   "feature_used",
   "kibitzer_summary",
   "parallelism_summary",
+  "process_crashed",
   "prompt_submitted",
   "session_started",
   "skill_loaded",
