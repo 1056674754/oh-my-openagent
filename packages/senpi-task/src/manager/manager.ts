@@ -146,6 +146,7 @@ class TaskManagerImpl implements TaskManager {
   // teardown) but are not live children: steering never reaches them, and only a teardown that
   // succeeds releases them.
   readonly #cleanupOwners = new Map<string, ManagedChildHandle>()
+  readonly #nativeFallbackExhaustions = new WeakSet<ManagedChildHandle>()
   // Callers can subscribe before a queued task owns a handle. Each entry is attached exactly once
   // when #launch promotes it, and its returned cleanup owns both pending and live subscriptions.
   readonly #childSubscribers = new Map<string, Map<ManagedChildListener, () => void>>()
@@ -1002,6 +1003,7 @@ class TaskManagerImpl implements TaskManager {
     const transcript = subscribeTranscriptLog(handle, this.#options.store, taskId)
     this.#runStats.set(taskId, createRunStatsTracker(this.#now(), this.#now))
     const stats = handle.subscribe((event) => {
+      if (event.type === "retry_fallback_exhausted") this.#nativeFallbackExhaustions.add(handle)
       this.#runStats.get(taskId)?.accept(event)
     })
     return () => {
@@ -1036,6 +1038,21 @@ class TaskManagerImpl implements TaskManager {
     const candidates = record == null ? undefined : runtimeFallbackCandidates(record, input.outcome.failure.message)
     const nextModel = candidates?.remaining[0]
     const live = this.#live.get(input.taskId)
+    const fallbackExhausted = record !== null
+      && candidates !== undefined
+      && nextModel === undefined
+      && live?.handle === input.handle
+      && (record.fallback_attempts?.length ?? 0) > 1
+      && !this.#nativeFallbackExhaustions.has(input.handle)
+    if (fallbackExhausted && record !== null) {
+      this.#options.store.appendEvent(input.taskId, {
+        type: "retry_fallback_exhausted",
+        payload: {
+          chain_key: record.requested_model?.display ?? record.fallback_attempts?.[0]?.display ?? record.model,
+          last_error: input.outcome.failure.message,
+        },
+      })
+    }
     if (
       record == null
       || candidates === undefined
