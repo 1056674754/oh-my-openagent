@@ -12,13 +12,17 @@ the task (only a child whose cleanup rejects is kept, as below). `manager/manage
 A child whose cleanup rejects may still be alive, so it keeps a cleanup owner on the record its run ended (epoch-fenced;
 a newer run's record is never touched, a `child_cleanup_failed` event is appended instead). A child reachable from
 outside this process has its pid or daemon session written back and is ended by the destruction port's orphan path
-(`reconcile_lost`, added to `steering/types.ts` `DestructionCause`). An in-process child has neither, so it stays
-resident on that record (`mark_resident` when a cancel had already disposed it), where LRU eviction, idle reclaim and
-session shutdown retry its teardown.
+(`reconcile_lost`, added to `steering/types.ts` `DestructionCause`). An in-process child has neither, so it becomes a
+cleanup owner: its record stays `resident` (`mark_resident` when a cancel had already disposed it) and the lifecycle's
+LRU eviction, idle reclaim, session shutdown and TTL see it through `getResidentHandle`/`residentTaskIds` and retry
+its teardown. It is kept apart from the live children, so steering never reaches it (`task_send` answers
+`not_continuable` instead of reviving it), and `manager.forget` keeps it: only a teardown that succeeds releases it
+(`child-handle.ts` `releaseOnDispose`), so a retry that rejects again leaves the same owner for the next one.
 
 `lifecycle/destroy.ts` `terminateOrphan`: a pid the orphan path has handled - signalled, or already dead - is now
 cleared from the record (fenced on the same pid). It used to stay on the disposed record, so after the OS reused the
-number the TTL sweep could signal an unrelated process. Test: `lifecycle/orphan-pid-consumed.test.ts`.
+number the TTL sweep could signal an unrelated process. A `lost` record keeps its pid: TTL reads it as the pid-dead
+proof, never signals it, and only retains the record while that pid is alive. Test: `lifecycle/orphan-pid-consumed.test.ts`.
 
 `#tryRuntimeFallback`: a rejected `destroyResidentTask(..., "fallback_handoff")` (any rejection value, `undefined`
 included) no longer escapes before cleanup or strands the task `running` behind this owner's pid fence. One fenced
