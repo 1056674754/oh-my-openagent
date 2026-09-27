@@ -34,6 +34,7 @@ function world(input: {
   readonly ownShard?: string
   readonly resumeChildren?: boolean
   readonly residencyMaxChildren?: number
+  readonly reattachOnReconcile?: boolean
   readonly ensure?: "answer" | "reject"
 }) {
   const root = mkdtempSync("/tmp/omo-t9-")
@@ -47,6 +48,7 @@ function world(input: {
     host_shard_prewarm: input.prewarm,
     ...(input.resumeChildren === undefined ? {} : { resume_children: input.resumeChildren }),
     ...(input.residencyMaxChildren === undefined ? {} : { residency_max_children: input.residencyMaxChildren }),
+    ...(input.reattachOnReconcile === undefined ? {} : { reattach_on_reconcile: input.reattachOnReconcile }),
   })
   const runtime = new TaskRuntimeContext(root)
   const ensures: EnsureTaskDaemonInput[] = []
@@ -112,6 +114,28 @@ function suspendedChild(parent: string, socket: string, overrides: Partial<TaskR
     runner_kind: "host-session",
     host_session: { socket, routing_id: `r-${seq}`, session_path: `/tmp/child-${seq}.jsonl`, instance_id: `H${seq}` },
     ...overrides,
+  }
+}
+
+// The gate itself, counted: the real gate memoizes, so only a counting double shows a second call.
+function countingGateWorld(input: { readonly prewarm: Prewarm; readonly gate: () => Promise<"process" | "in-process"> }) {
+  const pi = new FakeExtensionAPI()
+  const calls: string[] = []
+  const settings = OmoTaskSettingsSchema.parse({ process_runner: "host", host_shard_prewarm: input.prewarm })
+  wireHostPrewarm(pi, {
+    settings,
+    runtime: new TaskRuntimeContext("/tmp"),
+    host: {
+      executionModeGate: { ensure: () => (calls.push("gate"), input.gate()) },
+      hostEndpoint: { isOwn: () => false, ensure: () => Promise.resolve("ensured") },
+    },
+    manager: { list: () => [] },
+  }, "darwin")
+  return {
+    calls,
+    prompt: (sessionId: string) => pi.dispatch("input", { type: "input", text: "hi", source: "interactive" }, sessionCtx(sessionId)),
+    agentStart: (sessionId: string) => pi.dispatch("before_agent_start", { type: "before_agent_start" }, sessionCtx(sessionId)),
+    sessionStart: (sessionId: string) => pi.dispatch("session_start", { type: "session_start", reason: "startup" }, sessionCtx(sessionId)),
   }
 }
 
@@ -191,6 +215,44 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
       // then
       expect(w.ensures).toEqual([])
       expect(w.pi.handlers.map((entry) => entry.event)).toEqual([])
+    }
+  })
+
+  test("#given first-turn #when every prompt edge of two turns fires #then the gate is asked once per session id", async () => {
+    // given
+    const w = countingGateWorld({ prewarm: "first-turn", gate: () => Promise.resolve("process") })
+
+    // when
+    await w.sessionStart("root-1")
+    await w.prompt("root-1")
+    await w.agentStart("root-1")
+    await w.prompt("root-1")
+    await w.agentStart("root-1")
+    await w.prompt("root-2")
+
+    // then
+    expect(w.calls).toEqual(["gate", "gate"])
+  })
+
+  test("#given a gate whose ensure rejects #when first-turn warms #then the rejection is absorbed, never unhandled", async () => {
+    // given
+    const w = countingGateWorld({ prewarm: "first-turn", gate: () => Promise.reject(new Error("gate exploded")) })
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason)
+    }
+    process.on("unhandledRejection", onUnhandled)
+
+    try {
+      // when
+      await w.prompt("root-1")
+      await new Promise((resolve) => setImmediate(resolve))
+
+      // then
+      expect(w.calls).toEqual(["gate"])
+      expect(unhandled).toEqual([])
+    } finally {
+      process.off("unhandledRejection", onUnhandled)
     }
   })
 
@@ -307,6 +369,18 @@ describe("revival pre-warm ensures the recorded hosts of suspended host-session 
 
     // then: a non-terminal child outranks a more recent terminal one, as in the reconcile
     expect(sockets(w.ensures)).toEqual([pC])
+  })
+
+  test("#given reattach_on_reconcile off #when session_start fires #then no recorded host is warmed", async () => {
+    // given
+    const w = world({ prewarm: "off", reattachOnReconcile: false })
+    w.records.push(suspendedChild("root-1", w.shard("p-aaaaaaaaaaaaaaaa")), suspendedChild("root-1", w.legacy))
+
+    // when
+    await w.sessionStart("root-1")
+
+    // then
+    expect(w.ensures).toEqual([])
   })
 
   test("#given resume_children off #when session_start fires #then no recorded host is warmed", async () => {
