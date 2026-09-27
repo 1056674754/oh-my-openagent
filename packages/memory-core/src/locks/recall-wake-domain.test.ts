@@ -211,8 +211,11 @@ describe("recall-wake lock domain: counting FIFO lease", () => {
       },
       isSharingError: (error) => error instanceof Error && "code" in error && error.code === "EPERM",
     })
-    const headWait = acquireRecallWakeLease(dir, { ...fast, maxConcurrent: 1, signal: controller.signal })
-    const followerWait = acquireRecallWakeLease(dir, { ...fast, maxConcurrent: 1, signal: controller.signal })
+    // The waiters' budgets are circuit breakers, not the behavior under test: each must outlast the
+    // whole hand-off (sharing violation, holder release, head acquire and release) on a slow runner.
+    const waiting = { waitTimeoutMs: 10_000, retryDelayMs: 10, maxConcurrent: 1, signal: controller.signal }
+    const headWait = acquireRecallWakeLease(dir, waiting)
+    const followerWait = acquireRecallWakeLease(dir, waiting)
     const followerResult = followerWait.then(
       (lease) => ({ status: "acquired", lease } as const),
       (error: unknown) => ({ status: "rejected", error } as const),
