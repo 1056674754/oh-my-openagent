@@ -160,7 +160,8 @@ bunx oh-my-openagent doctor
   - whether the effective Native config enables computer use and whether the host is supported;
   - the selected engine path and its version, protocol, and ABI, or the engine-location diagnostic and every path tried;
   - the backend plus capture, input, and accessibility permission state;
-  - display count, screen-lock state, and stop-path availability.
+  - display count and screen-lock state;
+  - the stop path, reported as not armed until computer use starts input, because the engine arms the stop chord only then.
   The probe sends only the read-only `engine.hello` and `capabilities` requests and is bounded by the doctor's timeout.
 
 ---

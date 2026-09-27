@@ -20,13 +20,19 @@ function readyLines(report) {
   const displayLevel = capabilities.displayCount > 0 && !capabilities.screenLocked ? "PASS" : "WARN"
   const stopLevel = capabilities.stopPath === "none" ? "WARN" : "PASS"
   const stopReason = capabilities.stopReason ? ` reason=${capabilities.stopReason}` : ""
+  // The engine arms the stop chord only when a session starts input (`stopPath.start`), so a pre-session
+  // probe always sees `none` / `no-global-listener`; that is the normal idle state, not a failure.
+  const stopLine =
+    capabilities.stopPath === "none" && capabilities.stopReason === "no-global-listener"
+      ? "INFO computer use stop path: not armed until computer use starts input (checked when a session activates)"
+      : `${stopLevel} computer use stop path: ${capabilities.stopPath}${stopReason}`
   return [
     baseLine(report),
     `PASS computer use engine: ${report.enginePath} (version ${report.hello.engineVersion}, ABI ${report.hello.abi}, protocol ${report.hello.protocolVersion})`,
     `${backendLevel} computer use backend: ${capabilities.backend}${displayServer}`,
     `${permissionLevel} computer use permissions: capture=${capabilities.capturePermission} input=${capabilities.inputPermission} accessibility=${capabilities.axPermission}`,
     `${displayLevel} computer use display: count=${capabilities.displayCount} screenLocked=${capabilities.screenLocked}`,
-    `${stopLevel} computer use stop path: ${capabilities.stopPath}${stopReason}`,
+    stopLine,
   ]
 }
 

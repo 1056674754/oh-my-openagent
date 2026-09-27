@@ -92,7 +92,21 @@ describe("computer use doctor rendering", () => {
     ])
   })
 
-  test("#given denied permissions, a locked empty display, and no stop path #when rendered #then each degraded dimension warns", () => {
+  test("#given the idle stop path a pre-session probe reports #when rendered #then it is informational, not a warning", () => {
+    // given
+    const report = readyReport({
+      capabilities: { ...readyReport().capabilities, stopPath: "none", stopReason: "no-global-listener" },
+    })
+
+    // when
+    const lines = formatComputerUseDoctorLines(report)
+
+    // then
+    expect(lines.at(-1)).toStartWith("INFO computer use stop path:")
+    expect(lines.filter((line) => line.startsWith("WARN"))).toEqual([])
+  })
+
+  test("#given denied permissions, a locked empty display, and a failed stop path #when rendered #then each degraded dimension warns", () => {
     // given
     const report = readyReport({
       capabilities: {
@@ -106,7 +120,7 @@ describe("computer use doctor rendering", () => {
         displayCount: 0,
         screenLocked: true,
         stopPath: "none",
-        stopReason: "no-global-listener",
+        stopReason: "portal-unavailable",
       },
     })
 
@@ -116,7 +130,7 @@ describe("computer use doctor rendering", () => {
     // then
     expect(lines).toContain("WARN computer use permissions: capture=denied input=denied accessibility=denied")
     expect(lines).toContain("WARN computer use display: count=0 screenLocked=true")
-    expect(lines).toContain("WARN computer use stop path: none reason=no-global-listener")
+    expect(lines).toContain("WARN computer use stop path: none reason=portal-unavailable")
   })
 
   test("#given a quarantined engine #when rendered #then the diagnostic and every tried path are visible", () => {
