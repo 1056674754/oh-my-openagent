@@ -1,3 +1,24 @@
+## A task record lock is reaped only after its owner is proven dead
+
+`store/record-lock.ts` + `store/lock-owner.ts` (new) + `lifecycle/pid-liveness.ts` (new): the lock body now
+also carries the holder's process start identity and hostname (after the pid, time and token lines every
+earlier build wrote and still reads). A lock is removed by anyone but its holder only when that holder is
+PROVEN dead - its pid is gone, or a live pid's start identity contradicts the recorded one (the pid was
+recycled) - read synchronously (`/proc` on Linux, libproc and kernel32 through `bun:ffi`, no process
+spawn). Age no longer expires a lock: a live holder keeps it however old it is (an unknown liveness,
+another host, a legacy lock without an identity on a live pid all keep it), and a dead holder's lock is
+reaped at once instead of after five seconds. The only age rule left is for a lock with no parseable
+owner (its writer died between create and write). Reapers serialize on `<lock>.recovery` and unlink the
+primary only while it is still the very lock they judged dead, which closes the window where a fresh
+holder published between the judgement and the rename, plus a contender between rename and link-back,
+could give two holders; a recovery lock left by a dead reaper is reclaimed on the same proof and fenced
+by its token. The async holder still refreshes the mtime so older builds, which expire locks by age,
+leave a long-held lock alone.
+
+Tests: `store/record-lock.test.ts` (dead holder reaped fresh or old; a live pid's old lock - current or
+legacy format - is never reaped; a recycled pid is; another host's is not; an empty lock only once stale;
+a dead reaper's recovery lock is recovered).
+
 ## Every task child opens on its parent session's own host; the shared-host route is gone
 
 `runners/rpc-host.ts` + `rpc-host/child-endpoint.ts`: `RpcHostRunnerOptions.shardResolver`, `storeDir`,
