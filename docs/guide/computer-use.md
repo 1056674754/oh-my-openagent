@@ -57,7 +57,7 @@ The default global stop chord is Control+Option+Command+Escape on macOS and Ctrl
 
 ## Platform requirements
 
-- **macOS:** grant Screen Recording and Accessibility to the application that launches OmO, and run from an unlocked graphical console. An SSH login cannot use that console's grants. Background keyboard input to a process with several windows can report `BackgroundUnavailable`; use accessibility or foreground delivery where appropriate.
+- **macOS:** grant Screen Recording and Accessibility to the application that launches OmO, and run from an unlocked graphical console. An SSH login cannot use that console's grants. Background input leaves the frontmost app, its focused window, the cursor and the destination of your next keystroke unchanged, but a clicked target window may rise directly under your front window. Background keyboard input to a process with several windows can report `BackgroundUnavailable`; use accessibility or foreground delivery where appropriate.
 - **Linux X11:** capture uses RandR, input uses XTEST or XSendEvent, and accessibility uses AT-SPI on the session D-Bus. Toolkits can reject synthetic background input; `BackgroundUnavailable` signals this instead of silently dropping it.
 - **Linux Wayland:** capture depends on ScreenCast/PipeWire or the screenshot portal. Input uses the RemoteDesktop portal and libei; the portal may require consent. The global stop path requires a compositor with GlobalShortcuts support, otherwise use the host relay setting.
 - **Windows:** per-monitor DPI and UI Automation are supported. Windows UIPI refuses input to a higher-integrity application; some toolkits, including WPF, refuse posted background messages.
