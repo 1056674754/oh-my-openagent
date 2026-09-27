@@ -1,3 +1,9 @@
+## 2026-09-27 - macOS computer focus guard preserves the visible window (#8925)
+
+The macOS engine now captures the frontmost application's first on-screen layer-0 WindowServer window instead of assuming its AX-focused window is visually on top. Foreground delivery passes that captured window to SkyLight; when the foreground SPI is unavailable, it retains the existing public app-activation fallback. Synthetic window-order tests reject off-screen, non-normal-layer, and other-process windows. Window enumeration no longer cuts off after 48 windows, so a target behind many other windows remains addressable.
+
+Background clicks keep the user's frontmost app, visible front window, focused window, cursor, and next-keystroke destination. The target can move directly beneath the front window; macOS QA records that rank without treating it as a focus failure, and foreground sabotage still fails the invariant. The guide, tool reference, and model-facing computer guidance describe the same accepted behavior.
+
 ## 2026-09-27 - The computer-use skill says when to stop and ask (#8941)
 
 The `computer-use` skill that `materializeComputerSkill()` writes (`packages/senpi-desktop-tool/src/skill.ts`) was the helper reference plus the safety block. It now opens with the two decisions the reference did not cover: read `computer.capabilities()` before the first action and, when a permission the task needs is not `granted`, name it (on macOS, Screen Recording or Accessibility for the launching app) and stop instead of working around it; and ask the user when the target is ambiguous or an action still fails after a fresh observation.

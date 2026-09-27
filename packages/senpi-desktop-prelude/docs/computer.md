@@ -40,7 +40,7 @@ Rules:
     PREFER AX over pixels: `win.ax()` → `el.press()` / `el.click()` / `el.setValue()`.
     Pointer x,y are pixels in the MOST RECENT screenshot of the SAME target; AX coordinates are global desktop coordinates; NEVER mix them. `InvalidCoordinateFrame` → re-screenshot that target.
     Each `win.ax()` starts a ref generation; current and previous refs stay valid, older refs throw `StaleRef`. Re-snapshot; NEVER guess refs.
-    Input defaults to `delivery: "background"` and never steals the user's focus. `BackgroundUnavailable` means use AX or retry with `delivery: "foreground"` (briefly activates the target, then the focus guard restores it). Never assume a background action landed without re-observing.
+    Input defaults to `delivery: "background"`. On macOS it leaves the frontmost app, its focused window, the cursor and the destination of the user's next keystroke unchanged, but a clicked target window may rise directly under the user's front window. `BackgroundUnavailable` means use AX or retry with `delivery: "foreground"` (briefly activates the target, then the focus guard restores it). Never assume a background action landed without re-observing.
     Background keyboard input goes only to an app's SOLE window: typing or pressing keys into a process with several windows throws `BackgroundUnavailable`; use AX `setValue`, or foreground delivery.
     The user's stop chord suspends all input. `Suspended` or `StopPathUnavailable` → stop acting and tell the user; only the user resumes (`/computer resume`).
     Wayland: no per-window input and no `raise()`; use AX, or desktop input after the user focuses the target.
