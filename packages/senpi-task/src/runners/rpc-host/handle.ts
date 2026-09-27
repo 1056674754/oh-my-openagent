@@ -1,8 +1,6 @@
-import { log } from "@oh-my-opencode/utils"
-
 import type { RunnerOutcome } from "../in-process/child-handle"
 import { isBusyChildRejection, type RpcStreamingBehavior } from "../rpc/delivery-semantics"
-import { agentEndOutcome, exitTurnOutcome, extractAssistantText, promptFailureOutcome } from "../rpc/turn-outcome"
+import { agentEndOutcome, exitTurnOutcome, promptFailureOutcome } from "../rpc/turn-outcome"
 import type { ChildEventListener, ChildExitOutcome, RpcTerminalAssistantMessage } from "../types"
 import {
   classifySessionExit,
@@ -17,12 +15,11 @@ import type {
   HostSessionOpenDisposition,
   HostSessionPort,
 } from "./handle-port"
-import { recoverLostTransport } from "./handle-reattach"
-import { isTransportLossError } from "./reattach"
-import type { HostSessionCommand, HostSessionParked } from "./session-client"
-
-/** How long `terminate()` waits for the host to acknowledge the abort before closing anyway. */
-const ABORT_GRACE_MS = 2_000
+import { startHostHeartbeat } from "./handle-heartbeat"
+import { createHandleRecovery } from "./handle-recovery"
+import { endSessionOnHost } from "./handle-teardown"
+import type { HostSessionParked } from "./session-client"
+import { extractTerminalAssistantMessage } from "./terminal-message"
 
 /**
  * The steerable child handle over ONE daemon session: identical turn semantics to
@@ -77,30 +74,22 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     }
   }
 
-  const heartbeat = setInterval(() => {
-    if (outcome !== undefined || parked || detached) return
-    // A detached client throws before returning a promise; keep the state reaction's ordering.
-    try {
-      client
-        .getState()
-        .then((state) => {
-          lastSeenAt = now()
-          sessionId = state.sessionId
-        })
-        .catch((error: unknown) => {
-          log("senpi-task host session heartbeat get_state failed", { taskId, error: String(error) })
-        })
-    } catch (error) {
-      log("senpi-task host session heartbeat get_state failed", { taskId, error: String(error) })
-    }
-  }, heartbeatIntervalMs)
-  heartbeat.unref?.()
+  const stopHeartbeat = startHostHeartbeat({
+    taskId,
+    intervalMs: heartbeatIntervalMs,
+    paused: () => outcome !== undefined || parked || detached,
+    port: () => client,
+    onState: (state) => {
+      lastSeenAt = now()
+      sessionId = state.sessionId
+    },
+  })
 
   const settleExit = (built: ChildExitOutcome): void => {
     if (outcome) return
     outcome = built
     eventListeners.clear()
-    clearInterval(heartbeat)
+    stopHeartbeat()
     flush(idleWaiters)
     if (turnOutcome === undefined) settleTurn(exitTurnOutcome(built, finalText))
     for (const waiter of exitWaiters.splice(0)) waiter(built)
@@ -110,7 +99,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
   // parks the record (`rpc_detached`) until a later turn reopens the session from its JSONL.
   const park = (event: HostSessionParked): void => {
     parked = true
-    clearInterval(heartbeat)
+    stopHeartbeat()
     for (const listener of parkedListeners) listener(event)
   }
 
@@ -136,56 +125,23 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
 
   const alive = (): boolean => intent === "running" && !parked && !detached && outcome === undefined
 
-  // A command never fails on a transport the child can recover from: while a reattach is in
-  // flight it waits for the new port, and one that met the loss first lets recovery start and is
-  // retried once on the port recovery produced. A command still being delivered when the loss
-  // hits is NOT a turn the host lost - its retry is the delivery - so recovery's in-flight
-  // verdict ignores turns while a delivery is pending, whichever reaction runs first.
-  let reattaching: Promise<void> | undefined
-  let deliveries = 0
-  const issue = async (command: HostSessionCommand): Promise<void> => {
-    await reattaching
-    const live = client
-    deliveries += 1
-    try {
-      await live.send(command)
-    } catch (error) {
-      if (!isTransportLossError(error) || reattach === undefined || !alive()) throw error
-      await live.transportGone
-      await reattaching
-      if (!alive()) throw error
-      await client.send(command)
-    } finally {
-      deliveries -= 1
-    }
-  }
-
-  // A lost transport is recoverable while this child still owns a running session and the runner
-  // gave it a way back (omo#8563); anything a stale port reports afterwards is ignored.
-  const onTransportGone = (lost: HostSessionPort): void => {
-    if (client !== lost) return
-    if (reattach === undefined || !alive()) return endSession({ kind: "transport_gone" })
-    reattaching = recoverLostTransport(
-      {
-        taskId,
-        session: () => ({ socket: client.socketPath, ...session }),
-        alive,
-        turnInFlight: () => turnOutcome === undefined && !reachedIdle && deliveries === 0,
-        adopt: (next) => {
-          client = next.client
-          session = next.session
-          openDisposition = next.attached ? "attached" : "reopened"
-          bindClient(client)
-        },
-        continueTurn: (prompt) => client.send({ type: "prompt", message: prompt, streamingBehavior: "steer" }),
-        // A refused reattach parks (the endpoint answered, but may not host this session); exhaustion ends.
-        giveUp: (reason) => reason === undefined ? endSession({ kind: "transport_gone" }) : park({ sessionId: session.routingId, sessionPath: session.sessionPath, reason }),
-      },
-      reattach,
-    ).finally(() => {
-      reattaching = undefined
-    })
-  }
+  const recovery = createHandleRecovery({
+    taskId,
+    reattach,
+    port: () => client,
+    identity: () => session,
+    alive,
+    turnSettled: () => turnOutcome !== undefined || reachedIdle,
+    adopt: (next) => {
+      client = next.client
+      session = next.session
+      openDisposition = next.attached ? "attached" : "reopened"
+      bindClient(client)
+    },
+    endLost: () => endSession({ kind: "transport_gone" }),
+    park: (reason) => park({ sessionId: session.routingId, sessionPath: session.sessionPath, reason }),
+  })
+  const issue = recovery.issue
 
   const bindClient = (port: HostSessionPort): void => {
     port.onEvent((event) => {
@@ -200,7 +156,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     port.onClosed((event) => {
       if (client === port) endSession({ kind: "session_closed", reason: event.reason })
     })
-    void port.transportGone.then(() => onTransportGone(port))
+    void port.transportGone.then(() => recovery.onTransportGone(port))
   }
 
   bindClient(client)
@@ -237,23 +193,12 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     }
   }
 
-  const bestEffort = async (work: () => Promise<void>, step: string): Promise<void> => {
-    try {
-      await work()
-    } catch (error) {
-      log("senpi-task host session teardown step failed", { taskId, step, error: String(error) })
-    }
-  }
-
-  // Bounded teardown: a daemon that never answers must not hold the parent's shutdown open, and a
-  // session is never ended with a signal.
   const endOnHost = async (next: "closed" | "terminated"): Promise<void> => {
     if (outcome !== undefined) return
     intent = next
     // close() drops the connection before its reply, so stop polling before teardown starts.
-    clearInterval(heartbeat)
-    if (next === "terminated") await settleWithin(bestEffort(() => client.send({ type: "abort" }), "abort"), ABORT_GRACE_MS)
-    await settleWithin(bestEffort(() => client.close(), "close_session"), closeGraceMs)
+    stopHeartbeat()
+    await endSessionOnHost({ taskId, closeGraceMs, port: () => client }, next)
     // A teardown this client asked for always ends the child - including a session the daemon had
     // parked, which the manager cancels exactly the same way.
     const reason = next === "terminated" ? "terminated" : "client_close"
@@ -262,14 +207,14 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
 
   // Queries follow the child to whichever port it holds now; one issued mid-reattach waits for it.
   const currentPort = async (): Promise<HostSessionPort> => {
-    await reattaching
+    await recovery.settled()
     return client
   }
 
   const detach = async (): Promise<void> => {
     detached = true
     eventListeners.clear()
-    clearInterval(heartbeat)
+    stopHeartbeat()
     await client.detach()
   }
 
@@ -337,38 +282,8 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
   }
 }
 
-/** Resolve when the work settles or the budget expires, whichever comes first. */
-function settleWithin(work: Promise<void>, budgetMs: number): Promise<void> {
-  return new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, budgetMs)
-    timer.unref?.()
-    void work.then(() => {
-      clearTimeout(timer)
-      resolve()
-    })
-  })
-}
-
 function flush(waiters: Array<() => void>): void {
   for (const waiter of waiters.splice(0)) waiter()
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null
-}
-
-function extractTerminalAssistantMessage(message: unknown): RpcTerminalAssistantMessage | undefined {
-  if (!isRecord(message)) return undefined
-  const record = message
-  if (record.role !== "assistant") return undefined
-  const text = extractAssistantText(record)
-  const stopReason = typeof record.stopReason === "string" ? record.stopReason : undefined
-  const errorMessage = typeof record.errorMessage === "string" ? record.errorMessage : undefined
-  return {
-    ...(text === undefined ? {} : { text }),
-    ...(stopReason === undefined ? {} : { stopReason }),
-    ...(errorMessage === undefined ? {} : { errorMessage }),
-  }
 }
 
 function unreachable(value: never): never {
