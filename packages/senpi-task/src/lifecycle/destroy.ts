@@ -95,15 +95,26 @@ async function terminateOrphan(context: LifecycleContext, taskId: string, orphan
   }
   const pid = record === null ? orphan?.pid : record.execution_mode === "process" ? record.pid : undefined
   if (pid === undefined) return
-  if (!context.signaller.isAlive(pid)) return
-
-  context.signaller.signal(pid, "SIGTERM")
-  context.store.appendEvent(taskId, { type: "reconcile_terminated", payload: { pid, signal: "SIGTERM" } })
-  await delay(context.orphanKillDelayMs)
   if (context.signaller.isAlive(pid)) {
-    context.signaller.signal(pid, "SIGKILL")
-    context.store.appendEvent(taskId, { type: "reconcile_terminated", payload: { pid, signal: "SIGKILL" } })
+    context.signaller.signal(pid, "SIGTERM")
+    context.store.appendEvent(taskId, { type: "reconcile_terminated", payload: { pid, signal: "SIGTERM" } })
+    await delay(context.orphanKillDelayMs)
+    if (context.signaller.isAlive(pid)) {
+      context.signaller.signal(pid, "SIGKILL")
+      context.store.appendEvent(taskId, { type: "reconcile_terminated", payload: { pid, signal: "SIGKILL" } })
+    }
   }
+  // The pid is consumed: its process is gone or was just killed, and the OS may hand the number to an
+  // unrelated process. A later sweep (TTL) must not find it on the record and signal that process.
+  if (record !== null) forgetConsumedPid(context, taskId, pid)
+}
+
+function forgetConsumedPid(context: LifecycleContext, taskId: string, pid: number): void {
+  context.store.mutate(taskId, (fresh) => {
+    if (fresh.pid !== pid) return fresh
+    const { pid: _consumed, ...rest } = fresh
+    return rest
+  })
 }
 
 async function closeOrphanSession(
