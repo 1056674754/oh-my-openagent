@@ -36,6 +36,7 @@ impl Win32Input {
         id: &str,
         body: impl FnOnce(&mut Self, Window) -> CoreResult<T>,
     ) -> CoreResult<T> {
+        self.preserve_new_focus = false;
         let target = Window::target(id, self.integrity)?;
         let previous = native::foreground();
         activate(id, target)?;
