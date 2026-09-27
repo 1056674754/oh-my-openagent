@@ -2,7 +2,13 @@ import { expect, test } from "bun:test"
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { repo, git } from "../backends/git-fixture"
-import { captureBaseline, IsolationBaselineTooLargeError } from "./baseline"
+import {
+  captureBaseline,
+  captureRepoBaseline,
+  ISOLATION_BASELINE_MAX_CONTENT_BYTES,
+  IsolationBaselineTooLargeError,
+  type BaselineReadRetryDetails,
+} from "./baseline"
 import { captureDeltaPatch } from "./delta"
 import { parseDiffGitLinePaths } from "./synthetic-tree"
 import { GitCommandError, runGit } from "./command"
@@ -100,6 +106,48 @@ test("nested repository delta is separate and node_modules is excluded", async (
   expect(result.rootPatch).toBe("")
   expect(result.nestedPatches.map(n => n.relativePath)).toEqual(["libs/inner"])
   expect(paths(result.nestedPatches[0]!.patch)).toEqual(["new"])
+})
+test("a timed-out baseline read retries once with a fresh process and completes", async () => {
+  // given
+  const { repoRoot } = await setup()
+  await writeFile(join(repoRoot, "untracked"), "new\n")
+  const indexBefore = await readFile(join(repoRoot, ".git/index"))
+  let untrackedReadAttempts = 0
+  let successfulArgs: readonly string[] = []
+  let successfulOptionalLocks: string | undefined
+  const retries: BaselineReadRetryDetails[] = []
+  const executeGit: typeof runGit = async (args, options) => {
+    if (args.includes("ls-files")) {
+      untrackedReadAttempts++
+      if (untrackedReadAttempts === 1) {
+        return runGit(["-c", "alias.wait=!sleep 7", "wait"], { ...options, timeoutMs: 50 })
+      }
+      successfulArgs = args
+      successfulOptionalLocks = options.env?.["GIT_OPTIONAL_LOCKS"]
+    }
+    return runGit(args, options)
+  }
+
+  // when
+  const baseline = await captureRepoBaseline(
+    repoRoot,
+    ISOLATION_BASELINE_MAX_CONTENT_BYTES,
+    { runGit: executeGit, onReadRetry: details => retries.push(details) },
+  )
+
+  // then
+  expect(baseline.untrackedFiles).toEqual(["untracked"])
+  expect(untrackedReadAttempts).toBe(2)
+  expect(successfulArgs.slice(0, 6)).toEqual([
+    "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "ls-files", "--others",
+  ])
+  expect(successfulOptionalLocks).toBe("0")
+  expect(retries).toEqual([{
+    args: ["ls-files", "--others", "--exclude-standard", "-z"],
+    cwd: repoRoot,
+    timeoutMs: 50,
+  }])
+  expect(await readFile(join(repoRoot, ".git/index"))).toEqual(indexBefore)
 })
 test("untracked content over injected 1 KiB cap is refused before rendering", async () => {
   const { repoRoot } = await setup()
