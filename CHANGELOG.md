@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+**Memory dreaming sees which skills and memory files you actually read.** ([#8864](https://github.com/code-yeongyu/oh-my-openagent/issues/8864), reported by @katamana, fixed by @MoerAI in [#8865](https://github.com/code-yeongyu/oh-my-openagent/pull/8865)) The usage ledgers that `dream` reads to find unused skills and to move hot or stale memory files between tiers were never written, so every dream run worked from empty evidence. Reading a `skills/<name>/...` file or a memory file outside `system/` now adds a row to `runtime/skills-usage.json` or `runtime/memory-usage.json` again.
+
 ## [5.0.1] - 2026-09-27
 
 A patch release for problems people hit on 5.0.0. `omo update` installs it, or run:
