@@ -30,6 +30,7 @@ Senpi adapter for the `@oh-my-opencode/senpi-task` engine: task/team tools, the 
 | `runtime-context.ts` | `LiveTaskContext`: structural slice of senpi's ExtensionContext (`ui` captured on entry, cleared on switch/shutdown; concrete model registry shared with in-process children). |
 | `residency-registry.ts` | Lifecycle's ResidencyRegistry as a view over the manager's live handles; one shared prune path via `manager.forget`. |
 | `process-sweep.ts` | Unconditional session-start LSP proxy/daemon hygiene; fires before any flag or capability gate. |
+| `host-prewarm.ts` | Task-host warm-ups, wired BEFORE the event bridge so its `session_start` runs ahead of the reconcile: always-on revival pre-warm of the recorded sockets of this session's suspended host-session children (never the session's own endpoint), plus `task.host_shard_prewarm` `session-start` / `first-turn` (first `input` or `before_agent_start`) through the execution-mode gate. POSIX `host` runner only, fire-and-forget, once per session id. |
 
 ## Key exports
 

@@ -32,6 +32,7 @@ import { createDagRuntime, type DagRuntime } from "./dag-runtime"
 import { createDagTool } from "./dag-tool"
 import { composeTaskEngine, type TaskEngine } from "./engine"
 import { TASK_USAGE_HINT_FLAG, wireEventBridge } from "./event-bridge"
+import { wireHostPrewarm } from "./host-prewarm"
 import { createLeadPollerLifecycle, type LeadPollerLifecycle } from "./lead-poller-lifecycle"
 import { TEAM_MEMBER_LIVENESS_MESSAGE_TYPE } from "./member-liveness"
 import { TASK_COMPLETION_MESSAGE_TYPE } from "./parent-notifier"
@@ -166,6 +167,9 @@ export function createTaskComponent(options: TaskComponentOptions = {}): OmoSenp
         })
       })
       const transitions = createSessionTransitionBridge({ runtime: engine.runtime, notifier: engine.notifier })
+
+      // Ahead of the recovery chain's session_start, so a revived child's host boots during the reconcile.
+      wireHostPrewarm(pi, engine)
 
       wireDagLifecycle(pi, dagRuntime, () => {
         wireEventBridge(pi, ctx, engine, statusUi, transitions, {
