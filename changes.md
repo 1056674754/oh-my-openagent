@@ -4,6 +4,12 @@ The plan parser in `packages/boulder-state/src/plan-checklist.ts` now counts `T1
 
 OpenCode's idle continuation, its pending retry and `omo run` now treat a plan with no countable tasks as nothing to continue, as Senpi and Codex already did. Before, a prose or heading-only plan produced the `0/0` continuation directive on every idle. The plan-format validator judges rows with the counter's own grammar (`isStructuredTaskRow`), so it no longer warns that `T1.1` rows will be skipped, and the Codex Stop hook's parser copy matches the shared grammar. Across 159 real plan files, the only totals that change are two plans that read `0/0` before.
 
+## 2026-09-28 - Session search finds prompts in the middle of a session (#9012)
+
+`find`/`search` in the `coding-agent-sessions` skill used to match only session metadata and the first and last user prompts, so a query that appeared only in a middle prompt returned nothing even though `read` showed it. Scanners that already read the whole transcript (OmO/Senpi, oh-my-pi, gajae-code, Claude, Codex rollouts, OpenClaw, Qwen, Droid, Kimi, Aside) now keep every user prompt they parse, and search reports such a hit with the match reason field `user_message`. A Codex thread listed from the state database searches the prompts of its scanned rollout. The search adds no file reads, so a miss-heavy query costs the same as before. Claude subagent transcripts and Codex threads beyond the 2000 newest rollouts keep metadata and first/last-prompt search.
+
+The entrypoint now exits with status 2 and a message naming the required Python 3.11+ and the interpreter it found, instead of failing with `ImportError` on an older `python3`.
+
 ## 2026-09-28 - macOS foreground input lands in the target window (#9008)
 
 `delivery: "foreground"` clicks and keys on macOS used to report success while the target app ignored them. The engine fronted the process through SkyLight (`_SLPSSetFrontProcessWithOptions`), which makes it front to WindowServer and AX but leaves the app inactive in AppKit, so every click was consumed as an activation click. Foreground delivery now activates the app through accessibility (`AXFrontmost`) and AppKit, waits for `NSRunningApplication.isActive`, and waits until the target window is the app's focused main window. Only then does it post input. If the app never becomes active, nothing is posted and the call fails with `InputFailed`. The previous front app is still restored through SkyLight and AppKit.
