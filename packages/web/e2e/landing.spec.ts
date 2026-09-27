@@ -231,6 +231,10 @@ test.describe("Landing Page", () => {
     await page.getByTestId("crafted-list").locator('[data-crafted-index="4"]').click()
     await expect(stage).toHaveAttribute("data-state", "monitor")
     await expect(stage).toHaveClass(/is-live/)
+
+    await page.getByTestId("crafted-list").locator('[data-crafted-index="7"]').click()
+    await expect(stage).toHaveAttribute("data-state", "computer")
+    await expect(stage).toHaveClass(/is-live/)
   })
 
   test("confirms a copied install command with a check and a status message", async ({
