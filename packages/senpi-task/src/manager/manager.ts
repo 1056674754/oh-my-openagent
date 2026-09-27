@@ -1087,12 +1087,24 @@ class TaskManagerImpl implements TaskManager {
     const remainingModels = nextRecord.fallback_models ?? []
     const nextEpoch = nextRecord.notification.run_epoch
 
-    await (this.#options.destruction ?? NOOP_DESTRUCTION)
-      .destroyResidentTask(input.taskId, "fallback_handoff")
+    let teardownError: unknown
+    try {
+      await (this.#options.destruction ?? NOOP_DESTRUCTION)
+        .destroyResidentTask(input.taskId, "fallback_handoff")
+    } catch (error) {
+      teardownError = error
+    }
 
     live.unsubscribe()
     this.#live.delete(input.taskId)
     this.#releaseSlot(input.taskId, input.model, input.epoch)
+
+    // The failed rung may still be alive, so the next rung must not start beside it. End the handed-off
+    // task instead of leaving it running behind this owner's pid fence with nothing to finish it.
+    if (teardownError !== undefined) {
+      this.#failStrandedHandoff(input.taskId, nextEpoch, nextModel.display, teardownError)
+      return true
+    }
 
     this.#options.store.appendEvent(input.taskId, {
       type: "task_model_fallback",
@@ -1126,6 +1138,19 @@ class TaskManagerImpl implements TaskManager {
       this.#concurrency.enqueue(nextModel.display, input.taskId, nextEpoch, launch)
     }
     return true
+  }
+
+  #failStrandedHandoff(taskId: string, epoch: number, nextModel: string, error: unknown): void {
+    const reason = error instanceof Error ? error.message : String(error)
+    const message = `Runtime fallback could not close the failed model's child (${reason}); ${nextModel} was not started.`
+    log("senpi-task runtime fallback teardown rejected", { taskId, error: reason })
+    const current = this.#tryLoad(taskId)
+    if (current != null && !isTerminalRecord(current) && current.notification.run_epoch === epoch) {
+      this.#options.store.replace(endFallbackHandoff(current))
+      this.#options.store.transition(taskId, { type: "fail", timestamp: nowIso(this.#now), error_message: message })
+      this.#options.store.appendEvent(taskId, { type: "task_fallback_teardown_failed", payload: { error_message: reason, next_model: nextModel } })
+    }
+    this.#settleWaiters(taskId)
   }
 
   async #launchRuntimeFallback(context: LaunchContext): Promise<void> {
@@ -1173,6 +1198,25 @@ class TaskManagerImpl implements TaskManager {
         type: "task_start_failed",
         payload: { error_message: message, ...startFailureFacts(error) },
       })
+      this.#settleWaiters(context.record.task_id)
+      return
+    }
+
+    // The start awaited: a cancel, interrupt or another owner may have moved the task meanwhile. A
+    // late child of a run that is no longer this one's is discarded, never attached.
+    const fresh = this.#tryLoad(context.record.task_id)
+    if (
+      fresh == null
+      || fresh.status !== "running"
+      || fresh.notification.run_epoch !== context.record.notification.run_epoch
+      || fresh.host_pid !== context.record.host_pid
+    ) {
+      this.#releaseSlot(context.record.task_id, context.model, context.record.notification.run_epoch)
+      try {
+        await discardManagedHandle(handle)
+      } catch (error) {
+        log("senpi-task stale runtime fallback child discard rejected", { taskId: context.record.task_id, error: String(error) })
+      }
       this.#settleWaiters(context.record.task_id)
       return
     }
