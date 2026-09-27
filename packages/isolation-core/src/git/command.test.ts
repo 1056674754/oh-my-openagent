@@ -3,7 +3,7 @@ import type { ChildProcess } from "node:child_process"
 import { rm } from "node:fs/promises"
 import { join } from "node:path"
 import { fixture } from "../test-fixture"
-import { GitCommandError, runGit } from "./command"
+import { GitCommandError, GitCommandTimeoutError, runGit } from "./command"
 import { IsolationUnavailableError } from "../backend"
 
 // Signal git by the pid runGit spawned instead of guessing it from shell
@@ -74,6 +74,22 @@ test("input written to a child that dies while alias-shell survivors hold its pi
   // not wait the survivor out (the win32 flake waited out the full 30s test
   // budget while `close` stayed pending on the dead child's pipes).
   expect(Date.now() - started).toBeLessThan(5_000)
+})
+
+test("a git process that never exits is terminated at its command deadline", async () => {
+  // given
+  const f = await fixture()
+  let failure: unknown
+  const started = Date.now()
+
+  // when
+  failure = await runGit(["-c", "alias.wait=!sleep 7", "wait"], { cwd: f.repoRoot, timeoutMs: 50 })
+    .then(() => undefined, (error: unknown) => error)
+
+  // then
+  expect(failure).toBeInstanceOf(GitCommandTimeoutError)
+  expect(Date.now() - started).toBeLessThan(5_000)
+  if (process.platform === "win32") expect(await fixtureRootIsRemovable(f.root)).toBe(true)
 })
 
 test("a budget breach on a still-streaming child preserves the typed limit error", async () => {
