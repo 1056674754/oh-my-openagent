@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+**A parent no longer runs out of room for its task children.** ([#8999](https://github.com/code-yeongyu/oh-my-openagent/issues/8999)) `task.residency_max_children` now defaults to `"unlimited"`. The old default (8 to 16, depending on CPU count) refused the next spawn with a residency error while all of a parent's children were still running, and limited how many suspended children came back when the parent session resumed. Set a number in `omo.json` to keep a bound.
+
 **Memory now learns from a very long conversation instead of parking it forever.** ([#8984](https://github.com/code-yeongyu/oh-my-openagent/issues/8984), contributed by @deadcode-walker in [#8985](https://github.com/code-yeongyu/oh-my-openagent/pull/8985)) Facts extraction sends conversations to the model in batches of at most 128 KiB. A single conversation entry larger than that used to be parked and never read, so the facts in it were lost. Now, after all normal batches are done, OmO Native gives one such entry a separate extraction run with a fixed budget:
 
 - the whole entry, up to 512 KiB, never split or trimmed
