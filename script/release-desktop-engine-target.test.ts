@@ -93,7 +93,7 @@ describe("compiled desktop engine staging", () => {
       expect(staged).toBe(entry.payload)
       expect(resolveExpectedSidecarRelPaths(RELEASE_BINARY_TARGETS[2]!)).toContain(entry.payload)
       expect(readFileSync(join(stageDir, entry.payload), "utf8")).toBe("x64-rust-binary")
-      expect(statSync(source).mode & 0o777).toBe(0o644)
+      if (process.platform !== "win32") expect(statSync(source).mode & 0o777).toBe(0o644)
       expect(manifest.entries).toEqual([expect.objectContaining({ relPath: entry.payload, mode: 0o755, size: 15 })])
     } finally {
       rmSync(root, { recursive: true, force: true })

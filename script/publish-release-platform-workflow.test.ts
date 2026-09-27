@@ -276,6 +276,11 @@ describe("release binary asset lane in the platform publish workflow", () => {
       const gh = join(root, "gh")
       writeFileSync(gh, "#!/bin/bash\n[ \"$1\" = release ] && [ \"$2\" = download ] || exit 1\ncp \"$ASSET_SOURCE_DIR\"/* \"${@: -1}/\"\n")
       chmodSync(gh, 0o755)
+      if (spawnSync("bash", ["-c", "command -v shasum"]).status !== 0) {
+        const shasum = join(root, "shasum")
+        writeFileSync(shasum, "#!/bin/bash\n[ \"$1\" = -a ] && [ \"$2\" = 256 ] || exit 2\nshift 2\nexec sha256sum \"$@\"\n")
+        chmodSync(shasum, 0o755)
+      }
       const workflow = readFileSync(publishWorkflowPath, "utf8")
       const verify = runBlock(workflow, "      - name: Verify uploaded assets\n", "      - name: Delete draft release\n")
       const execute = () => spawnSync("bash", ["-e", "-c", verify], {
