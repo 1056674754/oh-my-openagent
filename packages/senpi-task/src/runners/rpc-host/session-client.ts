@@ -1,9 +1,10 @@
 import type { RpcSessionState, RpcTransportGoneError } from "@code-yeongyu/senpi"
 import { log } from "@oh-my-opencode/utils"
 
-import type { SenpiHostProtocolInfo } from "../../lazy/senpi-barrel"
+import { loadSenpiBarrel, type SenpiHostProtocolInfo } from "../../lazy/senpi-barrel"
 import { buildAutoUiResponse, type AutoAnswerableUiRequest } from "../rpc/ui-auto-answer"
 import type { ChildEventListener, RpcEntriesResult, RpcSwitchSessionResult } from "../types"
+import { HostUnavailableError } from "./daemon"
 import {
   assertHostUsable,
   createSenpiRpcClient,
@@ -128,6 +129,15 @@ export class HostSessionClient {
     const opened = await client.openSession(toWireOpen(input)).catch(async (error: unknown) => {
       this.client = undefined
       await client.stop()
+      // The host went away with the open in flight: that is an unreachable host, not a session the
+      // host refused, so the start failure carries the host reason instead of a bare session error.
+      const { isTransportGoneError } = await loadSenpiBarrel()
+      if (isTransportGoneError(error)) {
+        throw new HostUnavailableError("host_unreachable", {
+          fallbackAllowed: false,
+          detail: `the host went away during open_session: ${error instanceof Error ? error.message : String(error)}`,
+        })
+      }
       throw toOpenFailure(error, input.sessionPath)
     })
     this.identity = identity

@@ -85,6 +85,10 @@ Tests: `rpc-host-endpoint.test.ts`, `lifecycle/host-session-endpoint.test.ts`,
 `manager/host-session-park.test.ts`, `rpc-host/daemon-shard.test.ts`, `rpc-host/store-index.test.ts`,
 `rpc-host/own-endpoint.test.ts`.
 
+## A host lost during open_session reports host_unreachable (#9020)
+
+`HostSessionClient.open` (`src/runners/rpc-host/session-client.ts`) now classifies an `open_session` rejection with senpi's exported `isTransportGoneError`: when the host went away with the open in flight it rejects with `HostUnavailableError("host_unreachable", fallbackAllowed: false)` instead of handing senpi's `RpcTransportGoneError` to `toOpenFailure`, which returned it untouched and let `openTaskHostSession` record a `session_unavailable` failure with no reason. Typed open refusals keep their codes. `src/runners/rpc-host/open-session-transport-loss.test.ts` drives the real engine client against the fake host with the open withheld and the host crashed, at the session client and at `openTaskHostSession` (RED: raw `rpc_transport_gone`).
+
 ## An exhausted runtime fallback chain is recorded in the task transcript (#8301)
 
 `manager/manager.ts` `#tryRuntimeFallback`: when the live child fails with no candidate left and its record shows at least one hop (`fallback_attempts` longer than one), the manager appends `retry_fallback_exhausted` (`chain_key` = the requested model, `last_error` = the failure message) before the terminal transition. Senpi's own retry emits that event only while its chain key is still armed, so a final rung reached through a native hop failed with no exhaustion record. A handle whose child already emitted the event (`#nativeFallbackExhaustions`) is not recorded twice. `src/manager/manager-fallback.test.ts` covers the native-hop case (RED on the old manager). The live driver `packages/omo-senpi/scripts/qa/task-runtime-fallback-e2e.mjs` now runs every scenario on the in-process, child-process and host-session runners and checks the record names the runner it expected; the host-session runs use a sandbox copy of the plugin whose daemon launch spec lists the mock provider, and stop that daemon before the sandbox is removed.
