@@ -9,6 +9,13 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
+      - "script/build-omo-binary.ts"
+      - "script/desktop-engine-*.ts"
+      - "script/release-desktop-engine-target.ts"
+      - "script/desktop-engine-ci-proof.ts"
+      - "script/release-desktop-engine-fixture.json"
+      - ".github/workflows/publish-platform.yml"
+      - ".github/workflows/publish.yml"
       - ".github/workflows/desktop-engine.yml"
   pull_request:
     branches: [master, dev]
@@ -18,6 +25,13 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
+      - "script/build-omo-binary.ts"
+      - "script/desktop-engine-*.ts"
+      - "script/release-desktop-engine-target.ts"
+      - "script/desktop-engine-ci-proof.ts"
+      - "script/release-desktop-engine-fixture.json"
+      - ".github/workflows/publish-platform.yml"
+      - ".github/workflows/publish.yml"
       - ".github/workflows/desktop-engine.yml"
 
 concurrency:
@@ -30,7 +44,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-22.04, windows-latest]
+        include:
+          - { os: macos-14, rust_target: aarch64-apple-darwin }
+          - { os: ubuntu-22.04, rust_target: x86_64-unknown-linux-gnu }
+          - { os: windows-latest, rust_target: x86_64-pc-windows-msvc }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
@@ -53,6 +70,7 @@ jobs:
           toolchain=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)
           rustup toolchain install "$toolchain" --profile minimal --component clippy
           rustup default "$toolchain"
+          rustup target add "${{ matrix.rust_target }}"
 
       - uses: Swatinem/rust-cache@v2
 
@@ -63,12 +81,22 @@ jobs:
         run: cargo test --workspace --locked
 
       - name: Build desktop engine
-        run: cargo build --release -p senpi-desktop-engine --locked
+        run: cargo build --release -p senpi-desktop-engine --locked --target "${{ matrix.rust_target }}"
 
       - name: Install JavaScript dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
+      - name: Prove staged desktop engine resolution and selftest
+        env:
+          OMO_DESKTOP_CI_STAGE_DIR: ${{ runner.temp }}/omo-desktop-ci-engine
+        run: bun script/desktop-engine-ci-proof.ts
+
+      - name: Verify release asset assembly without publishing
+        run: bun test script/desktop-engine-release.test.ts script/release-desktop-engine-target.test.ts script/publish-release-platform-workflow.test.ts
+
       - name: Desktop package tests
+        env:
+          OMO_PACKAGE_DIR: ${{ runner.temp }}/omo-desktop-ci-engine
         run: bun run test:desktop
 
       # Each #[ignore]d display test runs in the environment its module docs name. The X11 input tests need a

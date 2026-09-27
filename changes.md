@@ -1,3 +1,7 @@
+## 2026-09-27 - Desktop engine binaries join the OmO release channels (#8893)
+
+The compiled OmO binaries stage `senpi-desktop-engine` inside their extracted runtime on supported macOS, glibc Linux x64 and Windows x64 hosts. The locator checks that runtime before the executable directory, while targets without an engine still report `native-unavailable`. The release workflow builds and uploads the engine binaries with checksums. An independent asynchronous API can acquire and verify the corresponding asset into a versioned cache for npm installs; hooking that API into the computer-use component follows the separate component PR.
+
 ## 2026-09-27 - omo adopts senpi 2026.9.27-2 (#8893)
 
 Every `@code-yeongyu/senpi` pin moves from 2026.9.27 to 2026.9.27-2: the root devDependency, the `omo-native` dependency, the `omo-senpi` and `senpi-task` peer and dev pins, their pin tests, and `bun.lock`. The release carries the generic extension hooks that the computer-use component relies on:
