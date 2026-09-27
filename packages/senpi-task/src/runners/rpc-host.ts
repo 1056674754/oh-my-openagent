@@ -156,13 +156,19 @@ export class RpcHostRunner {
       return await this.openChild(spec, socket)
     } catch (error) {
       if (RunnerError.is(error)) throw error
+      // The host refusing the OPEN on a recorded endpoint (e.g. a missing capability - the only
+      // check the session's own endpoint gets, since it is never ensured) must park the child too:
+      // the fallback would reopen the retained session off its endpoint.
+      if (endpoint.recorded && error instanceof HostUnavailableError) {
+        throw this.recordedEndpointFailure(error, endpoint.socket)
+      }
       return await this.delegate(error, spec, false)
     }
   }
 
   /**
-   * A RECORDED endpoint is where the child's retained session lives, so nothing the ensure answers
-   * there may send the child to the per-child fallback: an incompatible host parks it
+   * A RECORDED endpoint is where the child's retained session lives, so nothing the ensure or the
+   * open answers there may send the child to the per-child fallback: an incompatible host parks it
    * (`host_incompatible`), anything else fails closed with its own reason.
    */
   private recordedEndpointFailure(error: unknown, socket: string | undefined): RunnerError {

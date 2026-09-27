@@ -108,6 +108,34 @@ describe("RpcHostRunner opens a child on the endpoint its resolver names", () =>
     expect(fallback.starts).toEqual([])
     expect(openCount(host.commands)).toBe(0)
   })
+
+  for (const where of ["foreign", "own"] as const) {
+    test(`#given a revival on its recorded ${where} socket whose host refuses the open for a missing capability #when it starts #then it parks host_incompatible and is never reopened by the fallback`, async () => {
+      // given - the ensure answers (or, for the own endpoint, is skipped); the OPEN is refused
+      const host = await fakeHost({ capabilities: [] })
+      const recorded = shardEndpoint(host, where === "own" ? "00000000000000a5" : "00000000000000a6")
+      const fallback = fakeFallbackRunner()
+      const ensure = ensureRecorder()
+      const notices: string[] = []
+      const runner = runnerOver(host, {
+        ensureDaemon: ensure.ensure,
+        fallback,
+        onNotice: (token, detail) => notices.push(`${token} ${detail ?? ""}`),
+        ...(where === "own" ? { ownHostSocket: () => recorded.socket } : {}),
+      })
+
+      // when
+      const failure = await runner
+        .start(childSpec({ resumeSessionPath: "/tmp/dh-30-state/sessions/st_30/old.jsonl", hostSocket: recorded.socket }))
+        .catch((error: unknown) => error)
+
+      // then
+      expect(RunnerError.is(failure) ? failure.failure : undefined).toMatchObject({ kind: "host_unavailable", reason: "host_incompatible" })
+      expect(fallback.starts).toEqual([])
+      expect(ensure.inputs.map((input) => input.socket)).toEqual(where === "own" ? [] : [recorded.socket])
+      expect(notices).toEqual([`host_unavailable:host_incompatible ${recorded.socket}`])
+    })
+  }
 })
 
 describe("the agent-dir store index is an admission precondition", () => {

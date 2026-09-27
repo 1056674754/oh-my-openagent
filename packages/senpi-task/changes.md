@@ -15,7 +15,9 @@ fsync, rename) and read back; registering it is an admission precondition, so a 
 `runners/rpc-host.ts` + `child-endpoint.ts` + `reattach-port.ts` (new): `RpcHostRunnerOptions` gains
 `shardResolver` (asked at every start), `storeDir`, `ownHostSocket` and `onNotice` (once per token and
 endpoint). A spec's `hostSocket` (the recorded endpoint) wins over the resolver and never falls back to the
-per-child runner. A lost transport re-ensures only the recorded socket: an incompatible answer parks the
+per-child runner: a host refusal there, whether the ensure or the OPEN answers it (a missing capability
+at open is the only check the own endpoint gets), parks the revival `host_incompatible` or fails it
+closed with its own reason, instead of reopening the retained session in a child process. A lost transport re-ensures only the recorded socket: an incompatible answer parks the
 child `host_incompatible` (never reopened elsewhere), and the session's own endpoint
 (`readOwnHostSocket(pi)`, `isOwnEndpoint`) is re-opened but never ensured - silent, the child parks
 `own_host_unreachable`. `manager/manager-outcome.ts` parks the record (`rpc_detached` + the reason) when
