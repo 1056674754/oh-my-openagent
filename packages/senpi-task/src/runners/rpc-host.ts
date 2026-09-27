@@ -17,7 +17,7 @@ import type { HostSessionOpenInput } from "./rpc-host/session-transport"
 import { isHostTransportError } from "./rpc-host/transport-error"
 import { createRpcModelAdmission, type RpcModelAdmission } from "./rpc/model-admission"
 import { discardUnstartedRpcHandle } from "./rpc/start-cleanup"
-import type { RpcChildHandle, RpcEntriesResult, RpcRunnerSpec, RpcSwitchSessionResult } from "./types"
+import type { RpcChildHandle, RpcRunnerSpec, RpcSwitchSessionResult } from "./types"
 
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000
 const DEFAULT_CLOSE_GRACE_MS = 5_000
@@ -26,11 +26,9 @@ const DEFAULT_REATTACH_DELAYS_MS: readonly number[] = [500, 1_000, 2_000, 4_000,
 /** How long a start may wait for a memory-critical host to admit a new worker session. */
 const DEFAULT_ADMISSION_WAIT_MS = 10 * 60_000
 
-/** ONE child's session on the daemon: the port the handle drives, plus the calls the runner makes. */
+/** ONE child's session on the daemon: the port the handle drives, plus the open the runner makes. */
 export interface HostSessionChannel extends HostSessionPort {
   open(input: HostSessionOpenInput): Promise<OpenedHostSession>
-  getEntries(since?: string): Promise<RpcEntriesResult>
-  switchSession(sessionPath: string): Promise<RpcSwitchSessionResult>
 }
 
 export type EnsureTaskDaemonPort = (input: EnsureTaskDaemonInput) => Promise<EnsuredTaskDaemon>
@@ -179,23 +177,25 @@ export class RpcHostRunner {
       heartbeatIntervalMs: this.options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
       now: this.now,
       closeGraceMs: this.options.closeGraceMs ?? DEFAULT_CLOSE_GRACE_MS,
+      // The host's answer, not connection liveness: respawn continues an interrupted turn only when
+      // the session was reopened from its JSONL.
+      openDisposition: opened.attached ? "attached" : "reopened",
       reattach: this.reattachPort(spec),
     })
+    const switchOnPort = handle.switchSession
     // A resumed child says nothing: an attached session is still mid-turn, and a session reopened
     // from its JSONL keeps its transcript - replaying the prompt would duplicate the work.
     if (spec.resumeSessionPath === undefined) await this.startTurn(handle, spec)
     return Object.assign(handle, {
-      rejoinedLiveSession: opened.attached,
       spawnSpec: {
         cwd: spec.cwd,
         ...(spec.extensions === undefined ? {} : { extensions: spec.extensions }),
         ...(spec.memberEnv === undefined ? {} : { memberEnv: spec.memberEnv }),
       },
       // The session was opened AT this path, so resuming it is already done; only a different path
-      // is a real switch.
+      // is a real switch, and it goes to the handle's CURRENT port (a reattach replaces `client`).
       switchSession: (target: string): Promise<RpcSwitchSessionResult> =>
-        target === sessionPath ? Promise.resolve({ cancelled: false }) : client.switchSession(target),
-      getEntries: (since?: string) => client.getEntries(since),
+        target === sessionPath ? Promise.resolve({ cancelled: false }) : switchOnPort(target),
     })
   }
 

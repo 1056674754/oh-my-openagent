@@ -230,8 +230,8 @@ child's session (`recordSpawnedRunner`), as a fresh spawn does.
 
 `manager/manager-respawn.ts` decided "the daemon re-joined a live session, do not nudge" from the
 handle's own `attached` getter, which is true for every open handle, so a session reopened from its
-JSONL never got its interrupted turn continued. `runners/rpc-host.ts` now exposes the daemon's answer
-to the open as `rejoinedLiveSession`, and respawn keys on that.
+JSONL never got its interrupted turn continued. Respawn now keys on the host's answer to the open,
+`openDisposition` (#9003 on dev fixed the same defect; this branch adopts that field).
 
 Tests: `runtime-fallback-host-session.test.ts` (the handed-off record carries no child identity and the
 marker; a daemon-side reconcile during the failed rung's slow close defers as `foreign_live_owner`,
@@ -239,9 +239,15 @@ respawns nothing, and only the next rung's result lands), `fallback-handoff-reco
 dead-owner handoff, swept by another session or by its resumed parent, opens a fresh session and
 prompts it on the real daemon runner; a transient failure parks it; a stale marker and a dead workpool
 worker end `lost`), `manager-respawn-host-session.test.ts` (a reopened session on the real daemon
-runner is continued), `rpc-host.test.ts` (`rejoinedLiveSession` for a retained and a reopened session),
+runner is continued), `rpc-host.test.ts` (`openDisposition` for a retained and a reopened session),
 and `manager-respawn-cleanup.test.ts` (a revived daemon child names its session).
 `reconcileLegacyTerminal` moved to `lifecycle/reconcile-terminal.ts` unchanged.
+
+## A host session reopened from its transcript continues its interrupted turn; post-reattach queries use the current port (#9003)
+
+`manager/manager-respawn.ts` `respawnProcess` decided "re-joined a live session" from `isAttachedHostSession`, which read the handle's `attached` getter. That getter is connection liveness (`runners/rpc-host/handle.ts`), true after ANY successful open, so a daemon child whose session the host reopened from its JSONL (open_session answered `attached: false`) was treated as attached and never got `switchSession` + the one interrupted-turn continuation. The host's answer is now carried on the handle as `openDisposition: "attached" | "reopened"` (`HostSessionHandleOptions.openDisposition`, set by `RpcHostRunner.openChild` from `OpenedHostSession.attached` and updated when a reattach adopts a new port), and respawn keys on `openDisposition === "attached"`. The tail rule (`sessionTailNeedsContinuation`) still decides whether a reopened session needs the continuation, but `manager/interrupted-turn.ts` now reads the last CONVERSATION message instead of the literal last JSONL record: it walks back only over `custom:senpi.hooks.stop-state`, `custom:pi-rules.scan`, and `custom:senpi-memory.session-binding`. Live QA showed why: a killed host leaves the stop-state row after the interrupted tool result, and the reopening host appends the rules scan and memory binding before respawn reads the tail, so the old rule answered "answered" for every host reopen. A malformed record, `custom_message`, or unknown custom entry after the last message ends the walk with no continuation. Once the last message is known, the search back to the turn's opening user message walks past every non-message row (only a malformed record stops it, with no continuation), so a hook-written `custom_message` inside a continued turn can no longer hide the continuation prompt and trigger a second one. An unanswered user prompt followed only by those named bookkeeping rows now counts as interrupted and gets exactly one continuation across host reopen and in-process respawn. A turn that was already continued once is never continued again, even if it is interrupted again (by design). The continuation wording and the reattach backoff are unchanged.
+
+`runners/rpc-host.ts` bound `getEntries`/`switchSession` to the client captured at open, so after a transport reattach both went to the dead port and threw `session_detached`. `HostSessionPort` now carries both queries, the handle serves them from its CURRENT port (waiting for an in-flight reattach), and the runner routes through the handle. RED->GREEN: `manager/manager-respawn-host-session.test.ts` (real runner over the fake host: `attached: false` + interrupted tail -> `reopened` and exactly one followUp prompt; `attached: true` -> `attached` and none; `attached: false` + completed tail -> none; interrupted tail followed by bookkeeping rows -> exactly one; answered tail followed by bookkeeping rows -> none; malformed final record -> none; a continued turn holding an unknown `custom_message` or `custom` row, re-interrupted and reopened by a restarted host -> one prompt in total; malformed record inside the turn -> none) and `runners/rpc-host-recovery.test.ts` (after a host restart both queries hit the new client, zero calls on the old one).
 
 ## A suspended child frees its lane slot (#8973)
 
