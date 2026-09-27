@@ -188,7 +188,8 @@ fn composite_places_each_matching_capture_at_its_pixel_rect() {
     let regions = laid_out.into_iter().zip([red, blue]).collect::<Vec<_>>();
     let (image, _geometry) = composite(regions).unwrap();
     assert_eq!((image.width(), image.height()), (400, 100));
-    assert_eq!(image.get_pixel(199, 99), &Rgba([255, 0, 0, 255]));
+    assert_eq!(image.get_pixel(99, 49), &Rgba([255, 0, 0, 255]));
+    assert_eq!(image.get_pixel(199, 99), &Rgba([0, 0, 0, 255]));
     assert_eq!(image.get_pixel(200, 0), &Rgba([0, 0, 255, 255]));
     assert_eq!(image.get_pixel(399, 99), &Rgba([0, 0, 255, 255]));
 }

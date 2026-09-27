@@ -189,14 +189,25 @@ fn background_text_reaches_an_unlisted_class_window() {
     let window = ProbeWindow::new("SomeCustomClass");
     // When
     let typed = input().type_text(&Target::Window(window.id()), "hi\n", DeliveryMode::Background);
-    // Then: the characters arrive as WM_CHAR, the newline as a carriage return
+    // Then: characters arrive as WM_CHAR and the newline as one Return
+    // transition, never a raw carriage-return character.
     assert_eq!(typed, Ok(()));
-    let chars: Vec<usize> = window
-        .drain()
-        .into_iter()
-        .filter_map(|(message, unit)| (message == wm::WM_CHAR).then_some(unit))
+    let messages = window.drain();
+    let chars: Vec<usize> = messages
+        .iter()
+        .filter_map(|(message, unit)| (*message == wm::WM_CHAR).then_some(unit))
+        .copied()
         .collect();
-    assert_eq!(chars, [usize::from(b'h'), usize::from(b'i'), usize::from(b'\r')]);
+    let returns: Vec<u32> = messages
+        .iter()
+        .filter_map(|(message, unit)| {
+            (*unit == usize::from(keys::VK_RETURN))
+                .then_some(*message)
+                .filter(|message| matches!(*message, wm::WM_KEYDOWN | wm::WM_KEYUP))
+        })
+        .collect();
+    assert_eq!(chars, [usize::from(b'h'), usize::from(b'i')]);
+    assert_eq!(returns, [wm::WM_KEYDOWN, wm::WM_KEYUP]);
 }
 
 #[test]
