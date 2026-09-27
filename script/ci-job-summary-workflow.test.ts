@@ -36,7 +36,7 @@ const workflowExpectations = [
   { path: ".github/workflows/lint-workflows.yml", jobs: ["actionlint"] },
   { path: ".github/workflows/npm-dist-tag-rollback.yml", jobs: ["retag"] },
   { path: ".github/workflows/package-labels.yml", jobs: ["ensure-labels", "label-pull-request", "label-issue"] },
-  { path: ".github/workflows/publish-platform.yml", jobs: ["build", "publish", "smoke-linux-arm64"] },
+  { path: ".github/workflows/publish-platform.yml", jobs: ["desktop-engine", "build", "publish", "smoke-linux-arm64"] },
   {
     path: ".github/workflows/publish.yml",
     jobs: [
