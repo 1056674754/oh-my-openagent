@@ -22,6 +22,8 @@ export function buildChildContext(spec: RpcSpawnSpec): ChildSessionContext {
     role,
     task_id: spec.task_id,
     state_dir: spec.state_dir,
+    ...(spec.depth === undefined ? {} : { depth: String(spec.depth) }),
+    ...(spec.root_session_id === undefined ? {} : { root_session_id: spec.root_session_id }),
   }
 
   if (spec.memberEnv !== undefined) {

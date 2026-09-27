@@ -67,6 +67,8 @@ async function respawnFresh(input: {
       ...(input.record.resolved_model?.variant === undefined ? {} : { variant: input.record.resolved_model.variant }),
       ...(trusted?.extensions === undefined ? {} : { extensions: trusted.extensions }),
       ...(trusted?.memberEnv === undefined ? {} : { memberEnv: trusted.memberEnv }),
+      depth: input.record.depth,
+      root_session_id: input.record.root_session_id,
     })
     return { ok: true, handle: adaptRpcHandle(handle) }
   } catch (error) {
@@ -138,6 +140,8 @@ async function respawnProcess(input: {
       ...(input.record.resolved_model?.variant === undefined ? {} : { variant: input.record.resolved_model.variant }),
       ...(trusted?.extensions === undefined ? {} : { extensions: trusted.extensions }),
       ...(trusted?.memberEnv === undefined ? {} : { memberEnv: trusted.memberEnv }),
+      depth: input.record.depth,
+      root_session_id: input.record.root_session_id,
     })
     // An ATTACHED daemon session is the same live session, mid-turn and all: switching it would
     // reopen what is already open, and a continuation nudge would inject a second prompt into a

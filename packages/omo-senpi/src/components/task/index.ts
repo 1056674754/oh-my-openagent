@@ -245,11 +245,15 @@ function registerTaskTools(
 
 function registerDagTool(pi: SenpiExtensionAPI, engine: TaskEngine, runtime: DagRuntime): void {
   const sessionId = (): string => engine.runtime.sessionId() ?? ""
+  const rootSessionId = (): string => {
+    const id = sessionId()
+    return engine.resolveAncestry(id)?.rootSessionId ?? id
+  }
   pi.registerTool({
     ...createDagTool({
       manager: runtime.manager,
       parentSessionId: sessionId,
-      rootSessionId: sessionId,
+      rootSessionId,
       wait: runtime.wait,
       cancel: runtime.cancel,
       retry: runtime.retry,
@@ -287,6 +291,7 @@ function createTeamToolContext(
     omoConfig: engine.omoConfig,
     cwd: engine.runtime.cwd(),
     agentNames: new Set(Object.keys(engine.agents)),
+    ...(engine.ancestry === undefined ? {} : { ancestry: engine.ancestry }),
   }
   const baseService = createTeamService(serviceDeps)
   const stateDir = {
