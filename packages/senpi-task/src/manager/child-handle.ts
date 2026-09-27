@@ -2,6 +2,7 @@ import type { ChildHandle as InProcessChildHandle, RunnerOutcome } from "../runn
 import { mapExitOutcomeToError } from "../runners/rpc/exit-mapping"
 import type { HostSessionChildHandle } from "../runners/rpc-host/handle-port"
 import type { RpcChildHandle, RpcEntriesResult, RpcSpawnSpec, RpcSwitchSessionResult } from "../runners/types"
+import type { SuspensionReason } from "../state"
 
 export type { RunnerOutcome } from "../runners/in-process/child-handle"
 
@@ -41,6 +42,9 @@ export type ManagedChildHandle = {
     readonly instanceId: string
   }
   readonly spawnSpec?: RpcSpawnSpec
+  // A daemon-session child that parked itself (its recorded endpoint refused a reattach): the record
+  // parks with that reason. Host-driven parks carry no reason and leave the record as it was.
+  onParked?(listener: (event: { readonly reason?: SuspensionReason }) => void): () => void
   steer(text: string): Promise<void>
   followUp(text: string): Promise<void>
   abort(): Promise<void>
@@ -91,6 +95,7 @@ export function adaptRpcHandle(handle: RpcChildHandle): ManagedChildHandle {
       return handle.pid
     },
     ...(handle.spawnSpec === undefined ? {} : { spawnSpec: handle.spawnSpec }),
+    ...(isHostSessionHandle(handle) ? { onParked: (listener) => handle.onParked(listener) } : {}),
     steer: (text) => handle.steer(text),
     followUp: (text) => handle.followUp(text),
     abort: () => handle.abort(),

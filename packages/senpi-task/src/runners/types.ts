@@ -20,6 +20,9 @@ export type RpcRunnerSpec = {
   readonly state_dir: string
   readonly prompt: string
   readonly resumeSessionPath?: string
+  // The endpoint a daemon-hosted child's record names. A revival opens there and nowhere else; the
+  // per-child process runner ignores it.
+  readonly hostSocket?: string
   // The provider/modelId the child must resolve. A separate OS process cannot share the parent's
   // in-memory registry, so the model is threaded onto the child command line (`--model`).
   readonly model?: string

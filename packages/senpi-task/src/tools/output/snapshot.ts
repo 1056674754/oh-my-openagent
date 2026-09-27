@@ -13,6 +13,9 @@ const SUSPENDED_EXPLANATION = "suspended (resumes with session)"
 const SUSPENSION_REASON_EXPLANATIONS: Readonly<Record<NonNullable<TaskRecord["suspension_reason"]>, string>> = {
   daemon_unavailable: "suspended (daemon unavailable)",
   host_draining: "suspended (host draining)",
+  host_incompatible: "suspended (its host is incompatible; never reopened elsewhere)",
+  own_host_unreachable: "suspended (the host this session runs behind is unreachable)",
+  store_index_unavailable: "suspended (task store index unavailable)",
 }
 
 const SUSPENDED_RESIDENCIES: ReadonlySet<TaskRecord["residency_state"]> = new Set(["persisted_only", "rpc_detached"])

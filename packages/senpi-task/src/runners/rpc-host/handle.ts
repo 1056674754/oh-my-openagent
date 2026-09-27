@@ -168,7 +168,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     reattaching = recoverLostTransport(
       {
         taskId,
-        session: () => session,
+        session: () => ({ socket: client.socketPath, ...session }),
         alive,
         turnInFlight: () => turnOutcome === undefined && !reachedIdle && deliveries === 0,
         adopt: (next) => {
@@ -178,8 +178,8 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
           bindClient(client)
         },
         continueTurn: (prompt) => client.send({ type: "prompt", message: prompt, streamingBehavior: "steer" }),
-        // The adopted port is bound before this runs; a second loss during it is the next recovery.
-        giveUp: () => endSession({ kind: "transport_gone" }),
+        // A refused reattach parks (the endpoint answered, but may not host this session); exhaustion ends.
+        giveUp: (reason) => reason === undefined ? endSession({ kind: "transport_gone" }) : park({ sessionId: session.routingId, sessionPath: session.sessionPath, reason }),
       },
       reattach,
     ).finally(() => {

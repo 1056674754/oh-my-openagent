@@ -1,6 +1,6 @@
 import { log } from "@oh-my-opencode/utils"
 
-import type { TaskRecord, TaskRunStats, TaskTransition } from "../state"
+import type { SuspensionReason, TaskRecord, TaskRunStats, TaskTransition } from "../state"
 import type { TaskRecordStore } from "../store"
 import type { ManagedChildHandle } from "./child-handle"
 import { terminalFailureMessage } from "./credential-failure"
@@ -146,10 +146,26 @@ export function createOutcomeTracker(ports: OutcomeTrackerPorts): OutcomeTracker
     })
   }
 
+  // The child parked itself (its recorded endpoint refused the reattach): no outcome will ever settle,
+  // so the record parks at rpc_detached WITH the reason and the run is released like a suspension.
+  function parkOwned(taskId: string, handle: ManagedChildHandle, epoch: number, reason: SuspensionReason): void {
+    if (ownedRecord(ports, taskId, handle, epoch) === null) return
+    ports.store.mutate(taskId, (fresh) => {
+      const { host_pid: _hostPid, ...rest } = fresh
+      return { ...rest, residency_state: "rpc_detached", suspension_reason: reason, updated_at: nowIso(ports.now) }
+    })
+    ports.store.appendEvent(taskId, { type: "suspended", payload: { reason } })
+    ports.forget(taskId)
+  }
+
   function trackOutcome(taskId: string, handle: ManagedChildHandle, model: string, epoch: number): void {
+    const stopParkWatch = handle.onParked?.((event) => {
+      if (event.reason !== undefined) parkOwned(taskId, handle, epoch, event.reason)
+    })
     handle
       .waitForOutcome()
       .then(async (outcome) => {
+        stopParkWatch?.()
         const owned = ownedRecord(ports, taskId, handle, epoch)
         if (owned === null) return
         const timestamp = nowIso(ports.now)

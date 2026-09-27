@@ -1,3 +1,41 @@
+## A daemon child opens, reattaches and revives only on the endpoint its record names
+
+`runners/rpc-host/daemon.ts`: `ensureTaskDaemon` takes an explicit `socket` (the operator commands keep
+`resolveTaskHostSocket` when it is absent) and an `owner`; the ensured-host cache is keyed per socket; a
+`start` on a `p-*`/`i-*` shard writes its `.meta.json` sidecar (`shard-sidecar.ts`, stores a previous
+generation recorded are kept). An engine refusal naming `protocol`, `capability` or `legacy_host` stays
+that reason (`isHostIncompatible`) instead of collapsing to `ensure_failed`.
+
+`runners/rpc-host/store-index.ts` (new): `<agentDir>/rpc/task-stores.json` lists every task store that
+opened a child on a host of that agent dir. It is append-only, written under its own lock (staging file,
+fsync, rename) and read back; registering it is an admission precondition, so a failure is a typed
+`store_index_unavailable` before any ensure or open. The sidecar's `stores` copy is best-effort
+(`host_notice:store_register_failed`, once).
+
+`runners/rpc-host.ts` + `child-endpoint.ts` + `reattach-port.ts` (new): `RpcHostRunnerOptions` gains
+`shardResolver` (asked at every start), `storeDir`, `ownHostSocket` and `onNotice` (once per token and
+endpoint). A spec's `hostSocket` (the recorded endpoint) wins over the resolver and never falls back to the
+per-child runner. A lost transport re-ensures only the recorded socket: an incompatible answer parks the
+child `host_incompatible` (never reopened elsewhere), and the session's own endpoint
+(`readOwnHostSocket(pi)`, `isOwnEndpoint`) is re-opened but never ensured - silent, the child parks
+`own_host_unreachable`. `manager/manager-outcome.ts` parks the record (`rpc_detached` + the reason) when
+the child parks itself; a host-driven park is unchanged.
+
+`lifecycle/host-endpoint-reach.ts` (new): revival (`reviveClaimed`, `reconcileHostSessionOrphan`,
+`parkHostSessionOnDaemonLoss`) ensures a silent RECORDED socket through `LifecycleDeps.hostEndpoint`
+(`createHostEndpointPort`), outside the admission lease, and never the session's own endpoint.
+`manager/manager-respawn.ts` hands the runner `record.host_session.socket`, so a pre-migration child
+keeps living on `rpc/rpc.sock`. New suspension reasons `host_incompatible`, `own_host_unreachable`,
+`store_index_unavailable`; new start-failure reasons `legacy_host`, `host_incompatible`,
+`store_index_unavailable`. The omo-senpi task component wires these in a later change.
+
+Audit: `host_session.daemon_pid` has no reader outside the record parser round-trip
+(`store/record-blocks-parse.ts`) and no writer; `reconcile-crashed-resident.ts` and `dag/recovery.ts` read
+the PARENT `host_pid`. No single-daemon reader needed changing.
+
+Tests: `rpc-host-endpoint.test.ts`, `lifecycle/host-session-endpoint.test.ts`,
+`manager/host-session-park.test.ts`, `rpc-host/daemon-shard.test.ts`, `rpc-host/store-index.test.ts`.
+
 ## A TTL tombstone belongs to the sweep that wrote it until that sweep's close settles
 
 `lifecycle/ttl.ts`, `store/expunge-owner.ts` (new): every tombstone now names the sweep attempt that

@@ -77,7 +77,7 @@ export type RunnerKind = (typeof RUNNER_KINDS)[number]
 
 // Why a record is parked at a non-resident residency. Absent for the ordinary "resumes with the
 // session" suspension; set only when the daemon path gave up on a reachable host.
-export const SUSPENSION_REASONS = ["daemon_unavailable", "host_draining"] as const
+export const SUSPENSION_REASONS = ["daemon_unavailable", "host_draining", "host_incompatible", "own_host_unreachable", "store_index_unavailable"] as const
 
 export type SuspensionReason = (typeof SUSPENSION_REASONS)[number]
 

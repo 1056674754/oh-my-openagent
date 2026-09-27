@@ -5,10 +5,20 @@ import { log } from "@oh-my-opencode/utils"
 
 import type { HostEnginePolicy } from "../lazy/senpi-barrel"
 import { RunnerError } from "./in-process/runner-error"
-import { HostUnavailableError, ensureTaskDaemon, type EnsureTaskDaemonInput, type EnsuredTaskDaemon } from "./rpc-host/daemon"
+import {
+  admitChildStore,
+  ensureChildEndpoint,
+  recordSidecarStore,
+  resolveChildEndpoint,
+  type ChildEndpointPorts,
+  type EnsureTaskDaemonPort,
+  type ShardResolver,
+} from "./rpc-host/child-endpoint"
+import { HostUnavailableError, ensureTaskDaemon, isHostIncompatible } from "./rpc-host/daemon"
+import { onceNoticeSink, type HostNoticeSink } from "./rpc-host/host-notice"
+import { createReattachPort } from "./rpc-host/reattach-port"
 import { createHostSessionHandle } from "./rpc-host/handle"
 import type { HostSessionChildHandle, HostSessionIdentity, HostSessionPort } from "./rpc-host/handle-port"
-import type { HostSessionReattach, HostSessionReattached } from "./rpc-host/reattach"
 import { HostSessionClient, type OpenedHostSession } from "./rpc-host/session-client"
 import { openHostSessionWithAdmission } from "./rpc-host/admission"
 import { openTaskHostSession } from "./rpc-host/open-session"
@@ -31,7 +41,7 @@ export interface HostSessionChannel extends HostSessionPort {
   open(input: HostSessionOpenInput): Promise<OpenedHostSession>
 }
 
-export type EnsureTaskDaemonPort = (input: EnsureTaskDaemonInput) => Promise<EnsuredTaskDaemon>
+export type { EnsureTaskDaemonPort, ShardResolver } from "./rpc-host/child-endpoint"
 export type CreateHostSessionChannel = (socketPath: string) => HostSessionChannel
 
 /** The per-child runner this one delegates to when the daemon cannot host a child. */
@@ -57,6 +67,15 @@ export type RpcHostRunnerOptions = {
   readonly reattachDelaysMs?: readonly number[]
   readonly admissionWaitMs?: number
   readonly sleep?: (ms: number) => Promise<void>
+  // WHERE a new child's host listens, asked at EVERY start (the owning session changes on /new).
+  // Absent: the machine-wide socket `ensureTaskDaemon` resolves.
+  readonly shardResolver?: ShardResolver
+  // The task store (`resolveStateDir`): registered in the agent-dir store index before every open.
+  readonly storeDir?: string
+  // The public socket this session lives behind (`readOwnHostSocket(pi)`); never ensured from inside.
+  readonly ownHostSocket?: () => string | undefined
+  // `host_notice:*` / `host_unavailable:*` tokens, once per token and endpoint.
+  readonly onNotice?: HostNoticeSink
 }
 
 /** Whether a started child lives on the daemon (a session) or in its own process (the fallback). */
@@ -82,7 +101,6 @@ export function isHostSessionHandle(handle: RpcChildHandle): handle is HostSessi
  */
 export class RpcHostRunner {
   private readonly options: RpcHostRunnerOptions
-  private readonly ensureDaemon: EnsureTaskDaemonPort
   private readonly createClient: CreateHostSessionChannel
   private readonly modelAdmission: RpcModelAdmission
   private readonly inheritedExtensions: readonly string[]
@@ -92,10 +110,10 @@ export class RpcHostRunner {
   private readonly reattachDelaysMs: readonly number[]
   private readonly admissionWaitMs: number
   private readonly sleep: (ms: number) => Promise<void>
+  private readonly endpoint: ChildEndpointPorts
 
   constructor(options: RpcHostRunnerOptions) {
     this.options = options
-    this.ensureDaemon = options.ensureDaemon ?? ensureTaskDaemon
     this.createClient = options.createClient ?? ((socketPath) => new HostSessionClient({ socketPath }))
     this.modelAdmission = options.modelAdmission ?? createRpcModelAdmission()
     this.inheritedExtensions = options.inheritedExtensions ?? []
@@ -104,6 +122,17 @@ export class RpcHostRunner {
     this.reattachDelaysMs = options.reattachDelaysMs ?? DEFAULT_REATTACH_DELAYS_MS
     this.admissionWaitMs = options.admissionWaitMs ?? DEFAULT_ADMISSION_WAIT_MS
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
+    this.endpoint = {
+      agentDir: options.agentDir,
+      env: options.env ?? process.env,
+      policy: options.policy,
+      ensureDaemon: options.ensureDaemon ?? ensureTaskDaemon,
+      storeDir: options.storeDir,
+      shardResolver: options.shardResolver,
+      ownHostSocket: options.ownHostSocket,
+      notice: onceNoticeSink(options.onNotice),
+      now: this.now,
+    }
   }
 
   async start(specInput: RpcRunnerSpec): Promise<RpcChildHandle> {
@@ -112,23 +141,46 @@ export class RpcHostRunner {
         ? { ...specInput, extensions: this.inheritedExtensions }
         : specInput
     await this.modelAdmission(spec)
-    let daemon: EnsuredTaskDaemon
+    const endpoint = resolveChildEndpoint(this.endpoint, spec)
+    await admitChildStore(this.endpoint)
+    let socket: string
     try {
-      daemon = await this.ensureDaemon({
-        agentDir: this.options.agentDir,
-        env: this.options.env ?? process.env,
-        policy: this.options.policy,
-      })
+      socket = await ensureChildEndpoint(this.endpoint, endpoint)
     } catch (error) {
       if (RunnerError.is(error)) throw error
+      if (endpoint.recorded) throw this.recordedEndpointFailure(error, endpoint.socket)
       return await this.delegate(error, spec, isHostTransportError(error))
     }
+    await recordSidecarStore(this.endpoint, socket)
     try {
-      return await this.openChild(spec, daemon.socket)
+      return await this.openChild(spec, socket)
     } catch (error) {
       if (RunnerError.is(error)) throw error
       return await this.delegate(error, spec, false)
     }
+  }
+
+  /**
+   * A RECORDED endpoint is where the child's retained session lives, so nothing the ensure answers
+   * there may send the child to the per-child fallback: an incompatible host parks it
+   * (`host_incompatible`), anything else fails closed with its own reason.
+   */
+  private recordedEndpointFailure(error: unknown, socket: string | undefined): RunnerError {
+    if (isHostIncompatible(error)) {
+      this.endpoint.notice("host_incompatible", socket)
+      return new RunnerError({
+        kind: "host_unavailable",
+        reason: "host_incompatible",
+        message: error instanceof Error ? error.message : String(error),
+        cause: error,
+      })
+    }
+    return new RunnerError({
+      kind: "host_unavailable",
+      message: error instanceof Error ? error.message : String(error),
+      reason: error instanceof HostUnavailableError ? error.reason : "host_unreachable",
+      cause: error,
+    })
   }
 
   /**
@@ -180,7 +232,14 @@ export class RpcHostRunner {
       // The host's answer, not connection liveness: respawn continues an interrupted turn only when
       // the session was reopened from its JSONL.
       openDisposition: opened.attached ? "attached" : "reopened",
-      reattach: this.reattachPort(spec),
+      reattach: createReattachPort({
+        endpoint: this.endpoint,
+        spec,
+        delaysMs: this.reattachDelaysMs,
+        sleep: this.sleep,
+        createClient: this.createClient,
+        open: (port, path) => this.openAdmitted(port, spec, path),
+      }),
     })
     const switchOnPort = handle.switchSession
     // A resumed child says nothing: an attached session is still mid-turn, and a session reopened
@@ -216,35 +275,6 @@ export class RpcHostRunner {
       admissionWaitMs: this.admissionWaitMs,
       onWarning: this.onWarning,
     })
-  }
-
-  /**
-   * Transport recovery for one child: re-ensure the daemon (it may have died), reopen the SAME
-   * session path through a fresh client, with backoff across attempts. Undefined when exhausted.
-   */
-  private reattachPort(spec: RpcRunnerSpec): HostSessionReattach {
-    return async (lost: HostSessionIdentity): Promise<HostSessionReattached | undefined> => {
-      for (const delayMs of this.reattachDelaysMs) {
-        await this.sleep(delayMs)
-        try {
-          const daemon = await this.ensureDaemon({
-            agentDir: this.options.agentDir,
-            env: this.options.env ?? process.env,
-            policy: this.options.policy,
-          })
-          const client = this.createClient(daemon.socket)
-          const opened = await this.openAdmitted(client, spec, lost.sessionPath)
-          return {
-            client,
-            session: { routingId: opened.sessionId, sessionPath: lost.sessionPath, instanceId: opened.instanceId },
-            attached: opened.attached,
-          }
-        } catch (error) {
-          log("senpi-task host session reattach attempt failed", { taskId: spec.task_id, error: String(error) })
-        }
-      }
-      return undefined
-    }
   }
 
   private async startTurn(handle: HostSessionChildHandle, spec: RpcRunnerSpec): Promise<void> {

@@ -166,9 +166,15 @@ export type {
   SubagentPromptInput,
 } from "./runners"
 export {
+  createHostEndpointPort,
   ensureTaskDaemon,
+  HOST_NOTICE_TOKENS,
   HostUnavailableError,
   isHostSessionHandle,
+  isOwnEndpoint,
+  readOwnHostSocket,
+  readTaskStoreIndex,
+  taskStoreIndexPath,
   readMemberSessionIdentity,
   readSessionContext,
   readSessionRole,
@@ -207,6 +213,9 @@ export type {
   EnsureTaskDaemonPort,
   FallbackChildRunner,
   HostUnavailableReason,
+  HostEndpointPortInput,
+  HostNoticeSink,
+  HostNoticeToken,
   HostSessionChannel,
   HostSessionChildHandle,
   HostSessionFacts,
@@ -221,6 +230,7 @@ export type {
   RpcSpawnRuntime,
   SenpiLauncher,
   SessionRole,
+  ShardResolver,
   RunnerErrorFacts,
   TerminateOptions,
 } from "./runners"

@@ -1,16 +1,22 @@
 import { log } from "@oh-my-opencode/utils"
 
-import type { HostSessionIdentity, HostSessionPort } from "./handle-port"
-import { type HostSessionReattach, type HostSessionReattached, reattachContinuationPrompt } from "./reattach"
+import type { HostSessionFacts, HostSessionPort } from "./handle-port"
+import type { HostParkReason } from "./session-client"
+import {
+  type HostSessionReattach,
+  type HostSessionReattached,
+  type HostSessionReattachRefused,
+  reattachContinuationPrompt,
+} from "./reattach"
 
 export interface ReattachSubject {
   readonly taskId: string
-  readonly session: () => HostSessionIdentity
+  readonly session: () => HostSessionFacts
   readonly alive: () => boolean
   readonly turnInFlight: () => boolean
   readonly adopt: (next: HostSessionReattached) => void
   readonly continueTurn: (prompt: string) => Promise<void>
-  readonly giveUp: () => void
+  readonly giveUp: (refusal?: HostParkReason) => void
 }
 
 /**
@@ -23,18 +29,18 @@ export interface ReattachSubject {
 export async function recoverLostTransport(subject: ReattachSubject, reattach: HostSessionReattach): Promise<void> {
   const turnWasInFlight = subject.turnInFlight()
   const lost = subject.session()
-  let next: HostSessionReattached | undefined
+  let next: HostSessionReattached | HostSessionReattachRefused | undefined
   try {
     next = await reattach(lost)
   } catch (error) {
     log("senpi-task host session reattach failed", { taskId: subject.taskId, error: String(error) })
   }
   if (!subject.alive()) {
-    if (next !== undefined) await discard(next.client, subject.taskId)
+    if (next !== undefined && !("refused" in next)) await discard(next.client, subject.taskId)
     return
   }
-  if (next === undefined) {
-    subject.giveUp()
+  if (next === undefined || "refused" in next) {
+    subject.giveUp(next?.refused)
     return
   }
   subject.adopt(next)

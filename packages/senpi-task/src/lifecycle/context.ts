@@ -6,6 +6,7 @@ import type { KernelToolBindingRegistry } from "../kernel-tools/bindings"
 import type { TaskRecordStore } from "../store"
 import {
   DEFAULT_HOST_SESSION_RETRY_POLICY,
+  type HostEndpointPort,
   type HostSessionCloser,
   type HostSessionProbe,
   type HostSessionRetryPolicy,
@@ -42,6 +43,7 @@ export type LifecycleContext = {
   readonly hostSessionProbe: HostSessionProbe
   readonly hostSessionClose: HostSessionCloser | undefined
   readonly hostRetry: HostSessionRetryPolicy
+  readonly hostEndpoint: HostEndpointPort | undefined
   readonly hostCloseTimeoutMs: number
   readonly isolation: IsolationRuntime | undefined
   readonly isolationProbe: OwnerProbe | undefined
@@ -86,6 +88,7 @@ export function resolveContext(deps: LifecycleDeps): LifecycleContext {
     hostSessionProbe: deps.hostSessionProbe ?? defaultHostSessionProbe(),
     hostSessionClose: deps.hostSessionClose ?? defaultHostSessionCloser,
     hostRetry: deps.hostRetry ?? DEFAULT_HOST_SESSION_RETRY_POLICY,
+    hostEndpoint: deps.hostEndpoint,
     hostCloseTimeoutMs: deps.hostCloseTimeoutMs ?? DEFAULT_HOST_CLOSE_TIMEOUT_MS,
     isolation: deps.isolation,
     isolationProbe: deps.isolationProbe,

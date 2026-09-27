@@ -24,6 +24,10 @@ const REASON_MESSAGES: Readonly<Partial<Record<TaskStartFailureReason, string>>>
     "The shard socket path exceeds the platform limit (shard_socket_too_long).",
   shard_alt_root_unsafe:
     "The alternate shard root is unsafe (shard_alt_root_unsafe).",
+  store_index_unavailable:
+    "The task store index could not be recorded, so no host was opened (store_index_unavailable).",
+  host_incompatible:
+    "The recorded task host is incompatible; the child was not opened anywhere else (host_incompatible).",
   open_timed_out:
     "The shared host did not finish opening the child session in time (open_timed_out).",
 }

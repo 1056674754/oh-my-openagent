@@ -30,6 +30,17 @@ export type HostSessionProbe = {
   refresh(): void
 }
 
+/**
+ * How revival reaches a RECORDED endpoint beyond probing it. `isOwn` names the endpoint this session
+ * runs behind (never ensured from inside); `ensure` re-ensures any other recorded socket, and only
+ * that socket; `notice` surfaces why a record stays parked. Absent: probe only, as before.
+ */
+export type HostEndpointPort = {
+  readonly isOwn: (socket: string) => boolean
+  readonly ensure: (socket: string) => Promise<"ensured" | "incompatible" | "unreachable">
+  readonly notice: (reason: "host_incompatible" | "own_host_unreachable", socket: string) => void
+}
+
 export type HostSessionProbePorts = {
   readonly daemonReachable: (socket: string) => Promise<boolean>
   /** `list_sessions { include_workers: true }`, answered once per pass and matched by session path. */

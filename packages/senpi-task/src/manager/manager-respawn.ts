@@ -74,6 +74,8 @@ async function respawnFresh(input: {
     if (isTeamRuntimeUnavailable(error)) {
       return failure("retryable", "team_inactive", "team runtime is not active")
     }
+    const refused = hostRefusal(error)
+    if (refused !== undefined) return refused
     log("senpi-task fresh rpc respawn failed", { taskId: input.record.task_id, error: String(error) })
     return failure("retryable", "respawn_failed", "rpc respawn failed")
   }
@@ -134,6 +136,8 @@ async function respawnProcess(input: {
       state_dir: join(input.stateDir, "children", input.record.task_id),
       prompt: "",
       resumeSessionPath: sessionPath,
+      // The recorded endpoint, never a re-derived one: a pre-migration child keeps living where it was.
+      ...(input.record.host_session === undefined ? {} : { hostSocket: input.record.host_session.socket }),
       model: input.record.model,
       ...(input.record.resolved_model?.variant === undefined ? {} : { variant: input.record.resolved_model.variant }),
       ...(trusted?.extensions === undefined ? {} : { extensions: trusted.extensions }),
@@ -165,6 +169,8 @@ async function respawnProcess(input: {
         ...(hold.retryAfterMs === undefined ? {} : { retryAfterMs: hold.retryAfterMs }),
       }
     }
+    const refused = hostRefusal(error)
+    if (refused !== undefined) return refused
     log("senpi-task rpc respawn failed", { taskId: input.record.task_id, error: String(error) })
     return failure("retryable", "respawn_failed", cleaned ? "rpc respawn failed" : RESPAWN_CLEANUP_FAILURE_REASON)
   }
@@ -219,6 +225,15 @@ function classifyResumeFailure(error: unknown): RespawnResult {
     }
   }
   return failure("retryable", "respawn_failed", "in-process respawn failed")
+}
+
+// Both are waits the next reconcile retries: the store index could not be written (nothing was
+// opened), or the recorded endpoint answers incompatibly (the session is never opened elsewhere).
+function hostRefusal(error: unknown): RespawnResult | undefined {
+  if (!RunnerError.is(error) || error.failure.kind !== "host_unavailable") return undefined
+  const { reason, message } = error.failure
+  if (reason !== "store_index_unavailable" && reason !== "host_incompatible") return undefined
+  return failure("retryable", reason, message)
 }
 
 function isTeamRuntimeUnavailable(error: unknown): boolean {

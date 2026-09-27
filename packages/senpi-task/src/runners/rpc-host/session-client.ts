@@ -42,9 +42,13 @@ export type HostSessionCommand =
   | { readonly type: "followUp"; readonly message: string }
   | { readonly type: "abort" }
 
+/** Why a child parked itself instead of reattaching; absent when the HOST parked the session. */
+export type HostParkReason = "host_incompatible" | "own_host_unreachable" | "store_index_unavailable"
+
 export interface HostSessionParked {
   readonly sessionId: string
   readonly sessionPath: string
+  readonly reason?: HostParkReason
 }
 
 export interface HostSessionClosed {

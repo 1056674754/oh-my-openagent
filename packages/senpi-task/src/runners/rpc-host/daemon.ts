@@ -17,6 +17,9 @@ import { daemonLaunchOptions, daemonLaunchProfileId } from "./launch-options"
 import { DAEMON_LAUNCH_SPEC_FILENAME, readDaemonLaunchSpec, type DaemonLaunchSpec } from "./launch-spec"
 import { shareDaemonEnsure } from "./daemon-single-flight"
 import { classifyEnsureFailure } from "./ensure-failure"
+import { writeStartedShardSidecar, type ShardOwner } from "./shard-sidecar"
+import type { ShardNotice } from "./shard-socket"
+import { log } from "@oh-my-opencode/utils"
 
 // The daemon's launch surface is documented from this module: `omo daemon run` and a
 // child-triggered ensure must reach the same producer.
@@ -66,6 +69,7 @@ export const TASK_DAEMON_CACHE_TTL_MS = 5_000
 export type HostUnavailableReason =
   | "protocol"
   | "capability"
+  | "legacy_host"
   | "engine_mismatch"
   | "engine_refused"
   | "win32"
@@ -92,6 +96,16 @@ export class HostUnavailableError extends Error {
   }
 }
 
+const INCOMPATIBLE_REASONS: ReadonlySet<HostUnavailableReason> = new Set(["protocol", "capability", "legacy_host"])
+
+/**
+ * The endpoint answers, but not in a way this build may use: neither refusal proves the host let go of
+ * a session it holds, so a retained session is never reopened anywhere else on one of these.
+ */
+export function isHostIncompatible(error: unknown): boolean {
+  return error instanceof HostUnavailableError && INCOMPATIBLE_REASONS.has(error.reason)
+}
+
 export interface LoadedDaemonLaunchSpec {
   readonly path: string
   readonly spec: DaemonLaunchSpec
@@ -111,6 +125,12 @@ export interface EnsureTaskDaemonInput {
   readonly env: Readonly<Record<string, string | undefined>>
   readonly policy: HostEnginePolicy
   readonly ports?: TaskDaemonPorts
+  // The endpoint to ensure. Absent only for the operator commands (`omo daemon run/attach`), which
+  // keep the machine-wide `resolveTaskHostSocket` answer.
+  readonly socket?: string
+  // Recorded in the shard sidecar when this ensure STARTS the endpoint.
+  readonly owner?: ShardOwner
+  readonly sidecarNotice?: ShardNotice
 }
 
 export interface EnsuredTaskDaemon {
@@ -134,9 +154,9 @@ interface DaemonCacheEntry {
   readonly ensured: EnsuredTaskDaemon
 }
 
-// One daemon per machine means one live entry per process; a probe + decide round trip per child
-// spawn would otherwise hit the socket on every task.
-let cached: DaemonCacheEntry | undefined
+// One live entry per endpoint; a probe + decide round trip per child spawn would otherwise hit the
+// socket on every task.
+const cached = new Map<string, DaemonCacheEntry>()
 
 /**
  * Attach to the machine-wide daemon, or create it from the launch spec. The engine owns every
@@ -155,9 +175,10 @@ export async function ensureTaskDaemon(input: EnsureTaskDaemonInput): Promise<En
     throw new HostUnavailableError("runtime", { fallbackAllowed: true })
   }
 
-  const socket = resolveTaskHostSocket(input.env, input.agentDir)
+  const socket = input.socket ?? resolveTaskHostSocket(input.env, input.agentDir)
   const now = ports.now ?? Date.now
-  if (cached !== undefined && cached.socket === socket && cached.expiresAt > now()) return cached.ensured
+  const hit = cached.get(socket)
+  if (hit !== undefined && hit.expiresAt > now()) return hit.ensured
 
   return shareDaemonEnsure(socket, () => ensureTaskDaemonOnce(input, socket, now))
 }
@@ -233,8 +254,25 @@ async function ensureTaskDaemonOnce(
     ...(ensured.engineVersion === undefined ? {} : { engineVersion: ensured.engineVersion }),
     ...(capabilities === undefined ? {} : { capabilities }),
   }
-  cached = { socket, expiresAt: now() + TASK_DAEMON_CACHE_TTL_MS, ensured: result }
+  if (decision.action === "start") await recordStartedEndpoint(input, ensured.socket, now)
+  cached.set(socket, { socket, expiresAt: now() + TASK_DAEMON_CACHE_TTL_MS, ensured: result })
   return result
+}
+
+// The sidecar is informational (the agent-dir store index is authoritative), so a write failure is
+// logged and never fails an ensure whose host is already up.
+async function recordStartedEndpoint(input: EnsureTaskDaemonInput, socket: string, now: () => number): Promise<void> {
+  try {
+    await writeStartedShardSidecar({
+      socket,
+      now,
+      pid: process.pid,
+      ...(input.owner === undefined ? {} : { owner: input.owner }),
+      ...(input.sidecarNotice === undefined ? {} : { notice: input.sidecarNotice }),
+    })
+  } catch (error) {
+    log("senpi-task shard sidecar write failed", { socket, error: String(error) })
+  }
 }
 
 async function loadTaskDaemonHostPort(): Promise<TaskDaemonHostPort> {
@@ -266,7 +304,7 @@ function bunRuntimeAvailable(env: Readonly<Record<string, string | undefined>>):
 }
 
 function hostUnavailableReason(reason: string): HostUnavailableReason {
-  if (reason === "protocol" || reason === "capability" || reason === "engine_mismatch") return reason
+  if (reason === "protocol" || reason === "capability" || reason === "legacy_host" || reason === "engine_mismatch") return reason
   return "engine_refused"
 }
 

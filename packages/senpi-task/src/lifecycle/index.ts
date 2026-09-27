@@ -5,6 +5,7 @@ export { createHostSessionProbe, DEFAULT_HOST_SESSION_RETRY_POLICY, isHostSessio
 export type {
   HostSessionCloseRequest,
   HostSessionCloser,
+  HostEndpointPort,
   HostSessionProbe,
   HostSessionProbePorts,
   HostSessionRetryPolicy,
