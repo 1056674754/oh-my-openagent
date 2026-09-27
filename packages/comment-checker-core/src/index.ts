@@ -18,6 +18,7 @@ export {
 export type { CommentCheckerArchiveExtension, CommentCheckerCacheDirInput, CommentCheckerReleaseAsset } from "./release"
 export { COMMENT_CHECKER_VERSION_MARKER, isCachedCommentCheckerCurrent, recordCachedCommentCheckerRelease } from "./cached-release"
 export { resolveCommentCheckerBinary, runCommentChecker } from "./runner"
+export { sendAndCloseStdin } from "./stdin-delivery"
 export type {
   ApplyPatchAccumulator,
   ApplyPatchFileMetadata,
