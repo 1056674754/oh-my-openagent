@@ -212,6 +212,49 @@ describe("resolveShardSocket", () => {
     })
   }
 
+  test("#given an owned 0700 symlink at the alternate root path #when resolving #then the shape alone refuses it with shard_alt_root_unsafe", () => {
+    // given: owner and mode pass the other guards, only the symlink shape is wrong
+    const agentDir = freshAgentDir()
+    const root = altRoot(agentDir)
+    const target = join(agentDir, "target")
+    mkdirSync(target, { mode: 0o700 })
+    symlinkSync(target, root)
+    const fs: AltRootFs = {
+      ...actualFs,
+      lstatSync(path) {
+        const stat = actualFs.lstatSync(path)
+        // lchmod is not portable (Linux symlinks are always 0777): report the link itself as 0700, keeping its type bits.
+        if (path === root) Object.defineProperty(stat, "mode", { value: (stat.mode & ~0o777) | 0o700 })
+        return stat
+      },
+    }
+    const stat = fs.lstatSync(root)
+    expect(stat.isSymbolicLink()).toBe(true)
+    expect(stat.uid).toBe(currentUid())
+    expect(stat.mode & 0o777).toBe(0o700)
+
+    // when / then
+    expect(() => resolveShardSocket({ agentDir, env: { [SHARD_ROOT_ENV]: LONG_ROOT }, identity: rootIdentity(), fs })).toThrow(
+      "shard_alt_root_unsafe",
+    )
+  })
+
+  test("#given an owned 0600 regular file at the alternate root path #when resolving #then the shape alone refuses it with shard_alt_root_unsafe", () => {
+    // given: owner and mode pass the other guards, only the non-directory shape is wrong
+    const agentDir = freshAgentDir()
+    const root = altRoot(agentDir)
+    writeFileSync(root, "occupied", { mode: 0o600 })
+    const stat = lstatSync(root)
+    expect(stat.isFile()).toBe(true)
+    expect(stat.uid).toBe(currentUid())
+    expect(stat.mode & 0o777).toBe(0o600)
+
+    // when / then
+    expect(() => resolveShardSocket({ agentDir, env: { [SHARD_ROOT_ENV]: LONG_ROOT }, identity: rootIdentity() })).toThrow(
+      "shard_alt_root_unsafe",
+    )
+  })
+
   test("#given the created alternate root is replaced by a symlink before validation #when resolving #then it refuses the replacement", () => {
     const agentDir = freshAgentDir()
     const root = altRoot(agentDir)
