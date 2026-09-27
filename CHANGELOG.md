@@ -7,13 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+A patch release for problems people hit on 5.0.0. `omo update` installs it, or run:
+
+```bash
+bun add -g omo-ai
+```
+
 ### Changed
+
+**OmO Native moves to senpi 2026.9.27.** ([#8906](https://github.com/code-yeongyu/oh-my-openagent/issues/8906), [senpi#2157](https://github.com/code-yeongyu/senpi/issues/2157)) The fixes below come with it. npm, pnpm and Yarn installs now run on Bun when Bun 1.4.0 or newer is installed, the way `bun add -g` installs already did; set `OMO_RUNTIME=node` to stay on Node.js. When OmO Native does start on Node.js, it says once per version how to move to Bun.
 
 **A local `omo` install now tells you to update with bun.** The launcher that `oh-my-openagent install` writes for a local checkout answered `omo update` with `npm i -g omo-ai`; it now prints `bun add -g omo-ai` (`omo-ai@beta` on a prerelease build), like every other install instruction. Installs from npm keep getting the npm command from `omo update`.
 
 **`writing` leads with Claude Opus 5.5 at `low` and no longer runs on Claude Fable 5.1.** ([#8907](https://github.com/code-yeongyu/oh-my-openagent/issues/8907)) The builtin `writing` chain is now `claude-opus-5-5` (low), then `claude-opus-4-6` (max), on both OmO Native and the OpenCode edition, with the same Claude providers as before. It stays Claude-only: with neither model connected the category is unavailable instead of falling back to another family, so a setup whose only Claude model is Fable 5.1 no longer offers `writing` unless you pin `categories.writing.model`. A `writing` entry in your own config still wins over the default.
 
 ### Fixed
+
+**Extensions load on Bun 1.3.x again.** ([senpi#2164](https://github.com/code-yeongyu/senpi/issues/2164), reported by @odurif0) An extension that declared its package directory as the entry (`"pi": { "extensions": ["."] }`) or depended on a package that requires a JSON file (ajv does) failed with `Cannot find module 'file:/…'`. Both load now.
+
+**Session titles work on models that cannot turn reasoning off.** ([senpi#2163](https://github.com/code-yeongyu/senpi/issues/2163), [senpi#1239](https://github.com/code-yeongyu/senpi/issues/1239), reported by @jtoronto and @VXNCXNX) Z.ai GLM 5.3 and other mandatory-reasoning models rejected the title request with `Reasoning is mandatory for this endpoint and cannot be disabled. (HTTP 400)`. The title request now asks for the lowest reasoning level the model supports, and a title that still fails is written to `logs/session.log` instead of showing an error. Thanks to @ImStillBlue, whose [senpi#1266](https://github.com/code-yeongyu/senpi/pull/1266) took the first shot at this fix.
+
+**One rejected image no longer breaks the rest of a session.** ([senpi#2170](https://github.com/code-yeongyu/senpi/issues/2170)) After a provider rejected an image, every later turn failed, text-only ones too. The rejected image is now replaced by a note naming its file, and the next message goes through, also after a restart. The read tool also finds a file whose path is wrapped in quotes, like the one Windows Explorer's "Copy as path" produces.
+
+**A stable build no longer calls itself beta.** ([#8901](https://github.com/code-yeongyu/oh-my-openagent/issues/8901)) The 5.0.0 startup banner printed `omo (omo-ai beta 5.0.0)`. Both the npm launcher and the compiled binary now take the channel from the version, so 5.0.1 prints `omo (omo-ai 5.0.1)`.
+
+**A terminal session's output no longer picks up a stray line break** when another session is spawned at the same moment. ([senpi#2161](https://github.com/code-yeongyu/senpi/issues/2161))
 
 **An expired Claude login no longer breaks the first headless or desktop turn.** With no `model_profile` set, OmO Native starts on the Recommended ladder, and a Claude subscription whose saved login can no longer be refreshed still counted as connected: the session was pinned to Claude Opus 5.5, every turn failed on the refresh, and the retry walked only other Claude models before giving up, even when another provider on the ladder (for example Z.ai GLM 5.3) was connected. A model profile now resolves a rung's credentials the way its first turn would before picking it: a login that cannot be refreshed drops that provider and the walk moves on; a provider with several accounts stays eligible while any of them (the pinned one, when an account is pinned) resolves, unless rotation is turned off for it (`credentials.rotation: false` in `models.json`, or a runtime API key), in which case only its default credential counts; a model whose own request configuration fails to resolve drops only that model. The start notice names what was skipped and how to recover on that surface: the desktop points at Provider authentication settings, a headless run at an interactive session's `/login <provider>`. A literal `provider/model` pin in `model_profile` is still applied as written. The resolution runs once per attempted account at session start, sequentially, so a rejected login can add up to the provider's refresh timeout before the next rung is picked.
 
