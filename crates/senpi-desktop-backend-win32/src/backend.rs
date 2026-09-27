@@ -120,7 +120,8 @@ impl Backend for Win32Backend {
         _frame: &FrameGeometry,
         mode: DeliveryMode,
     ) -> CoreResult<()> {
-        self.input()?.pointer(target, &event, mode)
+        let input = self.input.as_mut().map_err(|error| error.clone())?;
+        input.pointer(&mut self.ax, target, &event, mode)
     }
 
     fn type_text(&mut self, target: &Target, text: &str, mode: DeliveryMode) -> CoreResult<()> {
@@ -172,6 +173,13 @@ impl Backend for Win32Backend {
     }
 
     fn restore_front_window(&mut self, front: &FrontWindow) -> CoreResult<()> {
+        if self
+            .input
+            .as_mut()
+            .is_ok_and(Win32Input::take_preserve_new_focus)
+        {
+            return Ok(());
+        }
         front.window_id.as_deref().map_or(Ok(()), input::raise_window)
     }
 }

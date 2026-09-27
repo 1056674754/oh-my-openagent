@@ -13,6 +13,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse as kbm;
 use windows_sys::Win32::UI::WindowsAndMessaging as wm;
 
 use super::held::{HeldKey, Route};
+use super::native::Window;
 use super::{keys, messages, Win32Input};
 use crate::integrity;
 use crate::stop_path::chord;
@@ -113,6 +114,73 @@ impl Drop for ProbeWindow {
 
 fn input() -> Win32Input {
     Win32Input::new(integrity::current_process().unwrap()).unwrap()
+}
+
+#[test]
+fn pointer_routing_selects_the_deepest_enabled_child_window() {
+    let class: Vec<u16> = "SenpiChildRouteProbe"
+        .encode_utf16()
+        .chain([0])
+        .collect();
+    let button: Vec<u16> = "BUTTON".encode_utf16().chain([0]).collect();
+    // SAFETY: [Category 8 - FFI boundary] test-only class storage and window
+    // handles remain live until explicit teardown below.
+    unsafe {
+        let instance = GetModuleHandleW(std::ptr::null());
+        let registration = wm::WNDCLASSW {
+            lpfnWndProc: Some(wm::DefWindowProcW),
+            hInstance: instance,
+            lpszClassName: class.as_ptr(),
+            ..wm::WNDCLASSW::default()
+        };
+        assert_ne!(wm::RegisterClassW(&raw const registration), 0);
+        let root = wm::CreateWindowExW(
+            0,
+            class.as_ptr(),
+            class.as_ptr(),
+            wm::WS_OVERLAPPEDWINDOW | wm::WS_VISIBLE,
+            100,
+            100,
+            320,
+            240,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            instance,
+            std::ptr::null(),
+        );
+        assert!(!root.is_null());
+        let child = wm::CreateWindowExW(
+            0,
+            button.as_ptr(),
+            button.as_ptr(),
+            wm::WS_CHILD | wm::WS_VISIBLE,
+            20,
+            20,
+            120,
+            60,
+            root,
+            std::ptr::null_mut(),
+            instance,
+            std::ptr::null(),
+        );
+        assert!(!child.is_null());
+        let mut rect = windows_sys::Win32::Foundation::RECT::default();
+        assert_ne!(wm::GetWindowRect(child, &raw mut rect), 0);
+        let point = windows_sys::Win32::Foundation::POINT {
+            x: rect.left + (rect.right - rect.left) / 2,
+            y: rect.top + (rect.bottom - rect.top) / 2,
+        };
+
+        let routed = Window::from_hwnd(root)
+            .unwrap()
+            .deepest_child(point)
+            .unwrap()
+            .0;
+
+        assert_eq!(routed.address(), child.addr());
+        wm::DestroyWindow(root);
+        wm::UnregisterClassW(class.as_ptr(), instance);
+    }
 }
 
 #[test]

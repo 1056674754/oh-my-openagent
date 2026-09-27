@@ -8,9 +8,15 @@
 pub mod held;
 pub mod keys;
 pub mod messages;
+#[cfg(any(test, target_os = "windows"))]
+mod focus_policy;
+#[cfg(test)]
+mod recovery;
 
 #[cfg(target_os = "windows")]
 mod background;
+#[cfg(target_os = "windows")]
+mod background_pointer;
 #[cfg(target_os = "windows")]
 mod barrier;
 #[cfg(target_os = "windows")]
