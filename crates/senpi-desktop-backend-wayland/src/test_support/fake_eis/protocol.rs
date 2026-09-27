@@ -9,9 +9,7 @@ use reis::request::{DeviceCapability, EisRequest, EisRequestConverter, Seat};
 use reis::PendingRequestResult;
 use tokio::io::unix::AsyncFd;
 
-use super::{
-    update, DeviceTopology, EisConfig, Recorded, Shared, SharedDevices,
-};
+use super::{update, DeviceTopology, EisConfig, Recorded, Shared, SharedDevices};
 
 async fn next_requests(fd: &AsyncFd<eis::Context>) -> Result<Option<Vec<eis::Request>>, String> {
     loop {
@@ -82,9 +80,8 @@ pub(super) async fn serve(
         while let Some(request) = converter.next_request() {
             match request {
                 EisRequest::Bind(binding) => {
-                    if let Some((seat, keyboard, pointer)) = seats
-                        .iter()
-                        .find(|(seat, _, _)| seat == &binding.seat)
+                    if let Some((seat, keyboard, pointer)) =
+                        seats.iter().find(|(seat, _, _)| seat == &binding.seat)
                     {
                         add_devices(
                             seat,
@@ -199,9 +196,8 @@ fn add_devices(
             },
         );
         if let Some(interface) = keyboard.interface::<eis::Keyboard>() {
-            connection.with_next_serial(|serial| {
-                interface.modifiers(serial, 0, 0, 0, config.group)
-            });
+            connection
+                .with_next_serial(|serial| interface.modifiers(serial, 0, 0, 0, config.group));
         }
         keyboard.resumed();
     }
@@ -218,9 +214,7 @@ fn add_devices(
         );
         pointer.resumed();
         let (lock, changed) = &**controls;
-        lock.lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .pointer = Some(pointer);
+        lock.lock().unwrap_or_else(PoisonError::into_inner).pointer = Some(pointer);
         changed.notify_all();
     }
     Ok(())

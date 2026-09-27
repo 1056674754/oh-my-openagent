@@ -2,9 +2,7 @@
 //! event. The fake EIS server is the protocol peer, not an implementation
 //! mock.
 
-use senpi_desktop_core::backend::{
-    Backend, DeliveryMode, Modifiers, MouseButton, PointerEvent,
-};
+use senpi_desktop_core::backend::{Backend, DeliveryMode, Modifiers, MouseButton, PointerEvent};
 use senpi_desktop_core::error::ErrorCode;
 use senpi_desktop_core::frame::FrameGeometry;
 use senpi_desktop_core::types::Target;
@@ -12,9 +10,7 @@ use senpi_desktop_core::types::Target;
 use super::eis_tests::{session, session_with_topology};
 use super::tests::FR;
 use crate::test_support::env_lock;
-use crate::test_support::fake_eis::{
-    DeviceTopology, EisConfig, Recorded,
-};
+use crate::test_support::fake_eis::{DeviceTopology, EisConfig, Recorded};
 
 fn pointer(backend: &mut impl Backend, event: PointerEvent) -> Result<(), ErrorCode> {
     backend
@@ -44,7 +40,10 @@ fn modified_click() -> PointerEvent {
 fn modified_click_without_keyboard_refuses_before_pointer_input() {
     let _env = env_lock();
     let mut session = session_with_topology(
-        EisConfig { keymap: FR, group: 0 },
+        EisConfig {
+            keymap: FR,
+            group: 0,
+        },
         DeviceTopology::PointerOnly,
     );
 
@@ -59,7 +58,10 @@ fn modified_click_without_keyboard_refuses_before_pointer_input() {
 fn modified_click_with_keyboard_on_another_seat_refuses_before_input() {
     let _env = env_lock();
     let mut session = session_with_topology(
-        EisConfig { keymap: FR, group: 0 },
+        EisConfig {
+            keymap: FR,
+            group: 0,
+        },
         DeviceTopology::SplitSeats,
     );
 
@@ -73,7 +75,10 @@ fn modified_click_with_keyboard_on_another_seat_refuses_before_input() {
 #[test]
 fn paused_pointer_is_refused_on_the_next_operation() {
     let _env = env_lock();
-    let mut session = session(EisConfig { keymap: FR, group: 0 });
+    let mut session = session(EisConfig {
+        keymap: FR,
+        group: 0,
+    });
     assert_eq!(
         pointer(
             &mut session.backend,
@@ -97,7 +102,10 @@ fn paused_pointer_is_refused_on_the_next_operation() {
 #[test]
 fn removed_pointer_is_refused_on_the_next_operation() {
     let _env = env_lock();
-    let mut session = session(EisConfig { keymap: FR, group: 0 });
+    let mut session = session(EisConfig {
+        keymap: FR,
+        group: 0,
+    });
     assert_eq!(
         pointer(
             &mut session.backend,
@@ -121,7 +129,10 @@ fn removed_pointer_is_refused_on_the_next_operation() {
 #[test]
 fn scroll_delta_is_emitted_as_discrete_wheel_units() {
     let _env = env_lock();
-    let mut session = session(EisConfig { keymap: FR, group: 0 });
+    let mut session = session(EisConfig {
+        keymap: FR,
+        group: 0,
+    });
 
     let result = pointer(
         &mut session.backend,
@@ -139,10 +150,7 @@ fn scroll_delta_is_emitted_as_discrete_wheel_units() {
         log.events,
         [
             Recorded::Motion { x: 50.0, y: 60.0 },
-            Recorded::ScrollDiscrete {
-                dx: 120,
-                dy: -240,
-            },
+            Recorded::ScrollDiscrete { dx: 120, dy: -240 },
         ]
     );
 }

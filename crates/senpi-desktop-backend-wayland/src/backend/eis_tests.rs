@@ -66,20 +66,14 @@ pub(super) fn session(config: EisConfig) -> Session {
     session_with_topology(config, DeviceTopology::BothSameSeat)
 }
 
-pub(super) fn session_with_topology(
-    config: EisConfig,
-    topology: DeviceTopology,
-) -> Session {
+pub(super) fn session_with_topology(config: EisConfig, topology: DeviceTopology) -> Session {
     let dir = tempfile::Builder::new()
         .prefix("senpi-libei-")
         .tempdir()
         .expect("socket dir");
     let socket = dir.path().join("eis-0");
-    let eis = FakeEis::listen_with_topology(
-        UnixListener::bind(&socket).expect("bind"),
-        config,
-        topology,
-    );
+    let eis =
+        FakeEis::listen_with_topology(UnixListener::bind(&socket).expect("bind"), config, topology);
     Session {
         eis,
         backend: backend_without_services(),
@@ -98,13 +92,19 @@ fn type_text(session: &mut Session, text: &str) -> Result<(), ErrorCode> {
 #[test]
 fn hello_with_an_accent_arrives_as_french_keysyms_on_the_fr_keymap() {
     let _env = env_lock();
-    let mut session = session(EisConfig { keymap: FR, group: 0 });
+    let mut session = session(EisConfig {
+        keymap: FR,
+        group: 0,
+    });
 
     let typed = type_text(&mut session, "héllo");
 
     assert_eq!(typed, Ok(()));
     let log = session.eis.wait_for(|log| log.bursts >= 1);
-    assert_eq!(typed_keysyms("fr", &log.events), ["h", "eacute", "l", "l", "o"]);
+    assert_eq!(
+        typed_keysyms("fr", &log.events),
+        ["h", "eacute", "l", "l", "o"]
+    );
 }
 
 #[test]
@@ -119,7 +119,10 @@ fn hello_with_an_accent_arrives_through_the_active_french_group_of_us_fr() {
 
     assert_eq!(typed, Ok(()));
     let log = session.eis.wait_for(|log| log.bursts >= 1);
-    assert_eq!(typed_keysyms("fr", &log.events), ["h", "eacute", "l", "l", "o"]);
+    assert_eq!(
+        typed_keysyms("fr", &log.events),
+        ["h", "eacute", "l", "l", "o"]
+    );
 }
 
 #[test]
@@ -143,7 +146,10 @@ fn the_us_group_refuses_an_accent_it_cannot_type_and_sends_nothing() {
 #[test]
 fn a_click_moves_then_presses_and_releases_the_button() {
     let _env = env_lock();
-    let mut session = session(EisConfig { keymap: FR, group: 0 });
+    let mut session = session(EisConfig {
+        keymap: FR,
+        group: 0,
+    });
     let click = PointerEvent::Click {
         x: 100.0,
         y: 200.0,
@@ -181,7 +187,10 @@ fn a_click_moves_then_presses_and_releases_the_button() {
 fn invalid_later_drag_point_sends_no_input() {
     // Given: the second drag point is outside the device region
     let _env = env_lock();
-    let mut session = session(EisConfig { keymap: FR, group: 0 });
+    let mut session = session(EisConfig {
+        keymap: FR,
+        group: 0,
+    });
     let drag = PointerEvent::Drag {
         path: vec![(10.0, 10.0), (5000.0, 5000.0)],
         button: MouseButton::Left,

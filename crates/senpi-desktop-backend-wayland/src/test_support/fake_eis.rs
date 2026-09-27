@@ -92,14 +92,16 @@ impl FakeEis {
         let served = Arc::clone(&log);
         let controlled = Arc::clone(&devices);
         thread::spawn(move || {
-            let outcome = accept().map_err(|error| error.to_string()).and_then(|stream| {
-                update(&served, |log| log.connected = true);
-                tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .map_err(|error| error.to_string())?
-                    .block_on(serve(stream, config, topology, &served, &controlled))
-            });
+            let outcome = accept()
+                .map_err(|error| error.to_string())
+                .and_then(|stream| {
+                    update(&served, |log| log.connected = true);
+                    tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(|error| error.to_string())?
+                        .block_on(serve(stream, config, topology, &served, &controlled))
+                });
             if let Err(error) = outcome {
                 update(&served, |log| log.error = Some(error));
             }

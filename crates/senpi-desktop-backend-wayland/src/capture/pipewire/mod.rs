@@ -24,8 +24,8 @@ use senpi_desktop_core::types::DesktopDisplay;
 use tokio::runtime::Runtime;
 
 use screencast::Cast;
-pub use window::crop_window;
 pub(super) use selection::select_capture;
+pub use window::crop_window;
 
 pub const DISPLAY_PREFIX: &str = "wayland-screencast-";
 
