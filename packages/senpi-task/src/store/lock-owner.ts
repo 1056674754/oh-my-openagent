@@ -24,12 +24,38 @@ export interface LockOwner {
 }
 
 const UNAVAILABLE = "unavailable"
-let ownStartIdentity: string | undefined
+const OWN_IDENTITY_RETRY_FIRST_MS = 1_000
+const OWN_IDENTITY_RETRY_MAX_MS = 60_000
+
+/**
+ * This process's start identity: a success is kept for the process lifetime (a live pid is never
+ * reused), a failed read is retried after a doubling backoff capped at one minute, so one transient
+ * failure does not leave every later lock without the identity that lets others prove this holder dead.
+ */
+export function createOwnStartIdentity(read: () => string | null, now: () => number): () => string {
+  let known: string | undefined
+  let retryAt = 0
+  let backoffMs = OWN_IDENTITY_RETRY_FIRST_MS
+  return () => {
+    if (known !== undefined) return known
+    const at = now()
+    if (at < retryAt) return UNAVAILABLE
+    const identity = read()
+    if (identity !== null) {
+      known = identity
+      return identity
+    }
+    retryAt = at + backoffMs
+    backoffMs = Math.min(backoffMs * 2, OWN_IDENTITY_RETRY_MAX_MS)
+    return UNAVAILABLE
+  }
+}
+
+const ownStartIdentity = createOwnStartIdentity(() => readProcessStartIdentity(process.pid), Date.now)
 
 /** The body a holder writes: `pid`, acquisition time and token first, as every earlier build wrote them. */
 export function formatLockBody(token: string): string {
-  ownStartIdentity ??= readProcessStartIdentity(process.pid) ?? UNAVAILABLE
-  return `${process.pid}\n${Date.now()}\n${token}\n${ownStartIdentity}\n${hostname()}\n`
+  return `${process.pid}\n${Date.now()}\n${token}\n${ownStartIdentity()}\n${hostname()}\n`
 }
 
 /** undefined when the body is not a complete lock (a holder that died between create and write). */

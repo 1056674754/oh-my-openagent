@@ -1,3 +1,12 @@
+## A holder that once failed to read its own start identity tries again
+
+`store/lock-owner.ts`: the process's own start identity (written into every lock it takes so others can
+prove it dead) was read once, and a failed read was cached as `unavailable` for the process lifetime -
+every later lock of that process could then only be reaped once its pid was gone. A success is still kept
+for the lifetime; a failure is now retried after 1 s, doubling to at most one minute between reads.
+
+Tests: `store/lock-owner.test.ts` (new: retry schedule and a kept success; the interval caps at one minute).
+
 ## A reaped task record lock that Windows briefly refuses to unlink is retried
 
 `store/record-lock.ts`: the reaper's unlink of a dead holder's lock threw a Windows sharing violation
