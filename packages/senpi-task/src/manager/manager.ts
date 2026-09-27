@@ -17,7 +17,7 @@ import { TaskIdSpaceExhaustedError } from "../state/id"
 import type { ResolvedModelRecord, TaskRecord, TaskRunStats } from "../state"
 import { createSteeringEngine } from "../steering"
 import type { CancelOptions, CancelOutcome, DestructionPort, InterruptOutcome, SendInput, SendOutcome, SteeringEngine, SteeringPort } from "../steering"
-import { discardManagedHandle, releaseOnDispose, type ManagedChildHandle, type ManagedChildListener } from "./child-handle"
+import { discardManagedHandle, releaseOnDispose, releaseSupersededHandle, type ManagedChildHandle, type ManagedChildListener } from "./child-handle"
 import { TaskConcurrency } from "./concurrency"
 import { runtimeFallbackCandidates } from "./credential-failure"
 import { createWorkpoolAdmission } from "./workpool-admission"
@@ -224,6 +224,9 @@ class TaskManagerImpl implements TaskManager {
   // Keyed by task_id (not `${taskId}:${epoch}`) so growth is bounded by live tasks and forget()
   // prunes in O(1).
   readonly #released = new Map<string, number>()
+  // Epoch of a failed rung whose child is still closing under a handoff. Its record already names the
+  // next epoch, so the lease the live handle holds is looked up here, not on the record.
+  readonly #closingRungs = new Map<string, number>()
   readonly #waiters = new Map<string, TaskWaiter[]>()
   readonly #background = new Set<string>()
   readonly #evicting = new Set<string>()
@@ -1103,18 +1106,24 @@ class TaskManagerImpl implements TaskManager {
       return handoff.record
     })
     const nextRecord = handoff.record
-    if (nextRecord === undefined) return false
+    if (nextRecord === undefined) {
+      this.#retireLostRun(input.taskId, live, input.epoch)
+      return false
+    }
     const remainingModels = nextRecord.fallback_models ?? []
     const nextEpoch = nextRecord.notification.run_epoch
 
     // A rejection may carry any value, `undefined` included, so the outcome is tracked on its own.
     const teardown: { failed: boolean; error?: unknown } = { failed: false }
+    this.#closingRungs.set(input.taskId, input.epoch)
     try {
       await (this.#options.destruction ?? NOOP_DESTRUCTION)
         .destroyResidentTask(input.taskId, "fallback_handoff")
     } catch (error) {
       teardown.failed = true
       teardown.error = error
+    } finally {
+      this.#closingRungs.delete(input.taskId)
     }
 
     // The failed rung may still be alive, so the next rung must not start beside it. End the handed-off
@@ -1428,10 +1437,22 @@ class TaskManagerImpl implements TaskManager {
     this.#concurrency.releaseLease(taskId, epoch)
   }
 
+  // Another owner took this task over: drop only this process's copy of the run (subscription, live
+  // entry, its own lease) and let go of the handle, which for a daemon session is a detach. The record
+  // and the session are the winner's and stay untouched.
+  #retireLostRun(taskId: string, live: LiveTask, epoch: number): void {
+    live.unsubscribe()
+    if (this.#live.get(taskId) === live) this.#live.delete(taskId)
+    this.#releaseSlot(taskId, live.model, epoch)
+    void releaseSupersededHandle(live.handle).catch((error: unknown) => {
+      log("senpi-task superseded fallback handle release failed", { taskId, error: String(error) })
+    })
+  }
+
   #releaseSlotForTask(taskId: string): void {
     const live = this.#live.get(taskId)
     if (live === undefined) return
-    const epoch = this.#tryLoad(taskId)?.notification.run_epoch ?? 0
+    const epoch = this.#closingRungs.get(taskId) ?? this.#tryLoad(taskId)?.notification.run_epoch ?? 0
     this.#releaseSlot(taskId, live.model, epoch)
   }
 
