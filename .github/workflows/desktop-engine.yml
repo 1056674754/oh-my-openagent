@@ -45,7 +45,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-14, rust_target: x86_64-apple-darwin }
+          - { os: macos-14, rust_target: aarch64-apple-darwin }
           - { os: ubuntu-22.04, rust_target: x86_64-unknown-linux-gnu }
           - { os: windows-latest, rust_target: x86_64-pc-windows-msvc }
     runs-on: ${{ matrix.os }}
@@ -87,12 +87,16 @@ jobs:
         run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Prove staged desktop engine resolution and selftest
+        env:
+          OMO_DESKTOP_CI_STAGE_DIR: ${{ runner.temp }}/omo-desktop-ci-engine
         run: bun script/desktop-engine-ci-proof.ts
 
       - name: Verify release asset assembly without publishing
         run: bun test script/desktop-engine-release.test.ts script/release-desktop-engine-target.test.ts script/publish-release-platform-workflow.test.ts
 
       - name: Desktop package tests
+        env:
+          OMO_PACKAGE_DIR: ${{ runner.temp }}/omo-desktop-ci-engine
         run: bun run test:desktop
 
       # Each #[ignore]d display test runs in the environment its module docs name. The X11 input tests need a

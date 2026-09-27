@@ -121,14 +121,14 @@ describe("compiled desktop engine staging", () => {
   })
 
   test("the release builder refuses an available target without its compiled Rust payload", () => {
-    // Given an available target whose Rust output cannot exist on this macOS host.
+    // Given an isolated source root with no Windows Rust output, even when CI built one.
     const root = mkdtempSync(join(tmpdir(), "omo-desktop-builder-missing-"))
     try {
       const target = RELEASE_BINARY_TARGETS.find((entry) => entry.target === "windows-x64")
       if (target === undefined) throw new Error("windows-x64 target expected")
 
       // When the actual release staging entry point is run.
-      const stage = (): void => { stageSidecarPayload(target, join(root, "stage"), "1.0.0") }
+      const stage = (): void => { stageSidecarPayload(target, join(root, "stage"), "1.0.0", undefined, root) }
 
       // Then a missing required compiled payload fails closed.
       expect(stage).toThrow(/missing required desktop engine for windows-x64:.*x86_64-pc-windows-msvc/)

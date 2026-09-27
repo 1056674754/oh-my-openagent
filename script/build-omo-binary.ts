@@ -558,6 +558,7 @@ export function stageSidecarPayload(
   stageDir: string,
   omoAiVersion: string,
   buildInfo?: OmoBuildInfo,
+  desktopEngineSourceRoot?: string,
 ): string[] {
   mkdirSync(stageDir, { recursive: true })
   const staged = new Set<string>()
@@ -567,7 +568,7 @@ export function stageSidecarPayload(
   for (const source of engineSidecarSources()) stageSource(source, stageDir, staged)
   stagePluginPayload(stageDir, staged)
   for (const entry of target.nativePrebuilds) stageNativePrebuild(entry, stageDir, staged)
-  const desktopEngine = stageCompiledDesktopEngine(target.target, stageDir)
+  const desktopEngine = stageCompiledDesktopEngine(target.target, stageDir, desktopEngineSourceRoot)
   if (desktopEngine !== null) staged.add(desktopEngine)
   return [...staged].sort()
 }
