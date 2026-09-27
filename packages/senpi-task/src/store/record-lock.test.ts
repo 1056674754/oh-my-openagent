@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, spyOn, test } from "bun:test"
+import * as fs from "node:fs"
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs"
 import { hostname, tmpdir } from "node:os"
 import { join } from "node:path"
@@ -207,5 +208,61 @@ describe("task record lock", () => {
     // then
     expect(readFileSync(`${path}.lock`, "utf8")).toBe(successor)
     expect(readFileSync(`${path}-sync.lock`, "utf8")).toBe(successor)
+  })
+})
+
+describe("task record lock reap on a sharing violation", () => {
+  function failPrimaryUnlinks(lockPath: string, failures: number): { readonly attempts: () => number; readonly restore: () => void } {
+    const realRm = fs.rmSync
+    let attempts = 0
+    const spy = spyOn(fs, "rmSync").mockImplementation((target: fs.PathLike, options?: fs.RmOptions) => {
+      if (String(target) === lockPath) {
+        attempts += 1
+        if (attempts <= failures) throw Object.assign(new Error("EPERM: operation not permitted, unlink"), { code: "EPERM" })
+      }
+      realRm(target, options)
+    })
+    return { attempts: () => attempts, restore: () => spy.mockRestore() }
+  }
+
+  test("#given a dead holder's lock the filesystem briefly refuses to unlink #when the record is locked #then the unlink is retried and the operation runs", async () => {
+    // given
+    const path = recordPath()
+    writeLock(path, `${await deadPid()}\n0\ncrashed-holder\n`, 60_000)
+    const unlinks = failPrimaryUnlinks(`${path}.lock`, 1)
+
+    // when
+    const result = (() => {
+      try {
+        return lockTaken(path)
+      } finally {
+        unlinks.restore()
+      }
+    })()
+
+    // then
+    expect(result).toBe("ran")
+    expect(unlinks.attempts()).toBeGreaterThanOrEqual(2)
+  })
+
+  test("#given a dead holder's lock that stays locked by the filesystem #when the record is locked #then the waiter times out instead of throwing the sharing error", async () => {
+    // given
+    const path = recordPath()
+    const body = `${await deadPid()}\n0\ncrashed-holder\n`
+    writeLock(path, body, 60_000)
+    const unlinks = failPrimaryUnlinks(`${path}.lock`, Number.POSITIVE_INFINITY)
+
+    // when
+    const result = (() => {
+      try {
+        return lockTaken(path)
+      } finally {
+        unlinks.restore()
+      }
+    })()
+
+    // then
+    expect(String(result)).toContain("Timed out acquiring task record lock")
+    expect(readFileSync(`${path}.lock`, "utf8")).toBe(body)
   })
 })

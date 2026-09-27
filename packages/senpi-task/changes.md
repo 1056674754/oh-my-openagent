@@ -1,3 +1,20 @@
+## A reaped task record lock that Windows briefly refuses to unlink is retried
+
+`store/record-lock.ts`: the reaper's unlink of a dead holder's lock threw a Windows sharing violation
+(`EPERM`/`EBUSY`, while a scanner or the dead holder's last handle closes) straight out of the
+acquisition. It now retries three times 25 ms apart, as team-core's reclaim does (#9034), and if the
+file is still refused it waits on it like a held lock, so the waiter times out on that one holder instead of
+throwing.
+
+CI: `store/record-lock.test.ts`, `store/record-lock-reap-window.test.ts` and
+`runners/rpc-host/durable-json.test.ts` join the root serial quarantine
+(`script/root-test-serial-quarantine.ts`, both shard-2 commands in `ci.yml`, `bunfig.win2.parallel.toml`), so
+the start-identity proof (kernel32 on windows-latest) and the win32 no-directory-fsync branch run in one
+uncontended process on every OS.
+
+Tests: `store/record-lock.test.ts` (one refused unlink is retried and the lock is taken; a lock that stays
+refused times the waiter out and is left in place).
+
 ## A busy store index lock no longer fails an admission
 
 `runners/rpc-host/store-index.ts`: registering a store that the index already lists is a read under the

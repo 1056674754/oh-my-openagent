@@ -25,6 +25,10 @@ const LOCK_HOLDER_WAIT_MS = 1_000
 // the create and the write, which takes microseconds - once it is older than this window.
 // The async holder still refreshes the mtime so that builds which expire locks by age leave it alone.
 const LOCK_STALE_MS = 5_000
+// A reaped lock the filesystem refuses to unlink (a Windows sharing violation while a scanner or the
+// dead holder's last handle closes) is retried briefly, then waited on like a held lock - as team-core does (#9034).
+const REAP_UNLINK_ATTEMPTS = 3
+const REAP_UNLINK_RETRY_MS = 25
 const sleeper = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT))
 
 export function withTaskRecordLock<T>(recordPath: string, operation: () => T): T {
@@ -160,8 +164,7 @@ function reapAbandonedLock(lockPath: string): AcquireAttempt {
     reapHook?.("judged_unchanged", lockPath)
     // Fence: a reaper that lost its recovery lock (see below) must not unlink the primary.
     if (readToken(recoveryPath) !== recoveryToken) return held
-    rmSync(lockPath, { force: true })
-    return "retry"
+    return unlinkReapedLock(lockPath) ? "retry" : held
   } finally {
     releaseLock(recoveryPath, recoveryToken)
   }
@@ -233,6 +236,19 @@ function refreshLock(lockPath: string): void {
     utimesSync(lockPath, now, now)
   } catch (error) {
     if (!hasCode(error, "ENOENT")) console.error("Task record lock heartbeat failed", error)
+  }
+}
+
+function unlinkReapedLock(lockPath: string): boolean {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      rmSync(lockPath, { force: true })
+      return true
+    } catch (error) {
+      if (!hasCode(error, "EPERM") && !hasCode(error, "EBUSY")) throw error
+      if (attempt === REAP_UNLINK_ATTEMPTS) return false
+      Atomics.wait(sleeper, 0, 0, REAP_UNLINK_RETRY_MS)
+    }
   }
 }
 
