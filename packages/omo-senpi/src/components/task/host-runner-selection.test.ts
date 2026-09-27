@@ -29,6 +29,7 @@ function routingFor(input: {
     agentDir: "/tmp/dh-agent",
     env: {},
     notices: input.notices,
+    shardEvents: {},
     ensureDaemon: input.ensureDaemon,
     probeHost: () => Promise.resolve(undefined),
   })

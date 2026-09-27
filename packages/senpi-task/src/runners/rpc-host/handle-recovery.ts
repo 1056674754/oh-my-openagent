@@ -1,11 +1,12 @@
 import type { HostSessionIdentity, HostSessionPort } from "./handle-port"
-import { recoverLostTransport } from "./handle-reattach"
+import { recoverLostTransport, type HostShardEvents } from "./handle-reattach"
 import { isTransportLossError, type HostSessionReattach, type HostSessionReattached } from "./reattach"
 import type { HostParkReason, HostSessionCommand } from "./session-client"
 
 export interface HandleRecoveryHost {
   readonly taskId: string
   readonly reattach: HostSessionReattach | undefined
+  readonly events: HostShardEvents | undefined
   port(): HostSessionPort
   identity(): HostSessionIdentity
   alive(): boolean
@@ -58,6 +59,8 @@ export function createHandleRecovery(host: HandleRecoveryHost): HandleRecovery {
     reattaching = recoverLostTransport(
       {
         taskId: host.taskId,
+        onTransportLost: (info) => host.events?.onTransportLost?.(info),
+        onReattachOutcome: (info) => host.events?.onReattachOutcome?.(info),
         session: () => ({ socket: host.port().socketPath, ...host.identity() }),
         alive: host.alive,
         turnInFlight: () => !host.turnSettled() && deliveries === 0,

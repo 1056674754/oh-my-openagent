@@ -12,6 +12,7 @@ import {
   type EnsureTaskDaemonPort,
   type HostNoticeSink,
   type HostProtocolProbe,
+  type HostShardEvents,
   type ShardIdentity,
   type ShardResolution,
 } from "@oh-my-opencode/senpi-task"
@@ -46,6 +47,8 @@ export interface SessionShardRouting {
   readonly insideHost: () => boolean
   readonly probeHost: HostProtocolProbe
   readonly onNotice: HostNoticeSink
+  // Every child's transport recoveries: the parent's one crash notice per host crash.
+  readonly shardEvents: HostShardEvents
 }
 
 export type TaskHostRouting = SessionShardRouting & { readonly storeDir: string }
@@ -57,6 +60,7 @@ export interface SessionShardRoutingInput {
   readonly agentDir: string
   readonly env: Readonly<Record<string, string | undefined>>
   readonly notices: HostNotices
+  readonly shardEvents: HostShardEvents
   readonly ensureDaemon?: EnsureTaskDaemonPort
   readonly probeHost?: HostProtocolProbe
 }
@@ -106,6 +110,7 @@ export function createSessionShardRouting(input: SessionShardRoutingInput): Sess
     onNotice: (token, detail) => {
       input.notices.add(detail === undefined ? token : `${token} ${detail}`)
     },
+    shardEvents: input.shardEvents,
   }
 }
 

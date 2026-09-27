@@ -29,7 +29,7 @@ import { extractTerminalAssistantMessage } from "./terminal-message"
  * `terminate()` is `abort` then `close_session`, both bounded.
  */
 export function createHostSessionHandle(options: HostSessionHandleOptions): HostSessionChildHandle {
-  const { taskId, heartbeatIntervalMs, now, closeGraceMs, reattach } = options
+  const { taskId, heartbeatIntervalMs, now, closeGraceMs, reattach, shardEvents } = options
   // Both move on a reattach: a recovered transport is a new port, and a reopened session a new
   // routing handle on a possibly new host generation. The session PATH is the child's identity.
   let client: HostSessionPort = options.client
@@ -128,6 +128,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
   const recovery = createHandleRecovery({
     taskId,
     reattach,
+    events: shardEvents,
     port: () => client,
     identity: () => session,
     alive,
@@ -141,7 +142,6 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     endLost: () => endSession({ kind: "transport_gone" }),
     park: (reason) => park({ sessionId: session.routingId, sessionPath: session.sessionPath, reason }),
   })
-  const issue = recovery.issue
 
   const bindClient = (port: HostSessionPort): void => {
     port.onEvent((event) => {
@@ -176,10 +176,10 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
   // as followUp instead of failing the child (`rpc/delivery-semantics.ts`).
   const deliverPrompt = async (text: string, streamingBehavior: RpcStreamingBehavior): Promise<void> => {
     try {
-      await issue({ type: "prompt", message: text, streamingBehavior })
+      await recovery.issue({ type: "prompt", message: text, streamingBehavior })
     } catch (error) {
       if (streamingBehavior === "followUp" || !isBusyChildRejection(error)) throw error
-      await issue({ type: "prompt", message: text, streamingBehavior: "followUp" })
+      await recovery.issue({ type: "prompt", message: text, streamingBehavior: "followUp" })
     }
   }
 
@@ -239,7 +239,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     steer: async (text) => {
       beginTurn()
       try {
-        await issue({ type: "steer", message: text })
+        await recovery.issue({ type: "steer", message: text })
       } catch (error) {
         if (!isBusyChildRejection(error)) throw error
         await deliverPrompt(text, "followUp")
@@ -248,7 +248,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     followUp: (text) => runPrompt(text, "followUp"),
     abort: () => {
       abortedByUser = true
-      return issue({ type: "abort" })
+      return recovery.issue({ type: "abort" })
     },
     subscribe: (listener: ChildEventListener) => {
       eventListeners.add(listener)

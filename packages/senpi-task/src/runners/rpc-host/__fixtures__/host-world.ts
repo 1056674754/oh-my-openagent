@@ -137,6 +137,7 @@ function connectParent(input: ConnectParentInput): ParentSession {
     ownHostSocket: () => undefined,
     insideHost: () => false,
     onNotice: () => undefined,
+    shardEvents: {},
     probeHost: () => probeFakeHost(socketPath),
     env: {},
     ensureDaemon: () =>

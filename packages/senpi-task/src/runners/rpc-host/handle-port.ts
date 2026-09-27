@@ -6,6 +6,7 @@ import type {
   RpcSwitchSessionResult,
   RpcTerminalAssistantMessage,
 } from "../types"
+import type { HostShardEvents } from "./handle-reattach"
 import type { HostSessionReattach } from "./reattach"
 import type { HostSessionClosed, HostSessionCommand, HostSessionParked } from "./session-client"
 
@@ -63,6 +64,8 @@ export type HostSessionHandleOptions = {
   readonly openDisposition: HostSessionOpenDisposition
   /** Transport recovery. Absent: a lost transport ends the child as crashed(transport_gone). */
   readonly reattach?: HostSessionReattach
+  /** Told when a transport recovery starts and how it ended (the parent's crash notice). */
+  readonly shardEvents?: HostShardEvents
 }
 
 export type HostSessionChildHandle = RpcChildHandle & {

@@ -219,6 +219,7 @@ export function buildProcessChildRunner(build: RunnerBuildContext): RpcHostRunne
     ownHostSocket: routing.ownHostSocket,
     insideHost: routing.insideHost,
     onNotice: routing.onNotice,
+    shardEvents: routing.shardEvents,
     probeHost: routing.probeHost,
   })
 }

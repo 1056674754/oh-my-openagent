@@ -18,6 +18,7 @@ import { HostUnavailableError, ensureTaskDaemon, isHostIncompatible } from "./rp
 import { onceNoticeSink, type HostNoticeSink } from "./rpc-host/host-notice"
 import { createReattachPort } from "./rpc-host/reattach-port"
 import { createHostSessionHandle } from "./rpc-host/handle"
+import type { HostShardEvents } from "./rpc-host/handle-reattach"
 import type { HostSessionChildHandle, HostSessionIdentity, HostSessionPort } from "./rpc-host/handle-port"
 import { HostSessionClient, type OpenedHostSession } from "./rpc-host/session-client"
 import { probeWithEngine, type HostProtocolProbe } from "./rpc-host/session-transport"
@@ -80,6 +81,8 @@ export type RpcHostRunnerOptions = {
   readonly insideHost: () => boolean
   // `host_notice:*` / `host_unavailable:*` tokens, once per token and endpoint.
   readonly onNotice: HostNoticeSink
+  // Every child's transport recoveries, so the parent hears about a host crash once (todo 10).
+  readonly shardEvents: HostShardEvents
   // The attach-only probe for the session's own endpoint; defaults to the engine's `probeHost`.
   readonly probeHost?: HostProtocolProbe
 }
@@ -248,6 +251,7 @@ export class RpcHostRunner {
       // The host's answer, not connection liveness: respawn continues an interrupted turn only when
       // the session was reopened from its JSONL.
       openDisposition: opened.attached ? "attached" : "reopened",
+      shardEvents: this.options.shardEvents,
       reattach: createReattachPort({
         endpoint: this.endpoint,
         spec,

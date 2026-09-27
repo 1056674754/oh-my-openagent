@@ -9,7 +9,34 @@ import {
   reattachContinuationPrompt,
 } from "./reattach"
 
-export interface ReattachSubject {
+/** How ONE child's recovery ended: re-joined live, reopened idle, re-prompted mid-turn, or gone. */
+export type ReattachOutcome = "attached" | "resumed" | "continued" | "lost" | "host_incompatible"
+
+export interface TransportLostInfo {
+  readonly taskId: string
+  readonly socket: string
+  // The host generation the child lost: every sibling that lost the same one shares one crash.
+  readonly instanceId: string
+  readonly turnWasInFlight: boolean
+}
+
+export interface ReattachOutcomeInfo {
+  readonly taskId: string
+  readonly socket: string
+  readonly outcome: ReattachOutcome
+  readonly newInstanceId?: string
+}
+
+/**
+ * An observer of recovery episodes (the parent's crash notice). It is told once when a child starts
+ * recovering and once when that recovery ends; it never changes what recovery does.
+ */
+export interface HostShardEvents {
+  onTransportLost?(info: TransportLostInfo): void
+  onReattachOutcome?(info: ReattachOutcomeInfo): void
+}
+
+export interface ReattachSubject extends HostShardEvents {
   readonly taskId: string
   readonly session: () => HostSessionFacts
   readonly alive: () => boolean
@@ -29,30 +56,49 @@ export interface ReattachSubject {
 export async function recoverLostTransport(subject: ReattachSubject, reattach: HostSessionReattach): Promise<void> {
   const turnWasInFlight = subject.turnInFlight()
   const lost = subject.session()
+  const { taskId } = subject
+  observe(taskId, () => subject.onTransportLost?.({ taskId, socket: lost.socket, instanceId: lost.instanceId, turnWasInFlight }))
+  const report = (outcome: ReattachOutcome, newInstanceId?: string): void =>
+    observe(taskId, () =>
+      subject.onReattachOutcome?.({ taskId, socket: lost.socket, outcome, ...(newInstanceId === undefined ? {} : { newInstanceId }) }),
+    )
   let next: HostSessionReattached | HostSessionReattachRefused | undefined
   try {
     next = await reattach(lost)
   } catch (error) {
-    log("senpi-task host session reattach failed", { taskId: subject.taskId, error: String(error) })
+    log("senpi-task host session reattach failed", { taskId, error: String(error) })
   }
   if (!subject.alive()) {
-    if (next !== undefined && !("refused" in next)) await discard(next.client, subject.taskId)
-    return
+    if (next === undefined || "refused" in next) return report("lost")
+    await discard(next.client, taskId)
+    return report(next.attached ? "attached" : "resumed", next.session.instanceId)
   }
   if (next === undefined || "refused" in next) {
+    report(next?.refused === "host_incompatible" ? "host_incompatible" : "lost")
     subject.giveUp(next?.refused)
     return
   }
   subject.adopt(next)
   log("senpi-task host session reattached", {
-    taskId: subject.taskId,
+    taskId,
     sessionPath: next.session.sessionPath,
     attached: next.attached,
     turnWasInFlight,
   })
-  if (!turnWasInFlight) return
-  if (next.attached && (await stillStreaming(next.client, subject.taskId))) return
+  const rejoined = next.attached ? "attached" : "resumed"
+  if (!turnWasInFlight) return report(rejoined, next.session.instanceId)
+  if (next.attached && (await stillStreaming(next.client, taskId))) return report(rejoined, next.session.instanceId)
+  report("continued", next.session.instanceId)
   await subject.continueTurn(reattachContinuationPrompt())
+}
+
+/** An observer that throws is logged, never allowed to change what recovery does next. */
+function observe(taskId: string, notify: () => void): void {
+  try {
+    notify()
+  } catch (error) {
+    log("senpi-task host session reattach observer failed", { taskId, error: String(error) })
+  }
 }
 
 async function stillStreaming(client: HostSessionPort, taskId: string): Promise<boolean> {
