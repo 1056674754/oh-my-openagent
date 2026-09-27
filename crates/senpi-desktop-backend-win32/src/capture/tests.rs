@@ -2,6 +2,7 @@
 
 use image::{Rgba, RgbaImage};
 use senpi_desktop_core::error::ErrorCode;
+use senpi_desktop_core::frame::FrameGeometry;
 use senpi_desktop_core::types::{DesktopDisplay, DisplaySelector};
 
 use super::frame::{
@@ -103,6 +104,25 @@ fn adjacent_mixed_dpi_monitors_keep_non_overlapping_physical_ranges() {
 }
 
 #[test]
+fn negative_monitor_origins_round_trip_from_capture_pixels() {
+    let laid_out = displays(vec![
+        monitor("1", (-2560, -200), (2560, 1440), 2.0),
+        monitor("2", (0, 0), (1920, 1080), 1.0),
+    ]);
+    let frame = FrameGeometry::for_displays(&laid_out);
+
+    assert_eq!(
+        frame.map_point(100.0, 100.0, None).unwrap(),
+        (-2460.0, -100.0)
+    );
+    assert_eq!(
+        frame.map_point(2660.0, 400.0, None).unwrap(),
+        (100.0, 200.0)
+    );
+    assert!(frame.map_point(3000.0, 100.0, None).is_err());
+}
+
+#[test]
 fn displays_order_top_to_bottom_then_left_to_right() {
     let laid_out = displays(vec![
         monitor("3", (1920, 1080), (1920, 1080), 1.0),
@@ -181,6 +201,8 @@ fn monitor_capture_geometry_changes_are_stale() {
     let stale = RgbaImage::new(1919, 1080);
 
     assert!(!capture_geometry_matches(&display, &stale));
+    let error = composite(vec![(display, stale)]).unwrap_err();
+    assert_eq!(error.code, ErrorCode::CaptureFailed);
 }
 
 #[test]
