@@ -1,9 +1,10 @@
+import { join } from "node:path";
 import { ComputerCallError } from "@oh-my-opencode/senpi-desktop-protocol";
 import type { ExecuteTool } from "@oh-my-opencode/senpi-desktop-service";
 import { afterEach, describe, expect, it } from "vitest";
 import { rejectionOf } from "../../senpi-desktop-service/test/harness";
 import type { ComputerHandle } from "../src/activation";
-import type { ComputerModel } from "../src/session";
+import { AUDIT_FILE_NAME, type ComputerModel } from "../src/session";
 import { createComputerTool } from "../src/tool";
 import { closeDesktops, desktopFixture, hostContext, methodsOf } from "./fixtures";
 
@@ -123,7 +124,7 @@ describe("computer tool execute", HANG_GUARD, () => {
 		// Then
 		const open = log.requests.find((request) => request.method === "session.open");
 		expect(open?.params).toMatchObject({
-			auditPath: "/sessions/project/.computer-audit.jsonl",
+			auditPath: join("/sessions/project", AUDIT_FILE_NAME),
 			captureCaps: { maxWidth: 2000, maxHeight: 2400, coordinateSafe: true, maxBytes: 1_000_000 },
 			screenshotGc: { staleMs: 43_200_000, scanIntervalMs: 1_800_000 },
 		});
