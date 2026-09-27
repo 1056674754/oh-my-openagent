@@ -160,7 +160,7 @@ export class AgentSession {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.#waiters.delete(waiter)
-        reject(new Error(`senpi event deadline: ${this.#stderr}`))
+        reject(new Error(`senpi event deadline: ${this.#stderr}; events=${this.#lastEvents.join(" | ")}`))
       }, DEADLINE)
       const waiter: Waiter = {
         predicate,
@@ -196,7 +196,8 @@ export class AgentSession {
     steps.push({ type: "tool_call", name: "computer", arguments: args }, { type: "text", text: "done" })
     writeFileSync(join(this.#sandbox.cwd, "mock-script.json"), JSON.stringify({ steps }))
     const end = this.waitFor((event) => event.type === "tool_execution_end" && event.toolName === "computer")
-    const settled = this.waitFor((event) => event.type === "agent_end")
+    // `agent_end` can precede retries, compaction and extension follow-ups; the next prompt must wait for idle.
+    const settled = this.waitFor((event) => event.type === "agent_settled")
     await this.#send({ type: "prompt", message: `macOS computer QA ${this.#step}` })
     const [result] = await Promise.all([end, settled])
     this.#step += 2
