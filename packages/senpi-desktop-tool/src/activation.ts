@@ -1,7 +1,7 @@
 import type { DesktopCapabilities, StopPathStatus } from "@oh-my-opencode/senpi-desktop-protocol";
 import type { DesktopService } from "@oh-my-opencode/senpi-desktop-service";
-import { type ComputerHostContext, sessionOpenParams } from "./session.ts";
-import type { ComputerSettings } from "./settings.ts";
+import { type ComputerHostContext, sessionOpenParams } from "./session";
+import type { ComputerSettings } from "./settings";
 
 /** The `DesktopService` surface the tool, the command, and the activation hook use. */
 export type ComputerService = Pick<

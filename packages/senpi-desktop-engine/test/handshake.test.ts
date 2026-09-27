@@ -8,8 +8,8 @@ import {
 	DesktopEngineHandshakeError,
 	type DesktopEngineSpawner,
 	helloDesktopEngine,
-} from "../src/handshake.ts";
-import { locateDesktopEngine } from "../src/locator.ts";
+} from "../src/handshake";
+import { locateDesktopEngine } from "../src/locator";
 
 const fakeEngine = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-engine.mjs");
 

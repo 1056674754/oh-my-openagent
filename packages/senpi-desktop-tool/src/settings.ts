@@ -1,6 +1,6 @@
 import { type Static, Type } from "typebox";
 import { Check, Errors } from "typebox/value";
-import { defaultStopHotkey, isSupportedHost } from "./host-policy.ts";
+import { defaultStopHotkey, isSupportedHost } from "./host-policy";
 
 /**
  * The `computer` block of coding-agent's `settings.json` (AD-1: codemode declares none of it). Every key is

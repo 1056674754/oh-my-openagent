@@ -7,9 +7,9 @@ import {
 	isReadOnlyComputerCall,
 } from "@oh-my-opencode/senpi-desktop-protocol";
 import { type ExecuteTool, runComputerCode } from "@oh-my-opencode/senpi-desktop-service";
-import type { ComputerHandle } from "./activation.ts";
-import { ComputerParams, type ComputerToolParams, DEFAULT_TIMEOUT_SECONDS } from "./params.ts";
-import { type ComputerHostContext, runSnapshot } from "./session.ts";
+import type { ComputerHandle } from "./activation";
+import { ComputerParams, type ComputerToolParams, DEFAULT_TIMEOUT_SECONDS } from "./params";
+import { type ComputerHostContext, runSnapshot } from "./session";
 
 export const COMPUTER_TOOL_NAME = "computer";
 

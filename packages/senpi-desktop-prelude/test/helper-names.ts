@@ -1,4 +1,4 @@
-import { loadJsFacade, runPythonFacade, windowResponder } from "./harness.ts";
+import { loadJsFacade, runPythonFacade, windowResponder } from "./harness";
 
 /** Every JavaScript facade helper: desktop root, clipboard (`clipboard.` prefix), window handle, element handle. */
 export async function javascriptHelperNames(): Promise<string[]> {

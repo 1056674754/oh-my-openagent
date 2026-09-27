@@ -4,7 +4,7 @@ import {
 	type EngineNotification,
 	type StopPathStatus,
 } from "@oh-my-opencode/senpi-desktop-protocol";
-import { isAuditEvent, isStopPathStatus } from "./parse.ts";
+import { isAuditEvent, isStopPathStatus } from "./parse";
 
 export type Unsubscribe = () => void;
 export type Listener<T> = (value: T) => void;

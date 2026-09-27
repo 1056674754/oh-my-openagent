@@ -4,23 +4,23 @@ export {
 	ComputerHandle,
 	type ComputerHandleOptions,
 	type ComputerService,
-} from "./activation.ts";
+} from "./activation";
 export {
 	COMPUTER_COMMAND_USAGE,
 	COMPUTER_SUBCOMMANDS,
 	type ComputerSubcommand,
 	runComputerCommand,
-} from "./command.ts";
-export { type ComputerAction, type ComputerActionsInput, ComputerActionsParams } from "./cua-actions.ts";
+} from "./command";
+export { type ComputerAction, type ComputerActionsInput, ComputerActionsParams } from "./cua-actions";
 export {
 	COMPUTER_ACTIONS_TOOL_NAME,
 	type ComputerActionsTool,
 	computerActionsPermissionParser,
 	createComputerActionsTool,
-} from "./cua-adapter.ts";
-export { defaultStopHotkey, isSupportedHost } from "./host-policy.ts";
-export { ComputerParams, type ComputerToolParams, DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS } from "./params.ts";
-export { COMPUTER_PERMISSION, computerPermissionParser, computerTier, type PermissionRequest } from "./permission.ts";
+} from "./cua-adapter";
+export { defaultStopHotkey, isSupportedHost } from "./host-policy";
+export { ComputerParams, type ComputerToolParams, DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS } from "./params";
+export { COMPUTER_PERMISSION, computerPermissionParser, computerTier, type PermissionRequest } from "./permission";
 export {
 	AUDIT_FILE_NAME,
 	type ComputerHostContext,
@@ -28,15 +28,15 @@ export {
 	runSnapshot,
 	sessionOpenParams,
 	usesCoordinateSafeImageSizing,
-} from "./session.ts";
+} from "./session";
 export {
 	type ComputerSettings,
 	ComputerSettingsError,
 	type ComputerSettingsInput,
 	ComputerSettingsSchema,
 	resolveComputerSettings,
-} from "./settings.ts";
-export { COMPUTER_SKILL_NAME, computerSkillMarkdown, materializeComputerSkill } from "./skill.ts";
+} from "./settings";
+export { COMPUTER_SKILL_NAME, computerSkillMarkdown, materializeComputerSkill } from "./skill";
 export {
 	COMPUTER_TOOL_NAME,
 	type ComputerTool,
@@ -45,4 +45,4 @@ export {
 	type ComputerToolResult,
 	createComputerTool,
 	runComputer,
-} from "./tool.ts";
+} from "./tool";

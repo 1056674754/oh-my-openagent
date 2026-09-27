@@ -3,11 +3,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Check } from "typebox/value";
 import { describe, expect, it } from "vitest";
-import { ComputerHandle } from "../src/activation.ts";
-import { ComputerParams } from "../src/params.ts";
-import { resolveComputerSettings } from "../src/settings.ts";
-import { createComputerTool } from "../src/tool.ts";
-import { closedService } from "./fixtures.ts";
+import { ComputerHandle } from "../src/activation";
+import { ComputerParams } from "../src/params";
+import { resolveComputerSettings } from "../src/settings";
+import { createComputerTool } from "../src/tool";
+import { closedService } from "./fixtures";
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
 

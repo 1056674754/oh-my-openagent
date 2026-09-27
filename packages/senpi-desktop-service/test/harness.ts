@@ -3,7 +3,7 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { vi } from "vitest";
-import type { ChildFactory } from "../src/service/child.ts";
+import type { ChildFactory } from "../src/service/child";
 
 const fakeEngine = path.join(path.dirname(fileURLToPath(import.meta.url)), "fake-engine.mjs");
 const RECEIVED = "recv ";

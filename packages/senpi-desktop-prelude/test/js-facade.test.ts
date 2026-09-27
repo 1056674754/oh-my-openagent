@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { IMAGE, loadJsFacade, WINDOW_SNAPSHOT, windowResponder } from "./harness.ts";
+import { IMAGE, loadJsFacade, WINDOW_SNAPSHOT, windowResponder } from "./harness";
 
 type AsyncBody = new (...parameters: string[]) => (...args: unknown[]) => Promise<unknown>;
 const AsyncFunction: AsyncBody = Object.getPrototypeOf(async () => {}).constructor;

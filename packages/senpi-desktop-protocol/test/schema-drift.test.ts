@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { ENGINE_ABI, ENGINE_METHODS, ENGINE_NOTIFICATIONS, ERROR_CODES, PROTOCOL_VERSION } from "../src/index.ts";
+import { ENGINE_ABI, ENGINE_METHODS, ENGINE_NOTIFICATIONS, ERROR_CODES, PROTOCOL_VERSION } from "../src/index";
 
 const schemaPath = join(
 	dirname(fileURLToPath(import.meta.url)),

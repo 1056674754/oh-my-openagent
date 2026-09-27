@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getDesktopEngineCandidatePaths, locateDesktopEngine } from "../src/locator.ts";
+import { getDesktopEngineCandidatePaths, locateDesktopEngine } from "../src/locator";
 
 const platform = "darwin";
 const arch = "arm64";

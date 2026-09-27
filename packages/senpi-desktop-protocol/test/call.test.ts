@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ComputerCallError, type ComputerCallStep, isReadOnlyComputerCall } from "../src/index.ts";
+import { ComputerCallError, type ComputerCallStep, isReadOnlyComputerCall } from "../src/index";
 
 function rejectionReason(chain: readonly ComputerCallStep[]): string {
 	try {

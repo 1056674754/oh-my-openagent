@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DESKTOP_METHODS, ELEMENT_METHODS, WINDOW_METHODS } from "../src/index.ts";
+import { DESKTOP_METHODS, ELEMENT_METHODS, WINDOW_METHODS } from "../src/index";
 
 /** Every helper a model-facing computer call chain may name; a new one is a deliberate edit here. */
 const CHAIN_METHOD_SNAPSHOT = [

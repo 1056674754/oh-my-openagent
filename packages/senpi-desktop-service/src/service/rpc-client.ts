@@ -1,8 +1,8 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { EngineMethod, ErrorCode, JsonRpcErrorData } from "@oh-my-opencode/senpi-desktop-protocol";
-import { EngineChild } from "./child.ts";
-import { isRecord, parseErrorData } from "./parse.ts";
-import { GRACE_MS, RESTART_MESSAGE } from "./timeouts.ts";
+import { EngineChild } from "./child";
+import { isRecord, parseErrorData } from "./parse";
+import { GRACE_MS, RESTART_MESSAGE } from "./timeouts";
 
 /** Failures the service itself produces; engine failures are `DesktopEngineRpcError`. */
 export type DesktopServiceErrorCode = Extract<ErrorCode, "Timeout" | "Cancelled" | "Closed" | "Internal">;

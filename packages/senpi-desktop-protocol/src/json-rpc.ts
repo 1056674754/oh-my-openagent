@@ -1,5 +1,5 @@
-import type { EngineMethod, EngineNotification, ErrorCode } from "./engine-schema.generated.ts";
-import type { AuditEvent, EngineLog, StopPathStatus } from "./wire.ts";
+import type { EngineMethod, EngineNotification, ErrorCode } from "./engine-schema.generated";
+import type { AuditEvent, EngineLog, StopPathStatus } from "./wire";
 
 /** A JSON-RPC request id: a number or a string, echoed verbatim by the engine. */
 export type RequestId = number | string;

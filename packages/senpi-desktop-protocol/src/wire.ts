@@ -1,4 +1,4 @@
-import type { EngineMethod, ErrorCode } from "./engine-schema.generated.ts";
+import type { EngineMethod, ErrorCode } from "./engine-schema.generated";
 
 /** Which stop path currently guards input. */
 export type StopPathKind = "global" | "host-relay" | "none";

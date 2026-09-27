@@ -5,21 +5,21 @@ export {
 	type RunContext,
 	RunOutput,
 	type RunScope,
-} from "./run/context.ts";
-export type { AxNode, CaptureResult, DesktopDisplay, DesktopWindow } from "./run/engine-results.ts";
-export { createDesktopFacade, type DesktopFacade, type WindowFilter } from "./run/facade.ts";
-export { ElementHandle, WindowHandle } from "./run/handles.ts";
-export { type ComputerRunHost, type ComputerRunRequest, type ExecuteTool, runComputerCode } from "./run/runtime.ts";
-export type { ScreenshotOptions, ScreenshotResult } from "./run/screenshot.ts";
-export { type ChildFactory, DesktopEngineUnavailableError, engineChildFactory } from "./service/child.ts";
-export { DesktopNotificationError, type Listener, type Unsubscribe } from "./service/notifications.ts";
+} from "./run/context";
+export type { AxNode, CaptureResult, DesktopDisplay, DesktopWindow } from "./run/engine-results";
+export { createDesktopFacade, type DesktopFacade, type WindowFilter } from "./run/facade";
+export { ElementHandle, WindowHandle } from "./run/handles";
+export { type ComputerRunHost, type ComputerRunRequest, type ExecuteTool, runComputerCode } from "./run/runtime";
+export type { ScreenshotOptions, ScreenshotResult } from "./run/screenshot";
+export { type ChildFactory, DesktopEngineUnavailableError, engineChildFactory } from "./service/child";
+export { DesktopNotificationError, type Listener, type Unsubscribe } from "./service/notifications";
 export {
 	type CallOptions,
 	DesktopEngineRpcError,
 	DesktopServiceError,
 	type DesktopServiceErrorCode,
-} from "./service/rpc-client.ts";
-export { DesktopService, type DesktopServiceOptions, type DesktopSessionOpenParams } from "./service/service.ts";
+} from "./service/rpc-client";
+export { DesktopService, type DesktopServiceOptions, type DesktopSessionOpenParams } from "./service/service";
 export {
 	CAPABILITIES_TIMEOUT_MS,
 	CLOSE_TIMEOUT_MS,
@@ -28,4 +28,4 @@ export {
 	RESTART_MESSAGE,
 	START_TIMEOUT_MESSAGE,
 	START_TIMEOUT_MS,
-} from "./service/timeouts.ts";
+} from "./service/timeouts";

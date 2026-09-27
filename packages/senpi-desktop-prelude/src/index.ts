@@ -4,7 +4,7 @@ import {
 	COMPUTER_PRELUDE_JAVASCRIPT,
 	COMPUTER_PRELUDE_PYTHON,
 	COMPUTER_SAFETY,
-} from "./assets.generated.ts";
+} from "./assets.generated";
 
 /**
  * Every method a `computer` call chain may name: the union of the protocol's desktop, window, and element tier

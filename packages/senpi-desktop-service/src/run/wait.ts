@@ -1,4 +1,4 @@
-import { ComputerRunError } from "./context.ts";
+import { ComputerRunError } from "./context";
 
 /** Headroom below the run budget so a predicate deadline fails with its own message first. */
 const RUN_BUDGET_SLACK_MS = 1_000;

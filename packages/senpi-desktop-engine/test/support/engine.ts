@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import { locateDesktopEngine } from "../../src/locator.ts";
+import { locateDesktopEngine } from "../../src/locator";
 
 /** Bounds every wait; a hang guard only, no assertion depends on latency. */
 export const HANG_GUARD_MS = 30_000;

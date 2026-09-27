@@ -1,10 +1,10 @@
 import type { ComputerSessionSnapshot } from "@oh-my-opencode/senpi-desktop-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ComputerRunError } from "../src/run/context.ts";
-import { type ExecuteTool, runComputerCode } from "../src/run/runtime.ts";
-import { DesktopEngineRpcError } from "../src/service/rpc-client.ts";
-import { DesktopService } from "../src/service/service.ts";
-import { fakeEngineFactory, rejectionOf, type SpawnLog } from "./harness.ts";
+import { ComputerRunError } from "../src/run/context";
+import { type ExecuteTool, runComputerCode } from "../src/run/runtime";
+import { DesktopEngineRpcError } from "../src/service/rpc-client";
+import { DesktopService } from "../src/service/service";
+import { fakeEngineFactory, rejectionOf, type SpawnLog } from "./harness";
 
 // Every case waits on real child-process I/O; the guard only catches a hang, it never times behavior.
 const HANG_GUARD = { timeout: 30_000 };

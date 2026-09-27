@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { IMAGE, runPythonFacade, WINDOW_SNAPSHOT } from "./harness.ts";
+import { IMAGE, runPythonFacade, WINDOW_SNAPSHOT } from "./harness";
 
 describe("Python computer facade", () => {
 	it("turns keyword arguments into one trailing options object", () => {

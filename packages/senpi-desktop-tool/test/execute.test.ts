@@ -1,11 +1,11 @@
 import { ComputerCallError } from "@oh-my-opencode/senpi-desktop-protocol";
 import type { ExecuteTool } from "@oh-my-opencode/senpi-desktop-service";
 import { afterEach, describe, expect, it } from "vitest";
-import { rejectionOf } from "../../senpi-desktop-service/test/harness.ts";
-import type { ComputerHandle } from "../src/activation.ts";
-import type { ComputerModel } from "../src/session.ts";
-import { createComputerTool } from "../src/tool.ts";
-import { closeDesktops, desktopFixture, hostContext, methodsOf } from "./fixtures.ts";
+import { rejectionOf } from "../../senpi-desktop-service/test/harness";
+import type { ComputerHandle } from "../src/activation";
+import type { ComputerModel } from "../src/session";
+import { createComputerTool } from "../src/tool";
+import { closeDesktops, desktopFixture, hostContext, methodsOf } from "./fixtures";
 
 // Every case waits on real child-process I/O; the guard only catches a hang, it never times behavior.
 const HANG_GUARD = { timeout: 30_000 };

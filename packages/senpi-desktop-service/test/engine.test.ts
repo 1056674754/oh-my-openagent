@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { locateDesktopEngine } from "@oh-my-opencode/senpi-desktop-engine";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DesktopService } from "../src/service/service.ts";
+import { DesktopService } from "../src/service/service";
 
 const scenario = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),

@@ -7,17 +7,17 @@ import {
 	PROTOCOL_VERSION,
 	type StopPathStatus,
 } from "@oh-my-opencode/senpi-desktop-protocol";
-import { type ChildFactory, engineChildFactory } from "./child.ts";
-import { type Listener, NotificationHub, type Unsubscribe } from "./notifications.ts";
-import { isDesktopCapabilities, isStopPathStatus, parseHello, parseSessionOpened } from "./parse.ts";
-import { type CallOptions, DesktopEngineRpcError, DesktopServiceError, RpcClient } from "./rpc-client.ts";
+import { type ChildFactory, engineChildFactory } from "./child";
+import { type Listener, NotificationHub, type Unsubscribe } from "./notifications";
+import { isDesktopCapabilities, isStopPathStatus, parseHello, parseSessionOpened } from "./parse";
+import { type CallOptions, DesktopEngineRpcError, DesktopServiceError, RpcClient } from "./rpc-client";
 import {
 	CAPABILITIES_TIMEOUT_MS,
 	CLOSE_TIMEOUT_MS,
 	HEARTBEAT_MS,
 	START_TIMEOUT_MESSAGE,
 	START_TIMEOUT_MS,
-} from "./timeouts.ts";
+} from "./timeouts";
 
 /** `session.open` params, forwarded verbatim; every policy they configure is enforced by the engine. */
 export interface DesktopSessionOpenParams {

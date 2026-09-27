@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { at, EngineProcess, type Message, TEST_TIMEOUT_MS, TWO_DISPLAYS } from "./support/engine.ts";
+import { at, EngineProcess, type Message, TEST_TIMEOUT_MS, TWO_DISPLAYS } from "./support/engine";
 
 const open: Array<{ readonly client: EngineProcess; readonly dir: string }> = [];
 

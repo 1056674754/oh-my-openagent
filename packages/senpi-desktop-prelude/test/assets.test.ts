@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { ASSETS_MODULE_PATH, renderAssetsModule } from "../scripts/generate-assets.ts";
-import { computerPreludeAssets } from "../src/index.ts";
-import { loadJsFacade, runPythonFacade, windowResponder } from "./harness.ts";
-import { javascriptHelperNames } from "./helper-names.ts";
+import { ASSETS_MODULE_PATH, renderAssetsModule } from "../scripts/generate-assets";
+import { computerPreludeAssets } from "../src/index";
+import { loadJsFacade, runPythonFacade, windowResponder } from "./harness";
+import { javascriptHelperNames } from "./helper-names";
 
 function escapeRegExp(text: string): string {
 	return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -7,7 +7,7 @@ export {
 	HELLO_TIMEOUT_MS,
 	type HelloOptions,
 	helloDesktopEngine,
-} from "./handshake.ts";
+} from "./handshake";
 export {
 	DESKTOP_ENGINE_BINARY,
 	type DesktopEngineLocateDiagnostic,
@@ -21,4 +21,4 @@ export {
 	isQuarantinedFile,
 	locateDesktopEngine,
 	QUARANTINE_ATTRIBUTE,
-} from "./locator.ts";
+} from "./locator";

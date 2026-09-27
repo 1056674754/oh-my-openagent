@@ -5,12 +5,12 @@ import {
 	ComputerActionsParams,
 	isReadOnlyActions,
 	type ScreenshotBounds,
-} from "./cua-actions.ts";
-import { computerFailure } from "./cua-errors.ts";
-import { DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS } from "./params.ts";
-import { COMPUTER_PERMISSION, type PermissionRequest } from "./permission.ts";
-import type { ComputerHostContext } from "./session.ts";
-import { type ComputerToolDeps, type ComputerToolResult, runComputer } from "./tool.ts";
+} from "./cua-actions";
+import { computerFailure } from "./cua-errors";
+import { DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS } from "./params";
+import { COMPUTER_PERMISSION, type PermissionRequest } from "./permission";
+import type { ComputerHostContext } from "./session";
+import { type ComputerToolDeps, type ComputerToolResult, runComputer } from "./tool";
 
 export const COMPUTER_ACTIONS_TOOL_NAME = "computer_actions";
 

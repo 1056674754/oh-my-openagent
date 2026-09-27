@@ -1,5 +1,5 @@
 import { ELEMENT_METHODS, type EngineMethod, WINDOW_METHODS } from "@oh-my-opencode/senpi-desktop-protocol";
-import { type FacadeMethod, facadeMethod, type MethodTiers, type RunScope } from "./context.ts";
+import { type FacadeMethod, facadeMethod, type MethodTiers, type RunScope } from "./context";
 import {
 	type AxNode,
 	type DesktopWindow,
@@ -9,8 +9,8 @@ import {
 	isText,
 	listOf,
 	optional,
-} from "./engine-results.ts";
-import { captureScreenshot, type ScreenshotOptions, type ScreenshotResult } from "./screenshot.ts";
+} from "./engine-results";
+import { captureScreenshot, type ScreenshotOptions, type ScreenshotResult } from "./screenshot";
 
 export interface DeliveryOptions {
 	/** `background` targets the window without focusing it; `foreground` briefly activates it. */

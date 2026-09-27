@@ -1,5 +1,5 @@
-import type { RunScope } from "./context.ts";
-import { type CaptureResult, expectResult, isCaptureResult } from "./engine-results.ts";
+import type { RunScope } from "./context";
+import { type CaptureResult, expectResult, isCaptureResult } from "./engine-results";
 
 export interface ScreenshotOptions {
 	/** Skip displaying the capture to the model. */

@@ -1,6 +1,6 @@
 import type { DesktopCapabilities, StopPathStatus } from "@oh-my-opencode/senpi-desktop-protocol";
-import type { ComputerHandle } from "./activation.ts";
-import type { ComputerHostContext } from "./session.ts";
+import type { ComputerHandle } from "./activation";
+import type { ComputerHostContext } from "./session";
 
 export const COMPUTER_SUBCOMMANDS = ["on", "off", "status", "stop", "resume"] as const;
 export type ComputerSubcommand = (typeof COMPUTER_SUBCOMMANDS)[number];

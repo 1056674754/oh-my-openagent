@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { capture, type EngineProcess, type Message, makeStopPathLive, REPO_ROOT, snapshotRef } from "./engine.ts";
+import { capture, type EngineProcess, type Message, makeStopPathLive, REPO_ROOT, snapshotRef } from "./engine";
 
 /** The fake scenario's only window. */
 export const WINDOW = "101";

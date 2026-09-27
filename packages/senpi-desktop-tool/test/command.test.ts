@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { ComputerDisabledError } from "../src/activation.ts";
-import { COMPUTER_COMMAND_USAGE, runComputerCommand } from "../src/command.ts";
-import { closeDesktops, desktopFixture, hostContext, methodsOf } from "./fixtures.ts";
+import { ComputerDisabledError } from "../src/activation";
+import { COMPUTER_COMMAND_USAGE, runComputerCommand } from "../src/command";
+import { closeDesktops, desktopFixture, hostContext, methodsOf } from "./fixtures";
 
 // Every case waits on real child-process I/O; the guard only catches a hang, it never times behavior.
 const HANG_GUARD = { timeout: 30_000 };

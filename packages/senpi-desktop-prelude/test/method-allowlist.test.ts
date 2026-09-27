@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DESKTOP_METHODS, ELEMENT_METHODS, WINDOW_METHODS } from "../../senpi-desktop-protocol/src/index.ts";
-import { computerPreludeAssets } from "../src/index.ts";
-import { javascriptHelperNames, pythonHelperNames } from "./helper-names.ts";
+import { DESKTOP_METHODS, ELEMENT_METHODS, WINDOW_METHODS } from "../../senpi-desktop-protocol/src/index";
+import { computerPreludeAssets } from "../src/index";
+import { javascriptHelperNames, pythonHelperNames } from "./helper-names";
 
 /** Facade helpers that are tool actions of their own (`run`, `close`), not call-chain methods. */
 const ACTION_HELPERS = new Set(["run", "close"]);

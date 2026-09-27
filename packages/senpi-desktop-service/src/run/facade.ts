@@ -1,6 +1,6 @@
 import { DESKTOP_METHODS, type DesktopCapabilities } from "@oh-my-opencode/senpi-desktop-protocol";
-import { isDesktopCapabilities } from "../service/parse.ts";
-import { ComputerRunError, facadeMethod, type RunScope } from "./context.ts";
+import { isDesktopCapabilities } from "../service/parse";
+import { ComputerRunError, facadeMethod, type RunScope } from "./context";
 import {
 	type DesktopDisplay,
 	type DesktopWindow,
@@ -11,8 +11,8 @@ import {
 	isWindow,
 	listOf,
 	optional,
-} from "./engine-results.ts";
-import { ElementHandle, InputTarget, resolveElement, WindowHandle } from "./handles.ts";
+} from "./engine-results";
+import { ElementHandle, InputTarget, resolveElement, WindowHandle } from "./handles";
 
 export interface WindowFilter {
 	/** Case-insensitive substring of the owning app name. */

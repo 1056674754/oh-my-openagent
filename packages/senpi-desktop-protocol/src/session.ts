@@ -1,5 +1,5 @@
-import type { AuditRecord } from "./audit.ts";
-import type { DesktopCapabilities } from "./wire.ts";
+import type { AuditRecord } from "./audit";
+import type { DesktopCapabilities } from "./wire";
 
 /** Frozen run settings the host hands to the desktop runtime for one `computer` run. */
 export interface ComputerSessionSnapshot {

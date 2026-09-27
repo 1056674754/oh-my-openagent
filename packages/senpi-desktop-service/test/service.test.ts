@@ -1,10 +1,10 @@
 import { DesktopEngineAbiMismatchError } from "@oh-my-opencode/senpi-desktop-engine";
 import type { AuditEvent, StopPathStatus } from "@oh-my-opencode/senpi-desktop-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DesktopServiceError } from "../src/service/rpc-client.ts";
-import { DesktopService } from "../src/service/service.ts";
-import { GRACE_MS, HEARTBEAT_MS, RESTART_MESSAGE, START_TIMEOUT_MS } from "../src/service/timeouts.ts";
-import { exitOf, fakeEngineFactory, rejectionOf, type SpawnLog } from "./harness.ts";
+import { DesktopServiceError } from "../src/service/rpc-client";
+import { DesktopService } from "../src/service/service";
+import { GRACE_MS, HEARTBEAT_MS, RESTART_MESSAGE, START_TIMEOUT_MS } from "../src/service/timeouts";
+import { exitOf, fakeEngineFactory, rejectionOf, type SpawnLog } from "./harness";
 
 // Every case waits on real child-process I/O; the guard only catches a hang, it never times behavior.
 const HANG_GUARD = { timeout: 30_000 };

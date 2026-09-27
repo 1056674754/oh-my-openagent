@@ -1,4 +1,4 @@
-export type { AuditPrimaryError, AuditRecord, AuditStatus } from "./audit.ts";
+export type { AuditPrimaryError, AuditRecord, AuditStatus } from "./audit";
 export {
 	ComputerCallError,
 	type ComputerCallErrorReason,
@@ -8,7 +8,7 @@ export {
 	ELEMENT_METHODS,
 	isReadOnlyComputerCall,
 	WINDOW_METHODS,
-} from "./call.ts";
+} from "./call";
 export {
 	ENGINE_ABI,
 	ENGINE_METHODS,
@@ -18,7 +18,7 @@ export {
 	ERROR_CODES,
 	type ErrorCode,
 	PROTOCOL_VERSION,
-} from "./engine-schema.generated.ts";
+} from "./engine-schema.generated";
 export {
 	type EngineErrorData,
 	type EngineNotificationParams,
@@ -34,7 +34,7 @@ export {
 	type MethodRejectionData,
 	type RequestId,
 	STANDARD_RPC_ERRORS,
-} from "./json-rpc.ts";
+} from "./json-rpc";
 export type {
 	ComputerDisplay,
 	ComputerImageDisplay,
@@ -42,5 +42,5 @@ export type {
 	ComputerScreenshot,
 	ComputerSessionSnapshot,
 	ComputerTextDisplay,
-} from "./session.ts";
-export type { AuditEvent, DesktopCapabilities, EngineLog, LogLevel, StopPathKind, StopPathStatus } from "./wire.ts";
+} from "./session";
+export type { AuditEvent, DesktopCapabilities, EngineLog, LogLevel, StopPathKind, StopPathStatus } from "./wire";

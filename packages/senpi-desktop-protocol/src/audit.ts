@@ -1,4 +1,4 @@
-import type { EngineMethod, ErrorCode } from "./engine-schema.generated.ts";
+import type { EngineMethod, ErrorCode } from "./engine-schema.generated";
 
 /** Outcome of one audited desktop action. */
 export type AuditStatus = "success" | "error" | "suspended";

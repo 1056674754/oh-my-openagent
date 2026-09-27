@@ -7,11 +7,11 @@ import type {
 	ComputerRunOk,
 	ComputerSessionSnapshot,
 } from "@oh-my-opencode/senpi-desktop-protocol";
-import { isRecord } from "../service/parse.ts";
-import type { DesktopService } from "../service/service.ts";
-import { ComputerRunError, type EngineCall, type Resume, type RunContext, RunOutput } from "./context.ts";
-import { createDesktopFacade } from "./facade.ts";
-import { createWait, type WaitOptions } from "./wait.ts";
+import { isRecord } from "../service/parse";
+import type { DesktopService } from "../service/service";
+import { ComputerRunError, type EngineCall, type Resume, type RunContext, RunOutput } from "./context";
+import { createDesktopFacade } from "./facade";
+import { createWait, type WaitOptions } from "./wait";
 
 /** The host's tool pipeline (senpi `executeTool`): validation, permission, and lazy activation stay host-side. */
 export type ExecuteTool = (

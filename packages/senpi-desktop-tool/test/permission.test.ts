@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computerPermissionParser } from "../src/permission.ts";
+import { computerPermissionParser } from "../src/permission";
 
 const windowStep = { method: "window", args: [{ app: "Code" }] };
 

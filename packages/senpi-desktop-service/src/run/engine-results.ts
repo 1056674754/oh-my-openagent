@@ -1,6 +1,6 @@
 import type { EngineMethod } from "@oh-my-opencode/senpi-desktop-protocol";
-import { type FieldSpec, isRecord, isStringArray, matches } from "../service/parse.ts";
-import { DesktopServiceError } from "../service/rpc-client.ts";
+import { type FieldSpec, isRecord, isStringArray, matches } from "../service/parse";
+import { DesktopServiceError } from "../service/rpc-client";
 
 // Result shapes of the engine methods the run facade calls, mirrored from senpi-desktop-core
 // (`DesktopDisplay`, `DesktopWindow`, `AxNode`, `CaptureResult`). Engine stdout is the trust

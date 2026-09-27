@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { computerPreludeAssets } from "../src/index.ts";
+import { computerPreludeAssets } from "../src/index";
 
 /** What a kernel's `tool.<name>()` resolves to (codemode `marshalToolResult`). */
 export interface ToolResult {

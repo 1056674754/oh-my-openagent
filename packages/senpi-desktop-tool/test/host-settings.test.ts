@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { isSupportedHost } from "../src/host-policy.ts";
-import { ComputerSettingsError, resolveComputerSettings } from "../src/settings.ts";
+import { isSupportedHost } from "../src/host-policy";
+import { ComputerSettingsError, resolveComputerSettings } from "../src/settings";
 
 describe("isSupportedHost", () => {
 	it.each(["darwin", "linux", "win32"])("supports %s", (platform) => {

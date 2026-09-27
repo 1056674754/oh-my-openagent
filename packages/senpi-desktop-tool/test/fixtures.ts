@@ -1,9 +1,9 @@
 import { DesktopService } from "@oh-my-opencode/senpi-desktop-service";
 // The desktop-service package's scripted engine: a real NDJSON JSON-RPC child, observed on the wire.
-import { fakeEngineFactory, type SpawnLog } from "../../senpi-desktop-service/test/harness.ts";
-import { ComputerHandle, type ComputerService } from "../src/activation.ts";
-import type { ComputerHostContext, ComputerModel } from "../src/session.ts";
-import { type ComputerSettingsInput, resolveComputerSettings } from "../src/settings.ts";
+import { fakeEngineFactory, type SpawnLog } from "../../senpi-desktop-service/test/harness";
+import { ComputerHandle, type ComputerService } from "../src/activation";
+import type { ComputerHostContext, ComputerModel } from "../src/session";
+import { type ComputerSettingsInput, resolveComputerSettings } from "../src/settings";
 
 /** A service for cases that must never reach the engine: every method rejects. */
 export function closedService(): ComputerService {

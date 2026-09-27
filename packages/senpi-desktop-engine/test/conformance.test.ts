@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { describe, expect, it } from "vitest";
-import { EngineProcess, isMessage, type Message, REPO_ROOT, TEST_TIMEOUT_MS } from "./support/engine.ts";
+import { EngineProcess, isMessage, type Message, REPO_ROOT, TEST_TIMEOUT_MS } from "./support/engine";
 
 // Replays the conformance corpus (`senpi-desktop-core/fixtures/conformance`) against the located engine binary,
 // exactly as the Rust twin `crates/senpi-desktop-engine/tests/conformance_replay.rs` does: each step's messages
