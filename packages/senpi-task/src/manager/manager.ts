@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { log } from "@oh-my-opencode/utils"
 
 import type { DagTaskOwner, DagTaskOwnerKey, OwnedStartResult } from "../dag/owner"
-import { endFallbackHandoff, handOffToNextRung, isFallbackHandoff } from "../lifecycle/fallback-handoff"
+import { endFallbackHandoff, forgetClosedChild, handOffToNextRung, isFallbackHandoff } from "../lifecycle/fallback-handoff"
 import { registerLifecycleReattachPorts, type ReattachResult, type RespawnResult } from "../lifecycle/port"
 import { RunnerError } from "../runners/in-process/runner-error"
 import type { RunnerFailureReason } from "../runners/in-process/child-handle"
@@ -19,6 +19,7 @@ import { createSteeringEngine } from "../steering"
 import type { CancelOptions, CancelOutcome, DestructionPort, InterruptOutcome, SendInput, SendOutcome, SteeringEngine, SteeringPort } from "../steering"
 import { discardManagedHandle, releaseOnDispose, releaseSupersededHandle, type ManagedChildHandle, type ManagedChildListener } from "./child-handle"
 import { TaskConcurrency } from "./concurrency"
+import { failOwnedRun, launchRunOf, ownsRun } from "./launch-fence"
 import { runtimeFallbackCandidates } from "./credential-failure"
 import { createWorkpoolAdmission } from "./workpool-admission"
 import { withResidentStart } from "./resident-start"
@@ -265,7 +266,9 @@ class TaskManagerImpl implements TaskManager {
       tryBeginSend: (taskId) => this.tryBeginSend(taskId),
       endSend: (taskId) => this.endSend(taskId),
       isEvicting: (taskId) => this.isEvicting(taskId),
-      liveHandle: (taskId) => this.#live.get(taskId)?.handle,
+      // A rung that runtime fallback is closing is never steered, interrupted through, or revived: its
+      // handle is being torn down, and the fallback path retires it once the close ends.
+      liveHandle: (taskId) => this.#closingRungs.has(taskId) ? undefined : this.#live.get(taskId)?.handle,
       dequeuePending: (taskId) => {
         const rec = this.#tryLoad(taskId)
         if (rec === null || rec === undefined) return false
@@ -832,12 +835,13 @@ class TaskManagerImpl implements TaskManager {
         }
         const message = publicStartFailureMessage(error)
         this.#releaseSlot(record.task_id, model, record.notification.run_epoch)
-        this.#options.store.transition(record.task_id, { type: "fail", timestamp: nowIso(this.#now), error_message: message })
-        this.#options.store.appendEvent(record.task_id, {
-          type: "task_start_failed",
-          payload: { error_message: message, ...startFailureFacts(error) },
-        })
-        this.#steering.dropPending(record.task_id)
+        if (failOwnedRun(this.#options.store, launchRunOf(record), nowIso(this.#now), message)) {
+          this.#options.store.appendEvent(record.task_id, {
+            type: "task_start_failed",
+            payload: { error_message: message, ...startFailureFacts(error) },
+          })
+          this.#steering.dropPending(record.task_id)
+        }
         this.#settleWaiters(record.task_id)
         return { ok: false, error: message, ...(RunnerError.is(error) ? { failure_kind: error.failure.kind } : {}) }
       }
@@ -1153,8 +1157,9 @@ class TaskManagerImpl implements TaskManager {
     }
 
     live.unsubscribe()
-    this.#live.delete(input.taskId)
+    if (this.#live.get(input.taskId) === live) this.#live.delete(input.taskId)
     this.#releaseSlot(input.taskId, input.model, input.epoch)
+    this.#options.store.mutate(input.taskId, (fresh) => forgetClosedChild(fresh, nextRecord.fallback_closing_child))
 
     this.#options.store.appendEvent(input.taskId, {
       type: "task_model_fallback",
@@ -1220,10 +1225,7 @@ class TaskManagerImpl implements TaskManager {
 
   /** A launch still owns its task only while the task runs on the same epoch under the same owner. */
   #ownsLaunch(context: LaunchContext, fresh: TaskRecord | null | undefined): fresh is TaskRecord {
-    return fresh != null
-      && fresh.status === "running"
-      && fresh.notification.run_epoch === context.record.notification.run_epoch
-      && fresh.host_pid === context.record.host_pid
+    return ownsRun(launchRunOf(context.record), fresh)
   }
 
   /**
@@ -1307,20 +1309,11 @@ class TaskManagerImpl implements TaskManager {
   }
 
   async #launchRuntimeFallback(context: LaunchContext): Promise<void> {
-    const current = this.#tryLoad(context.record.task_id)
-    if (current?.status !== "running") {
-      this.#releaseSlot(
-        context.record.task_id,
-        context.model,
-        context.record.notification.run_epoch,
-      )
-      if (current !== null && current !== undefined && !isTerminalRecord(current)) {
-        this.#options.store.transition(context.record.task_id, {
-          type: "fail",
-          timestamp: nowIso(this.#now),
-          error_message: "Runtime fallback launch aborted before the child could start.",
-        })
-      }
+    // Checked before anything starts: a cancel, an interrupt or another owner that moved the task while
+    // this launch waited (for the old rung's close, or for capacity) must not get a child started.
+    if (!this.#ownsLaunch(context, this.#tryLoad(context.record.task_id))) {
+      this.#releaseSlot(context.record.task_id, context.model, context.record.notification.run_epoch)
+      failOwnedRun(this.#options.store, launchRunOf(context.record), nowIso(this.#now), "Runtime fallback launch aborted before the child could start.")
       this.#settleWaiters(context.record.task_id)
       return
     }
@@ -1344,17 +1337,14 @@ class TaskManagerImpl implements TaskManager {
         context.model,
         context.record.notification.run_epoch,
       )
-      this.#options.store.transition(context.record.task_id, {
-        type: "fail",
-        timestamp: nowIso(this.#now),
-        error_message: message,
-      })
       // The primary launch path records this breadcrumb; a fallback launch that dies must not be the
-      // one failure that leaves the event log with no cause at all.
-      this.#options.store.appendEvent(context.record.task_id, {
-        type: "task_start_failed",
-        payload: { error_message: message, ...startFailureFacts(error) },
-      })
+      // one failure that leaves the event log with no cause at all. A stale attempt records nothing.
+      if (failOwnedRun(this.#options.store, launchRunOf(context.record), nowIso(this.#now), message)) {
+        this.#options.store.appendEvent(context.record.task_id, {
+          type: "task_start_failed",
+          payload: { error_message: message, ...startFailureFacts(error) },
+        })
+      }
       this.#settleWaiters(context.record.task_id)
       return
     }

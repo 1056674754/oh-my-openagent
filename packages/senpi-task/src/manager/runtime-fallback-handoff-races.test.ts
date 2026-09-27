@@ -25,19 +25,27 @@ function rung(id: string): ResolvedModelRecord {
 }
 
 class SlowCloseRunner extends FakeRunner {
+  constructor(readonly kind: "host-session" | "in-process") {
+    super()
+  }
+
   readonly closing = Promise.withResolvers<void>()
   readonly finishClose = Promise.withResolvers<void>()
+  closeFailure: Error | undefined
+  nextStart: (() => Promise<void>) | undefined
 
   override async start(spec: ManagedStartSpec): Promise<ManagedChildHandle> {
     const handle = await super.start(spec)
+    if (spec.model === NEXT && this.nextStart !== undefined) await this.nextStart()
     const hostSession = { socket: "/tmp/dh-fake/rpc.sock", routingId: `routing-${spec.model}`, sessionPath: `/tmp/dh-fake/${spec.taskId}.jsonl`, instanceId: "fake" }
     return Object.assign(handle, {
-      kind: "host-session" as const,
-      hostSession,
+      kind: this.kind,
+      ...(this.kind === "host-session" ? { hostSession } : {}),
       dispose: async () => {
         if (spec.model !== FIRST) return
         this.closing.resolve()
         await this.finishClose.promise
+        if (this.closeFailure !== undefined) throw this.closeFailure
       },
     })
   }
@@ -59,8 +67,8 @@ function interceptableStore(base: TaskRecordStore, hook: { current?: MutateHook 
   })
 }
 
-function lane() {
-  const runner = new SlowCloseRunner()
+function lane(kind: "host-session" | "in-process" = "host-session") {
+  const runner = new SlowCloseRunner(kind)
   const mutateHook: { current?: MutateHook } = {}
   const store = interceptableStore(createTaskRecordStore({ project_dir: tempProject() }), mutateHook)
   const config = settings({ default_execution_mode: "process", default_concurrency: 1, global_concurrency: 1 })
@@ -146,6 +154,140 @@ describe("runtime fallback handoff races", () => {
         // then
         expect(f.concurrency.leaseState(task.task_id, 0)).toBeUndefined()
         expect(f.concurrency.leaseState(task.task_id, 1)).toBeUndefined()
+        expect(f.runner.startedSpecs.filter((spec) => spec.model === NEXT)).toEqual([])
+        expect(following.kind === "started" ? f.store.load(following.task_id)?.status : following.kind).toBe("running")
+      } finally {
+        f.dispose()
+      }
+    })
+  }
+
+  for (const close of ["resolves", "rejects"] as const) {
+    test(`#given an interrupt while the failed rung is closing #when the task is continued before the close ${close} #then the closing rung is not revived and nothing is stranded`, async () => {
+      // given
+      const f = lane()
+      const task = await f.manager.start(baseSpec({ name: "fallback", execution_mode: "process" }))
+      if (task.kind !== "started") throw new Error("expected the task to start")
+      const first = f.runner.handles.get(task.task_id)
+      if (first === undefined) throw new Error("expected the first rung's handle")
+      const unsubscribed = first.waitForUnsubscription()
+      if (close === "rejects") f.runner.closeFailure = new Error("controlled close failure")
+
+      try {
+        // when
+        first.settle({ status: "error", failure: { kind: "child-turn-failed", message: "500: upstream overloaded" } })
+        await f.runner.closing.promise
+        expect((await f.manager.interruptTask(task.task_id)).kind).toBe("interrupted")
+        const continued = await f.manager.continueTask(task.task_id, "continue now")
+        f.runner.finishClose.resolve()
+        await unsubscribed
+        const following = await f.manager.start(baseSpec({ name: "following", execution_mode: "process" }))
+
+        // then
+        expect(continued.kind).not.toBe("continued")
+        expect(first.followUpCalls).toEqual([])
+        expect(f.store.load(task.task_id)?.status).toBe("interrupted")
+        expect(f.concurrency.leaseState(task.task_id, 0)).toBeUndefined()
+        expect(f.concurrency.leaseState(task.task_id, 1)).toBeUndefined()
+        expect(f.concurrency.leaseState(task.task_id, 2)).toBeUndefined()
+        expect(following.kind === "started" ? f.store.load(following.task_id)?.status : following.kind).toBe("running")
+      } finally {
+        f.dispose()
+      }
+    })
+  }
+
+  test("#given another owner takes the handoff while the failed rung is closing #when the close finishes #then the obsolete next rung is never started", async () => {
+    // given
+    const f = lane()
+    const task = await f.manager.start(baseSpec({ name: "fallback", execution_mode: "process" }))
+    if (task.kind !== "started") throw new Error("expected the task to start")
+    const first = f.runner.handles.get(task.task_id)
+    if (first === undefined) throw new Error("expected the first rung's handle")
+    const unsubscribed = first.waitForUnsubscription()
+
+    try {
+      // when
+      first.settle({ status: "error", failure: { kind: "child-turn-failed", message: "500: upstream overloaded" } })
+      await f.runner.closing.promise
+      f.store.mutate(task.task_id, (record) => ({ ...record, host_pid: OWNER_PID + 1, notification: { ...record.notification, run_epoch: 2 } }))
+      f.runner.finishClose.resolve()
+      await unsubscribed
+      const following = await f.manager.start(baseSpec({ name: "following", execution_mode: "process" }))
+
+      // then
+      expect(f.runner.startedSpecs.filter((spec) => spec.model === NEXT)).toEqual([])
+      expect(f.store.load(task.task_id)).toMatchObject({ status: "running", host_pid: OWNER_PID + 1, notification: { run_epoch: 2 } })
+      expect(f.concurrency.leaseState(task.task_id, 1)).toBeUndefined()
+      expect(following.kind === "started" ? f.store.load(following.task_id)?.status : following.kind).toBe("running")
+    } finally {
+      f.dispose()
+    }
+  })
+
+  test("#given another owner takes the task while the next rung starts #when that start rejects #then the newer owner's run is not failed", async () => {
+    // given
+    const f = lane()
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    f.runner.nextStart = async () => {
+      entered.resolve()
+      await release.promise
+      throw new Error("transport start rejected")
+    }
+    const task = await f.manager.start(baseSpec({ name: "fallback", execution_mode: "process" }))
+    if (task.kind !== "started") throw new Error("expected the task to start")
+    const first = f.runner.handles.get(task.task_id)
+    if (first === undefined) throw new Error("expected the first rung's handle")
+    const nextRungSettled = Promise.withResolvers<void>()
+    const releaseLease = f.concurrency.releaseLease.bind(f.concurrency)
+    f.concurrency.releaseLease = (taskId: string, runEpoch: number) => {
+      releaseLease(taskId, runEpoch)
+      if (taskId === task.task_id && runEpoch === 1) nextRungSettled.resolve()
+    }
+
+    try {
+      // when
+      first.settle({ status: "error", failure: { kind: "child-turn-failed", message: "500: upstream overloaded" } })
+      f.runner.finishClose.resolve()
+      await entered.promise
+      f.store.mutate(task.task_id, (record) => ({ ...record, host_pid: OWNER_PID + 1, notification: { ...record.notification, run_epoch: record.notification.run_epoch + 1 } }))
+      release.resolve()
+      await nextRungSettled.promise
+
+      // then
+      expect(f.store.load(task.task_id)).toMatchObject({ status: "running", host_pid: OWNER_PID + 1 })
+    } finally {
+      f.dispose()
+    }
+  })
+
+  for (const [ending, kind] of [["interrupt", "host-session"], ["cancel", "host-session"], ["interrupt", "in-process"], ["cancel", "in-process"]] as const) {
+    test(`#given a ${kind} rung whose close rejects #when the task was ${ending === "interrupt" ? "interrupted" : "cancelled"} during it #then the unclosed child keeps a cleanup owner and no lease is stranded`, async () => {
+      // given
+      const f = lane(kind)
+      f.runner.closeFailure = new Error("controlled close failure")
+      const task = await f.manager.start(baseSpec({ name: "fallback", execution_mode: "process" }))
+      if (task.kind !== "started") throw new Error("expected the task to start")
+      const first = f.runner.handles.get(task.task_id)
+      if (first === undefined) throw new Error("expected the first rung's handle")
+      const unsubscribed = first.waitForUnsubscription()
+
+      try {
+        // when
+        first.settle({ status: "error", failure: { kind: "child-turn-failed", message: "500: upstream overloaded" } })
+        await f.runner.closing.promise
+        const ended = ending === "interrupt" ? f.manager.interruptTask(task.task_id) : f.manager.cancelTask(task.task_id)
+        f.runner.finishClose.resolve()
+        await ended.catch(() => undefined)
+        await unsubscribed
+        const following = await f.manager.start(baseSpec({ name: "following", execution_mode: "process" }))
+
+        // then: a daemon session goes back on the record for the orphan path; an in-process child,
+        // which nothing outside this process can reach, stays resident as its own cleanup owner
+        if (kind === "host-session") expect(f.store.load(task.task_id)?.host_session?.session_path).toBe(`/tmp/dh-fake/${task.task_id}.jsonl`)
+        else expect(f.manager.getResidentHandle(task.task_id)).toBeDefined()
+        expect(f.concurrency.leaseState(task.task_id, 0)).toBeUndefined()
         expect(f.runner.startedSpecs.filter((spec) => spec.model === NEXT)).toEqual([])
         expect(following.kind === "started" ? f.store.load(following.task_id)?.status : following.kind).toBe("running")
       } finally {
