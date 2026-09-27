@@ -5,22 +5,15 @@ import { Type, type Static } from "typebox"
 
 export const FACTS_RECORD_TOOL_NAME = "record_fact"
 
-const FactsRecordParams = Type.Union([
-  Type.Object({
-    scope: Type.Literal("person"),
-    person: Type.Object({
-      name: Type.String(),
-      aliases: Type.Array(Type.String()),
-    }, { additionalProperties: false }),
-    text: Type.String(),
-    date: Type.String(),
-  }, { additionalProperties: false }),
-  Type.Object({
-    scope: Type.Literal("project"),
-    text: Type.String(),
-    date: Type.String(),
-  }, { additionalProperties: false }),
-])
+const FactsRecordParams = Type.Object({
+  scope: Type.Union([Type.Literal("person"), Type.Literal("project")]),
+  person: Type.Optional(Type.Object({
+    name: Type.String(),
+    aliases: Type.Array(Type.String()),
+  }, { additionalProperties: false })),
+  text: Type.String(),
+  date: Type.String(),
+}, { additionalProperties: false })
 
 type FactsRecordParams = Static<typeof FactsRecordParams>
 export type FactsRecordToolResult = AgentToolResult<undefined> & { readonly isError?: boolean }

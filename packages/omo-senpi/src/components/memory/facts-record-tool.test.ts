@@ -6,6 +6,15 @@ import { join } from "node:path"
 import { createFactsRecordTool } from "./facts-record-tool"
 
 describe("facts record tool", () => {
+  test("#given the registered record_fact schema #when inspected #then it is a top-level object for provider tool contracts", () => {
+    // given
+    const tool = createFactsRecordTool({ extractionPath: "/tmp/facts-record-tool-test.jsonl" })
+
+    // when / then
+    expect(tool.parameters.type).toBe("object")
+    expect("anyOf" in tool.parameters).toBe(false)
+  })
+
   test("#given malformed records #when the tool is called #then it returns errors and appends nothing", async () => {
     // given
     const root = await mkdtemp(join(tmpdir(), "facts-record-tool-"))

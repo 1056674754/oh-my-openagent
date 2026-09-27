@@ -8,7 +8,7 @@ import { runDoctor } from "./doctor.js"
 import { ensureEnginePrepared } from "./engine-prepare.js"
 import { migrateLegacyBunGlobalManifest } from "./legacy-bun-global-migration.js"
 import { adoptLegacyFlatState, canonicalAgentDir } from "./agent-dir.js"
-import { nearestNodeBin, packageManifest, packageRoot, readJson, resolveSenpi, updateTarget } from "./package-paths.js"
+import { nearestNodeBin, packageManifest, packageRoot, readJson, releaseBanner, releaseChannel, resolveSenpi, updateTarget } from "./package-paths.js"
 import { runSelfUpdate } from "./self-update.js"
 import { detectHarnesses } from "./setup-detect.js"
 import { readSetupSuggestionCache, spawnSetupSuggestionRefresh } from "./setup-detect-cache.js"
@@ -63,7 +63,7 @@ function brandProfile() {
     ...(changelog ? { changelog } : {}),
     update: {
       packageName: "omo-ai",
-      distTag: "beta",
+      distTag: releaseChannel(),
       command: update.command,
       changelogUrl: "https://github.com/code-yeongyu/oh-my-openagent/releases",
     },
@@ -251,7 +251,7 @@ export async function runLauncher(args = process.argv.slice(2)) {
     return
   }
   if (isInteractiveDefault(args)) {
-    notice(`omo (omo-ai beta ${packageManifest().version})`)
+    notice(releaseBanner())
     if (process.stdout.isTTY === true && setupSuggestionForLaunch()) {
       notice("omo: sibling credentials detected; run `omo setup` to review them")
     }
