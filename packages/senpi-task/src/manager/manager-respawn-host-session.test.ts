@@ -549,6 +549,54 @@ describe("respawn of a daemon-hosted child", () => {
     expect(prompts(host)).toEqual([])
   })
 
+  const IN_TURN_ROWS = [
+    { type: "custom_message", customType: "unknown.in-turn-note", content: "note", display: false },
+    { type: "custom", customType: "unknown.in-turn-state", data: {} },
+  ]
+
+  for (const inTurn of IN_TURN_ROWS) {
+    test(`#given a continued turn holding a ${inTurn.type} row that was interrupted again #when a restarted host reopens it #then only one continuation is sent in total`, async () => {
+      // given - the transcript-writing host persists the first continuation; another row, a tool
+      // call and its result follow before the host stops again
+      const tool = TOOL_TURN_IN_FLIGHT.slice(1)
+
+      // when
+      const total = await continuationsOverTwoReopens([inTurn, ...tool, BOOKKEEPING_ROWS[0]])
+
+      // then
+      expect(total).toBe(1)
+    })
+  }
+
+  test("#given an interrupted turn holding a malformed JSONL record #when the host reopens the session #then no continuation is guessed", async () => {
+    // given
+    const project = tempProject()
+    const [user, ...tool] = TOOL_TURN_IN_FLIGHT
+    const path = join(project, "torn-in-turn.jsonl")
+    const rows = [user, '{"type":"custom","customType":', ...tool, ...BOOKKEEPING_ROWS]
+    writeFileSync(path, `${rows.map((row) => (typeof row === "string" ? row : JSON.stringify(row))).join("\n")}\n`)
+    const calls: HostRespawnCalls = { specs: [], switched: [], followUps: [] }
+
+    // when
+    const result = await respawnManagedTask({
+      beforeLaunch: () => undefined,
+      record: hostRecord(project, {
+        socket: "/tmp/dh-fake/rpc.sock",
+        routing_id: "routing-torn-in-turn",
+        session_path: path,
+        instance_id: "instance-1",
+      }),
+      sessionPath: path,
+      stateDir: project,
+      runners: unusedManagedRunners(),
+      rpcRunner: hostRunner(calls, "reopened"),
+    })
+
+    // then
+    expect(result.ok).toBe(true)
+    expect(calls.followUps).toEqual([])
+  })
+
   test("#given a host that is draining an old generation #when open_session reports session_path_in_use #then respawn defers as host_draining with the advertised delay", async () => {
     // given
     const project = tempProject()
@@ -610,6 +658,36 @@ function recordingRunner(host: FakeHost) {
       return handle
     },
   }
+}
+
+/**
+ * Reopens an interrupted tool turn on a transcript-writing fake host, lets `afterContinuation`
+ * land after the persisted continuation prompt, restarts the host and reopens again; returns every
+ * prompt the host received across both reopens.
+ */
+async function continuationsOverTwoReopens(afterContinuation: readonly unknown[]): Promise<number> {
+  const project = tempProject()
+  const reopenRows = BOOKKEEPING_ROWS.slice(1)
+  const path = transcriptOf(project, "reopened-twice.jsonl", [...TOOL_TURN_IN_FLIGHT, BOOKKEEPING_ROWS[0], ...reopenRows])
+  const host = await harness.fakeHost({ transcripts: true })
+  const input = {
+    beforeLaunch: () => undefined,
+    record: hostRecord(project, realIdentity(host, path), REAL_MODEL),
+    sessionPath: path,
+    stateDir: project,
+    runners: unusedManagedRunners(),
+    rpcRunner: harness.runnerOver(host),
+  }
+  const first = await respawnManagedTask(input)
+  if (!first.ok) throw new Error("first reopen failed")
+  const disconnected = host.waitForConnections(0)
+  await first.handle.dispose()
+  await disconnected
+  await host.restart()
+  appendFileSync(path, [...afterContinuation, ...reopenRows].map((row) => `${JSON.stringify(row)}\n`).join(""))
+  const second = await respawnManagedTask(input)
+  if (second.ok) await second.handle.dispose()
+  return host.commands.filter((command) => command.type === "prompt").length
 }
 
 /** Each prompt the host received, reduced to its delivery mode - the continuation's wording is never pinned. */

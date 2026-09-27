@@ -45,9 +45,12 @@ type ConversationTail = {
 // conversation turn. The nearest user message is the durable marker for whether this turn is our
 // own already-delivered continuation, including when another host stop appended an aborted assistant
 // row after it. Start with the normal 64 KiB tail and grow backwards whenever the window's complete
-// records are exhausted (an oversized record, or a long bookkeeping run). A malformed record or an
-// entry of an unknown type ends the walk undecided: it is never skipped to reinterpret an earlier
-// user message as unanswered.
+// records are exhausted (an oversized record, or a long bookkeeping run). Before the last message is
+// found, an entry of an unknown type ends the walk undecided: it is never skipped to reinterpret an
+// earlier user message as unanswered. Once the last message is known, the search for the turn's
+// opening user message walks past every other row (a hook's custom_message, an extension's custom
+// entry), so such a row can never hide our own continuation prompt. A malformed record throws at any
+// point, which the caller reads as no continuation.
 async function readConversationTail(sessionPath: string): Promise<ConversationTail | undefined> {
   const file = await open(sessionPath, "r")
   try {
@@ -81,7 +84,7 @@ async function readConversationTail(sessionPath: string): Promise<ConversationTa
             return { lastMessage }
           }
         }
-        if (verdict.kind === "stop") return lastMessage === undefined ? undefined : { lastMessage }
+        if (verdict.kind === "stop" && lastMessage === undefined) return undefined
       }
       if (start === 0) return lastMessage === undefined ? undefined : { lastMessage }
       processedTailLines = complete.length
