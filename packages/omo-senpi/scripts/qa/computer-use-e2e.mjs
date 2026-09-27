@@ -176,6 +176,22 @@ const scenarios = [
       ["eval sees the computer global", resultText(results.find((r) => r.toolName === "eval")).includes("object")],
     ],
   },
+  {
+    // Discovery the way a model reaches a deferred tool: search the catalog, then call the match by name.
+    name: "tool-search-discovers-computer",
+    permission: undefined,
+    steps: [
+      { type: "tool_call", name: "tool_search", arguments: { query: "control the desktop: screenshot, click and type in apps" } },
+      { type: "tool_call", name: "computer", arguments: screenshotChain },
+      { type: "tool_call", name: "eval", arguments: { language: "js", code: "return typeof computer", summary: "probe" } },
+      { type: "text", text: "done" },
+    ],
+    verify: ({ results }) => [
+      ["tool_search returns computer", resultText(results.find((r) => r.toolName === "tool_search")).includes("computer")],
+      ["the searched tool runs by name", results.find((r) => r.toolName === "computer")?.isError === false],
+      ["eval then sees the computer global", resultText(results.find((r) => r.toolName === "eval")).includes("object")],
+    ],
+  },
 ]
 
 if (!senpiBin) {

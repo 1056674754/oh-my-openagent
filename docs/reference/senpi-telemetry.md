@@ -165,6 +165,17 @@ The curated plan agents were renamed to `plan-consultant` and `plan-reviewer`; `
 | `category_config` | `config_generation` | `number` | - |
 | `category_config` | `source` | `string` | `startup`, `reload`, `new`, `resume`, `fork` |
 | `category_config` | `user_category_count` | `number` | - |
+| `process_crashed` | `$os` | `string` | - |
+| `process_crashed` | `arch` | `string` | - |
+| `process_crashed` | `crashed_bun_version` | `string` | - |
+| `process_crashed` | `crashed_engine_version` | `string` | - |
+| `process_crashed` | `crashed_omo_version` | `string` | - |
+| `process_crashed` | `detection` | `string` | `supervisor`, `parent`, `unclean_exit`, `unknown` |
+| `process_crashed` | `exit_code` | `number` | - |
+| `process_crashed` | `process_kind` | `string` | `interactive`, `print`, `json`, `rpc-host`, `task-child`, `unknown` |
+| `process_crashed` | `signal` | `string` | `SIGSEGV`, `SIGBUS`, `SIGILL`, `SIGTRAP`, `SIGABRT`, `SIGFPE`, `SIGKILL`, `SIGTERM`, `SIGHUP`, `SIGINT`, `SIGQUIT`, `SIGSYS`, `other`, `none`, `unknown` |
+| `process_crashed` | `uptime_bucket` | `string` | `lt_1m`, `1_10m`, `10_60m`, `1_6h`, `6_24h`, `24h_plus` |
+| `process_crashed` | `uptime_ms` | `number` | - |
 <!-- END GENERATED SCHEMA -->
 
 ### Parallelism v2 interpretation
@@ -221,6 +232,15 @@ Every cost or time dashboard must publish its coverage column alongside the aggr
 #### Country queries and delayed delivery
 
 GeoIP country is derived server side from the transport's sending IP at delivery time. For rows delivered late, that IP belongs to whatever network the draining host is on, not the network where the task executed. Country queries must therefore exclude rows with `start_reason = 'session_resume'` or `stats_status = 'unavailable'`. VPNs, proxies, mobile routing, and missing GeoIP data further limit accuracy; treat country as approximate.
+
+### Process crash events
+
+A process that dies natively cannot report its own death, so `process_crashed` is sent by the NEXT OmO process to start, once per crash. The crash is recorded locally at the time it happens: the RPC host supervisor records its child's exit (`detection = 'supervisor'`), a task runner records a process-mode child it did not ask to stop (`detection = 'parent'`), and an interactive or print process that ends without running any exit handler leaves a lifetime marker that the next start turns into a record (`detection = 'unclean_exit'`). An unclean exit proves the death but not its cause, so its `signal` is `unknown`, and it also counts a `SIGKILL` from outside (an OOM kill, `kill -9`) as a crash.
+
+- `crashed_bun_version`, `crashed_engine_version`, and `crashed_omo_version` are the versions of the process that died, not the reporter's. Per-version crash rates must group on them, never on `package_version`, which belongs to the reporting process. A value that is not version-shaped, or was not recorded (records written before the field existed), is `unknown`.
+- `uptime_ms` for an unclean exit runs to the last one-minute heartbeat, so it is short by up to a minute. Exit-code crashes carry `signal = 'none'` plus `exit_code`.
+- Records older than 14 days are never sent, and at most 20 crashes are sent per start; the rest wait for later starts. The event timestamp is the report time, not the crash time.
+- Opting out sends nothing and leaves the local records unread. Crash records never carry a stack, a path, a prompt, or session content.
 
 ## Identity model
 

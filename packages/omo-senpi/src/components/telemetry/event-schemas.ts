@@ -1,6 +1,7 @@
 import { CURATED_READONLY_AGENT_NAMES } from "@oh-my-opencode/senpi-task/agents-builtin"
 import { BUILTIN_CATEGORY_DEFAULTS } from "@oh-my-opencode/senpi-task/category-builtins"
 import { CATEGORY_CONFIG_SCHEMA } from "./category-config-schema"
+import { PROCESS_CRASHED_SCHEMA } from "./crash-schema"
 import { buildDelegationCompletedSchema } from "./delegation-schema"
 import { KIBITZER_SUMMARY_SCHEMA } from "./kibitzer-schema"
 import { KNOWN_MODELS, KNOWN_PROVIDERS } from "./model-vocabulary"
@@ -111,6 +112,7 @@ export const OMO_NATIVE_EVENT_SCHEMAS = Object.freeze({
     models: [...new Set(Object.values(KNOWN_MODELS).flat()), "custom"],
   }),
   category_config: CATEGORY_CONFIG_SCHEMA,
+  process_crashed: PROCESS_CRASHED_SCHEMA,
 } as const)
 
 export const OMO_NATIVE_PROPERTY_ALLOWLISTS = Object.freeze(Object.fromEntries(
