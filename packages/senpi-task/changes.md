@@ -1,3 +1,18 @@
+## The task record lock never deletes a lock another process holds
+
+`store/record-lock.ts`: a waiter that found the lock file gone (released between its failed create and its
+stat) treated it as stale and deleted the path - by then often a lock another process had just taken, so
+two writers ran the read-modify-write at once and one's update was lost (16 processes registering 25
+stores each in the store index lost up to 17 entries). A missing lock now just retries the create. An
+expired lock (mtime older than `LOCK_STALE_MS`) is renamed away and removed only when the renamed file is
+still the lock that was judged expired (device, inode, mtime and body); a lock a fresh holder published in
+between is linked back. Each acquisition writes a token, and release removes the lock only while it still
+carries that token, so a holder whose lock expired never deletes its successor's. The lock guards every
+task record, workpool, admission lease, store index and sidecar write.
+
+Tests: `store/record-lock.test.ts` (new), `rpc-host/store-index.test.ts` (16 writer processes x 25
+stores, `rpc-host/__fixtures__/register-stores.ts`).
+
 ## A daemon child opens, reattaches and revives only on the endpoint its record names
 
 `runners/rpc-host/daemon.ts`: `ensureTaskDaemon` takes an explicit `socket` (the operator commands keep

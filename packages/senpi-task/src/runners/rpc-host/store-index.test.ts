@@ -73,4 +73,24 @@ describe("registerStoreIndex", () => {
     // then
     expect(failure).toBeInstanceOf(StoreIndexUnavailableError)
   })
+
+  test("#given 16 processes each registering 25 distinct stores at once #when they all finish #then every one of the 400 stores is in the index", async () => {
+    // given
+    const path = indexPath()
+    const writer = join(import.meta.dir, "__fixtures__", "register-stores.ts")
+
+    // when
+    const writers = Array.from({ length: 16 }, (_, writerIndex) =>
+      Bun.spawn([process.execPath, writer, path, `p${writerIndex}`, "25"], { stdout: "pipe", stderr: "pipe" }),
+    )
+    const failed = (
+      await Promise.all(
+        writers.map(async (child) => ({ code: await child.exited, stderr: await new Response(child.stderr).text() })),
+      )
+    ).filter((exit) => exit.code !== 0)
+
+    // then
+    expect(failed).toEqual([])
+    expect(Object.keys(readTaskStoreIndex(path).stores)).toHaveLength(400)
+  }, 60_000)
 })
