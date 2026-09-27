@@ -36,8 +36,8 @@ impl Win32Input {
         id: &str,
         body: impl FnOnce(&mut Self, Window) -> CoreResult<T>,
     ) -> CoreResult<T> {
-        self.preserve_new_focus = false;
         let target = Window::target(id, self.integrity)?;
+        self.last_takeover_target = Some(target);
         let previous = native::foreground();
         activate(id, target)?;
         let result = body(self, target);
@@ -58,14 +58,25 @@ impl Win32Input {
         if let Some(previous) = restore {
             // Refused restores are reported by the session's transaction.
             let _restored = native::set_foreground(previous);
-        } else if current.is_some_and(|current| {
-            current != previous.unwrap_or(current)
-                && current != target
-                && current.root_owner() != target
-        }) {
-            self.preserve_new_focus = true;
         }
         result.and_then(|value| delivered.map(|()| value))
+    }
+
+    pub(crate) fn should_restore_front(&mut self, previous_id: &str) -> CoreResult<bool> {
+        let Some(target) = self.last_takeover_target.take() else {
+            return Ok(true);
+        };
+        let previous = Window::parse(previous_id)?;
+        let Some(current) = native::foreground() else {
+            return Ok(true);
+        };
+        Ok(restore_target(
+            previous.address(),
+            target.address(),
+            current.address(),
+            current.root_owner().address(),
+        )
+        .is_some())
     }
 }
 

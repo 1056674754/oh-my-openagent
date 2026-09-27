@@ -173,13 +173,14 @@ impl Backend for Win32Backend {
     }
 
     fn restore_front_window(&mut self, front: &FrontWindow) -> CoreResult<()> {
-        if self
-            .input
-            .as_mut()
-            .is_ok_and(Win32Input::take_preserve_new_focus)
-        {
+        let Some(id) = front.window_id.as_deref() else {
             return Ok(());
+        };
+        if let Ok(input) = self.input.as_mut() {
+            if !input.should_restore_front(id)? {
+                return Ok(());
+            }
         }
-        front.window_id.as_deref().map_or(Ok(()), input::raise_window)
+        input::raise_window(id)
     }
 }

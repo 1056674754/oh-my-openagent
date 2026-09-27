@@ -46,7 +46,7 @@ pub(crate) struct Win32Input {
     pub(super) enigo: Enigo,
     pub(super) held: Held,
     pub(super) integrity: IntegrityRid,
-    pub(super) preserve_new_focus: bool,
+    pub(super) last_takeover_target: Option<Window>,
 }
 
 impl Win32Input {
@@ -64,7 +64,7 @@ impl Win32Input {
             enigo,
             held: Held::default(),
             integrity,
-            preserve_new_focus: false,
+            last_takeover_target: None,
         })
     }
 
@@ -229,10 +229,6 @@ impl Win32Input {
             result = result.and(self.transition(via, held.vk, false));
         }
         result
-    }
-
-    pub(crate) fn take_preserve_new_focus(&mut self) -> bool {
-        std::mem::take(&mut self.preserve_new_focus)
     }
 }
 
