@@ -80,12 +80,6 @@ function toolActivatedNames(payload: unknown): readonly string[] {
   return Array.isArray(names) ? names.filter((name): name is string => typeof name === "string") : []
 }
 
-function computerToolCall(payload: unknown): boolean {
-  if (typeof payload !== "object" || payload === null) return false
-  const toolName = Reflect.get(payload, "toolName")
-  return toolName === COMPUTER_TOOL_NAME || toolName === COMPUTER_ACTIONS_TOOL_NAME
-}
-
 /**
  * Desktop computer use: the search-exposed `computer` tool (with its `kernelPrelude` and read/exec
  * `permissionParser`), `computer_actions` behind `computer.cua_adapter`, `/computer`, and the skill.
@@ -129,7 +123,7 @@ export function createComputerUseComponent(options: ComputerUseComponentOptions 
         handle: ComputerHandle
         service: TrackedDesktopService
         host: ComputerHostApi
-        runtime: { backend: string; telemetryContext: unknown }
+        runtime: { backend: string; telemetryContext: unknown; activationReported: boolean }
       } | undefined
 
       pi.registerCommand("computer", {
@@ -152,6 +146,7 @@ export function createComputerUseComponent(options: ComputerUseComponentOptions 
           try {
             const text = await runComputerCommand(args, handle, commandCtx)
             if (command === "on" && !wasActive && handle.active) {
+              session.runtime.activationReported = true
               const capabilities = await service.capabilities()
               session.runtime.backend = capabilities.backend
               telemetry.activation({
@@ -162,6 +157,7 @@ export function createComputerUseComponent(options: ComputerUseComponentOptions 
               })
               telemetry.osPermissions(commandCtx, capabilities)
             } else if (command === "off" && wasActive && !handle.active) {
+              session.runtime.activationReported = false
               telemetry.activation({
                 context: commandCtx,
                 active: false,
@@ -184,9 +180,10 @@ export function createComputerUseComponent(options: ComputerUseComponentOptions 
 
       if (available === undefined) return
       const { settings } = available
-      const runtime: { backend: string; telemetryContext: unknown } = {
+      const runtime: { backend: string; telemetryContext: unknown; activationReported: boolean } = {
         backend: "unavailable",
         telemetryContext: undefined,
+        activationReported: false,
       }
       const service = new TrackedDesktopService({
         createChild: engineChild(settings.enginePath),
@@ -209,18 +206,14 @@ export function createComputerUseComponent(options: ComputerUseComponentOptions 
       const executeTool = host.executeTool
       pi.registerTool({
         ...createComputerTool({ handle, executeTool }),
-        permissionParser: (input: Record<string, unknown>, cwd: string) => {
-          telemetry.permissionRequested(COMPUTER_TOOL_NAME, input)
-          return computerPermissionParser(COMPUTER_TOOL_NAME, input, cwd)
-        },
+        permissionParser: (input: Record<string, unknown>, cwd: string) =>
+          computerPermissionParser(COMPUTER_TOOL_NAME, input, cwd),
       })
       if (settings.cuaAdapter) {
         pi.registerTool({
           ...createComputerActionsTool({ handle, executeTool }),
-          permissionParser: (input: Record<string, unknown>, cwd: string) => {
-            telemetry.permissionRequested(COMPUTER_ACTIONS_TOOL_NAME, input)
-            return computerActionsPermissionParser(COMPUTER_ACTIONS_TOOL_NAME, input, cwd)
-          },
+          permissionParser: (input: Record<string, unknown>, cwd: string) =>
+            computerActionsPermissionParser(COMPUTER_ACTIONS_TOOL_NAME, input, cwd),
         })
       }
 
@@ -228,9 +221,8 @@ export function createComputerUseComponent(options: ComputerUseComponentOptions 
         runtime.telemetryContext = eventCtx
       })
       pi.on("resources_discover", () => ({ skillPaths: [materializeComputerSkill()] }))
-      pi.on("tool_call", (payload, eventCtx) => {
-        if (computerToolCall(payload)) runtime.telemetryContext = eventCtx
-        telemetry.toolCall(payload)
+      pi.on("tool_execution_start", (payload, eventCtx) => {
+        if (telemetry.toolExecutionStarted(payload)) runtime.telemetryContext = eventCtx
       })
       pi.on("tool_activated", async (payload, eventCtx) => {
         const activated = toolActivatedNames(payload)
@@ -242,7 +234,12 @@ export function createComputerUseComponent(options: ComputerUseComponentOptions 
         }
         runtime.telemetryContext = eventCtx
         await handle.activate(eventCtx as ComputerHostContext)
-        const capabilities = await service.capabilities()
+        if (runtime.activationReported) return
+        runtime.activationReported = true
+        const capabilities = await service.capabilities().catch((error: unknown) => {
+          runtime.activationReported = false
+          throw error
+        })
         runtime.backend = capabilities.backend
         telemetry.activation({
           context: eventCtx,
