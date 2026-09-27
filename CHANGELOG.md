@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+**OmO Native can use your computer.** ([#8893](https://github.com/code-yeongyu/oh-my-openagent/issues/8893)) Agents get a `computer` tool that takes screenshots, lists windows, reads accessibility trees and clicks and types in native applications on macOS, Linux and Windows. Input goes to the target app in the background by default, so your frontmost app, focus and cursor stay where they are. A global stop chord (Control+Option+Command+Escape on macOS, Ctrl+Alt+Shift+Escape on Linux and Windows) or `/computer stop` suspends it until you run `/computer resume`, and permission rules split looking (`computer:read`) from touching (`computer:exec`). The compiled binary carries the engine; an npm install downloads the checksum-verified engine for its release on first use. On macOS, grant Screen Recording and Accessibility to the app you run OmO from. Setup, settings, safety, privacy and troubleshooting: [Computer use](docs/guide/computer-use.md).
+
 ### Fixed
 
 **DAG nodes finish when their child task finishes again.** ([#8932](https://github.com/code-yeongyu/oh-my-openagent/issues/8932), reported by @ayalcoh) A DAG child that ran as a session of the shared task daemon could complete while its node stayed `running`, so the nodes that depend on it never started and the run had to be cancelled. The liveness check asked the daemon for its sessions without including worker sessions, so every task child looked gone; the next omo session that started in the same project took the still-running child over, and the run that was waiting on it never heard it finish. The check now sees task children, including in projects reached through a symlink, so a live child stays with the session that started it.
