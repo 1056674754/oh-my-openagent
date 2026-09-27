@@ -11,6 +11,9 @@ import { A11Y_NAME, PORTAL_NAME, type WaylandObserver, type WaylandStage } from 
 /** evdev `KEY_H`, `KEY_I`: the presses `typeText("hi")` must produce on the `us` group. */
 const HI_KEYCODES: readonly number[] = [35, 23];
 
+/** Linux `sockaddr_un.sun_path` is 108 bytes including the terminating NUL. */
+const MAX_UNIX_SOCKET_PATH_BYTES = 107;
+
 function spawnEngine(ctx: Context, stage: WaylandStage, libei?: string): Engine {
 	return Engine.spawn(ctx.engineBinary, ctx.procs.childEnv({ ...stage.env, LIBEI_SOCKET: libei }));
 }
@@ -55,8 +58,12 @@ interface EisLog {
 	readonly log: JsonObject | null;
 }
 
-function startFakeEis(ctx: Context, name: string): { child: ChildProcess; socket: string; done: Promise<void> } {
-	const socket = join(ctx.runDir, `${name}.eis`);
+function startFakeEis(ctx: Context, name: string, expectDelivery: boolean): { child: ChildProcess; socket: string; done: Promise<void> } {
+	const socket = join(ctx.runDir, `eis-${expectDelivery ? "delivery" : "refusal"}.sock`);
+	const bytes = Buffer.byteLength(socket);
+	if (bytes > MAX_UNIX_SOCKET_PATH_BYTES) {
+		throw new Error(`fake EIS socket path is ${bytes} bytes; AF_UNIX allows ${MAX_UNIX_SOCKET_PATH_BYTES}: ${socket}`);
+	}
 	const child = ctx.procs.start(`fake EIS ${name}`, [ctx.fakeEisBinary, socket, "1"]);
 	const done = new Promise<void>((resolve) => child.once("exit", () => resolve()));
 	return { child, socket, done };
@@ -93,7 +100,7 @@ async function input(
 	optIn: boolean,
 	name: string,
 ): Promise<Result> {
-	const eis = startFakeEis(ctx, name);
+	const eis = startFakeEis(ctx, name, expectDelivery);
 	await until(() => exists(eis.socket), "the fake EIS socket");
 	const engine = spawnEngine(ctx, stage, eis.socket);
 	try {
