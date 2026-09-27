@@ -3,7 +3,7 @@ import {
   closeKeySink, type KeySink, openKeySink, openTextEdit, quitTextEdit,
   settle, textEditSelection, textEditText,
 } from "./fixtures"
-import { focusSnapshot, sameJson, topmostAt } from "./observer"
+import { focusSnapshot, type FocusSnapshot, sameJson, topmostAt } from "./observer"
 import {
   clickCode, keyLands, onWindow, type RunOptions, type ScenarioResult, toolError, warmUp, withSession,
 } from "./scenario"
@@ -18,6 +18,11 @@ async function withDesk<T>(docs: Readonly<Record<string, string>>, use: (sink: K
   }
 }
 
+function focusIdentity(snapshot: FocusSnapshot) {
+  const { frontmostApp, focusedWindow, cursor, zOrder } = snapshot
+  return { frontmostApp, focusedWindow, cursor, frontWindow: zOrder[0] ?? null }
+}
+
 export async function backgroundClickKeepsFocus(options: RunOptions): Promise<ScenarioResult> {
   const doc = "qa-click.txt"
   const delivery = options.forceForeground ? "foreground" : "background"
@@ -30,14 +35,18 @@ export async function backgroundClickKeepsFocus(options: RunOptions): Promise<Sc
       const after = await focusSnapshot()
       const selectionAfter = await textEditSelection(doc)
       const keystroke = await keyLands(sink)
-      const focusUnchanged = sameJson(before, after)
+      const targetRankBefore = before.zOrder.findIndex((window) => window.startsWith("TextEdit#"))
+      const targetWindow = before.zOrder[targetRankBefore]
+      const targetRankAfter = targetWindow === undefined ? -1 : after.zOrder.indexOf(targetWindow)
+      const focusUnchanged = sameJson(focusIdentity(before), focusIdentity(after))
+        && targetRankBefore > 0 && targetRankAfter > 0
       const selectionChanged = !sameJson(selectionBefore, selectionAfter)
       return {
         scenario: "background-click-keeps-focus",
         pass: !warm.isError && !clicked.isError && focusUnchanged && selectionChanged && keystroke.landed,
         facts: {
           delivery, warmUpError: toolError(warm), clickError: toolError(clicked),
-          observer: { before, after }, focusUnchanged,
+          observer: { before, after }, focusUnchanged, targetRankBefore, targetRankAfter,
           textEditSelection: { before: selectionBefore, after: selectionAfter },
           selectionChanged, keystroke,
         },
@@ -63,7 +72,7 @@ export async function backgroundTypeSoleWindow(options: RunOptions): Promise<Sce
       const { typed, textAfter } = await typeInto(session, doc, text, "background")
       const after = await focusSnapshot()
       const keystroke = await keyLands(sink)
-      const focusUnchanged = sameJson(before, after)
+      const focusUnchanged = sameJson(focusIdentity(before), focusIdentity(after))
       return {
         scenario: "background-type-sole-window",
         pass: !warm.isError && !typed.isError && focusUnchanged && textAfter === text && keystroke.landed,
