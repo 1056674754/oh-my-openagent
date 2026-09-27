@@ -1,6 +1,7 @@
 import type { TaskRecord } from "../state"
 import { TERMINAL_STATUSES, type LifecycleContext } from "./context"
 import { destroyResidentTask } from "./destroy"
+import { endClosingFallbackChild } from "./fallback-closing-child"
 import { isHostSessionRecord } from "./host-session"
 import type { CleanupResult } from "./types"
 
@@ -40,6 +41,12 @@ export async function cleanupExpiredRecords(context: LifecycleContext): Promise<
   const cutoff = context.now() - context.config.ttl_ms
   for (const record of context.store.list().records) {
     if (shouldRetain(context, record, cutoff)) {
+      retained.push(record.task_id)
+      continue
+    }
+    // A runtime-fallback child still waiting for its close is the record's last pointer to it: the
+    // record stays until the child is confirmed gone, and the next sweep retries.
+    if (!(await endClosingFallbackChild(context, record))) {
       retained.push(record.task_id)
       continue
     }

@@ -2,6 +2,7 @@ import { log } from "@oh-my-opencode/utils"
 
 import type { TaskRecord } from "../state"
 import { delay, nowIso, type LifecycleContext } from "./context"
+import { endClosingFallbackChild } from "./fallback-closing-child"
 import { isHostSessionRecord } from "./host-session"
 import type { DestroyCause, ResidentHandle } from "./port"
 
@@ -86,6 +87,8 @@ async function bestEffort(taskId: string, step: "abort" | "terminate", run: () =
 // load), so the sweep passes the committed record's pid explicitly as orphanPid.
 async function terminateOrphan(context: LifecycleContext, taskId: string, orphan?: OrphanTarget): Promise<void> {
   const record = context.store.load(taskId) ?? orphan?.record ?? null
+  // A stopped runtime-fallback handoff can still name its failed rung's child; it is an orphan too.
+  if (record !== null) await endClosingFallbackChild(context, record)
   // A daemon session is ended through the single close writer, never a signal: the only pid on the
   // other end is the machine-wide daemon's, which belongs to no child (invariant I1).
   if (isHostSessionRecord(record)) {
