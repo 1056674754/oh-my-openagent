@@ -1,3 +1,17 @@
+## Task start failures preserve their closed cause and daemon admission is single-flight (#8960)
+
+Task records and every `task` / `task_output` result now carry the closed `failure_kind` and
+`failure_reason` for start failures, while the user-facing sentence is authored by the parent and
+never includes child stderr or an unknown host string. The real absent-socket client path reports
+`host_unreachable`; Senpi's readiness-deadline envelope reports `ensure_timed_out`; closed session
+refusals retain their code. Concurrent starts on one daemon socket share one in-flight ensure, a
+failed flight is never cached, and memory-pressure notices live only while their admission episodes
+are active. TTL expunge recovery closes an identifiable daemon session before deleting its child
+directory, tolerates malformed tombstones per record, and never signals a pid from an old process
+tombstone. Focused tests cover persistence and single/batch result projection, real-client
+classification, overlapping admission notices, rejected-flight retry, revival fact reset, and
+crash-recovery ordering.
+
 ## Task progress subscribers survive a host-session reattach (#8983)
 
 `runners/rpc-host/handle.ts`: `subscribe` registered the listener on the port that was current at subscribe time, and a
