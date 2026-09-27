@@ -159,15 +159,19 @@ pub enum TextUnit {
 }
 
 pub fn text_units(text: &str) -> impl Iterator<Item = TextUnit> + '_ {
-    let mut after_carriage_return = false;
-    text.chars().filter_map(move |character| {
-        let unit = match character {
-            '\n' if after_carriage_return => None,
-            '\n' | '\r' => Some(TextUnit::Enter),
-            other => Some(TextUnit::Char(other)),
-        };
-        after_carriage_return = character == '\r';
-        unit
+    text_steps(text).map(|(unit, _)| unit)
+}
+
+/// Normalized input and the number of source scalars delivered by each step.
+pub(crate) fn text_steps(text: &str) -> impl Iterator<Item = (TextUnit, usize)> + '_ {
+    let mut characters = text.chars().peekable();
+    std::iter::from_fn(move || {
+        let character = characters.next()?;
+        Some(match character {
+            '\r' if characters.next_if_eq(&'\n').is_some() => (TextUnit::Enter, 2),
+            '\n' | '\r' => (TextUnit::Enter, 1),
+            other => (TextUnit::Char(other), 1),
+        })
     })
 }
 

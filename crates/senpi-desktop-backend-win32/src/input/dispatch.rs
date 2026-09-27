@@ -17,12 +17,11 @@ use senpi_desktop_core::keys::KeyName;
 use senpi_desktop_core::types::{DesktopPoint, Target};
 
 use super::held::{Held, HeldKey, Route};
-use super::keys::{chord_virtual_keys, named_virtual_key, Stroke, VK_MENU, VK_RETURN};
+use super::keys::{chord_virtual_keys, named_virtual_key, Stroke, VK_MENU};
 use super::native::{self, Window};
 use super::{background, system};
 use crate::ax::Win32Ax;
 use crate::capture::{all_displays, logical_bounds, physical_point, PhysicalRect};
-use crate::delivery::{text_units, TextUnit};
 use crate::integrity::IntegrityRid;
 
 /// How one key transition is delivered.
@@ -83,30 +82,6 @@ impl Win32Input {
                 })
             }
             (Target::Window(id), DeliveryMode::Background) => self.post_pointer(ax, id, event),
-        }
-    }
-
-    pub(crate) fn type_text(&mut self, target: &Target, text: &str, mode: DeliveryMode) -> CoreResult<()> {
-        match (target, mode) {
-            (Target::Desktop, _) => self.enigo.text(text).map_err(enigo_error),
-            (Target::Window(id), DeliveryMode::Foreground) => {
-                self.with_foreground(id, |_, target| {
-                    text_units(text).try_for_each(|unit| match unit {
-                        TextUnit::Enter => {
-                            system::key(VK_RETURN, true, Some(target))?;
-                            system::key(VK_RETURN, false, Some(target))
-                        }
-                        TextUnit::Char(character) => {
-                            let mut units = [0; 2];
-                            system::unicode_text(
-                                character.encode_utf16(&mut units).iter().copied(),
-                                Some(target),
-                            )
-                        }
-                    })
-                })
-            }
-            (Target::Window(id), DeliveryMode::Background) => background::post_text(id, self.integrity, text),
         }
     }
 
@@ -271,6 +246,6 @@ fn char_stroke(key: KeyName) -> CoreResult<Stroke> {
     }
 }
 
-fn enigo_error(error: impl std::fmt::Display) -> DesktopError {
+pub(super) fn enigo_error(error: impl std::fmt::Display) -> DesktopError {
     DesktopError::input_failed(format!("Win32 global input failed: {error}"))
 }
