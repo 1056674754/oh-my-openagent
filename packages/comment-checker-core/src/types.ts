@@ -82,7 +82,9 @@ export interface CheckResult {
 }
 
 export interface CheckFailure {
-  readonly exitCode: number
+  /** `null` when the checker never started (a spawn error such as EACCES or ENOEXEC). */
+  readonly exitCode: number | null
+  /** The checker's stderr, or the spawn error message when it never started. */
   readonly stderr: string
 }
 

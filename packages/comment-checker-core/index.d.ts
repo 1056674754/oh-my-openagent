@@ -77,7 +77,7 @@ export interface CheckResult {
 }
 
 export interface CheckFailure {
-	readonly exitCode: number;
+	readonly exitCode: number | null;
 	readonly stderr: string;
 }
 
