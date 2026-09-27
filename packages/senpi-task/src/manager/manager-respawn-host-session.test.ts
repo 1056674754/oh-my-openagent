@@ -2,12 +2,20 @@ import { writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { afterEach, describe, expect, test } from "bun:test"
 
+import { isHostSessionHandle } from "../runners/rpc-host"
+import type { FakeHost } from "../runners/rpc-host/__fixtures__/fake-host"
+import { childSpec, hostRunnerHarness } from "../runners/rpc-host.test-support"
 import type { RpcChildHandle, RpcRunnerSpec } from "../runners/types"
 import { createTaskRecord, type HostSessionIdentity, type TaskRecord } from "../state"
 import { cleanupProjects, makeHandle, tempProject } from "./__fixtures__/manager-fakes"
 import { respawnManagedTask } from "./manager-respawn"
 
-afterEach(cleanupProjects)
+const harness = hostRunnerHarness()
+
+afterEach(async () => {
+  await harness.release()
+  cleanupProjects()
+})
 
 type HostRespawnCalls = {
   readonly specs: RpcRunnerSpec[]
@@ -24,7 +32,18 @@ function interruptedTranscript(project: string): string {
   return path
 }
 
-function hostRunner(calls: HostRespawnCalls, attached: boolean) {
+// The transcript a finished turn leaves: its last entry is the assistant's final answer.
+function completedTranscript(project: string): string {
+  const path = join(project, "completed.jsonl")
+  const entries = [
+    { type: "message", message: { role: "user", content: "do it" } },
+    { type: "message", message: { role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" } },
+  ]
+  writeFileSync(path, entries.map((entry) => `${JSON.stringify(entry)}\n`).join(""))
+  return path
+}
+
+function hostRunner(calls: HostRespawnCalls, openDisposition: "attached" | "reopened") {
   return {
     start: (spec: RpcRunnerSpec): Promise<RpcChildHandle> => {
       calls.specs.push(spec)
@@ -32,7 +51,8 @@ function hostRunner(calls: HostRespawnCalls, attached: boolean) {
       const handle = {
         ...base,
         kind: "host-session" as const,
-        attached,
+        attached: true,
+        openDisposition,
         pid: undefined,
         subscribe: () => () => undefined,
         waitForIdle: () => Promise.resolve(),
@@ -55,7 +75,7 @@ function hostRunner(calls: HostRespawnCalls, attached: boolean) {
   }
 }
 
-function hostRecord(project: string, identity: HostSessionIdentity): TaskRecord {
+function hostRecord(project: string, identity: HostSessionIdentity, model = "fake-model"): TaskRecord {
   return {
     ...createTaskRecord(
       {
@@ -63,7 +83,7 @@ function hostRecord(project: string, identity: HostSessionIdentity): TaskRecord 
         root_session_id: "parent-host",
         depth: 1,
         execution_mode: "process",
-        model: "fake-model",
+        model,
         notify_on_terminal: false,
       },
       Date.parse("2026-09-17T00:00:00.000Z"),
@@ -96,7 +116,7 @@ describe("respawn of a daemon-hosted child", () => {
       sessionPath: transcript,
       stateDir: project,
       runners: { "in-process": { start: () => Promise.reject(new Error("unused")) }, process: { start: () => Promise.reject(new Error("unused")) } },
-      rpcRunner: hostRunner(calls, true),
+      rpcRunner: hostRunner(calls, "attached"),
     })
 
     // then
@@ -125,13 +145,89 @@ describe("respawn of a daemon-hosted child", () => {
       sessionPath: transcript,
       stateDir: project,
       runners: { "in-process": { start: () => Promise.reject(new Error("unused")) }, process: { start: () => Promise.reject(new Error("unused")) } },
-      rpcRunner: hostRunner(calls, false),
+      rpcRunner: hostRunner(calls, "reopened"),
     })
 
     // then
     expect(result.ok).toBe(true)
     expect(calls.specs.map((spec) => spec.resumeSessionPath)).toEqual([transcript])
     expect(calls.followUps).toHaveLength(1)
+  })
+
+  test("#given a real host that no longer holds the session #when respawn reopens it from an interrupted JSONL #then the handle reports reopened and exactly one continuation reaches the host", async () => {
+    // given - the host answers open_session with attached:false (reopened from the transcript)
+    const project = tempProject()
+    const transcript = interruptedTranscript(project)
+    const host = await harness.fakeHost()
+    const started = recordingRunner(host)
+
+    // when
+    const result = await respawnManagedTask({
+      beforeLaunch: () => undefined,
+      record: hostRecord(project, realIdentity(host, transcript), REAL_MODEL),
+      sessionPath: transcript,
+      stateDir: project,
+      runners: unusedManagedRunners(),
+      rpcRunner: started,
+    })
+
+    // then
+    expect(result.ok).toBe(true)
+    expect(prompts(host)).toEqual([{ streamingBehavior: "followUp" }])
+    const [handle] = started.handles
+    expect(handle !== undefined && isHostSessionHandle(handle) ? handle.openDisposition : undefined).toBe("reopened")
+    expect(host.commands.filter((command) => command.type === "switch_session")).toHaveLength(0)
+  })
+
+  test("#given a real host that still holds the live session #when respawn re-joins it #then the handle reports attached and no continuation is sent", async () => {
+    // given - a retained session the host still holds, whose transcript tail looks interrupted
+    const project = tempProject()
+    const host = await harness.fakeHost()
+    const runner = recordingRunner(host)
+    const first = await runner.start(childSpec({ state_dir: project }))
+    const sessionPath = host.sessions()[0]?.sessionPath ?? ""
+    writeFileSync(sessionPath, `${JSON.stringify({ type: "message", message: { role: "user", content: "keep going" } })}\n`)
+    await first.dispose()
+
+    // when
+    const result = await respawnManagedTask({
+      beforeLaunch: () => undefined,
+      record: hostRecord(project, realIdentity(host, sessionPath), REAL_MODEL),
+      sessionPath,
+      stateDir: project,
+      runners: unusedManagedRunners(),
+      rpcRunner: runner,
+    })
+
+    // then - the only prompt is the fresh child's first one
+    expect(result.ok).toBe(true)
+    const resumed = runner.handles[1]
+    expect(resumed !== undefined && isHostSessionHandle(resumed) ? resumed.openDisposition : undefined).toBe("attached")
+    expect(prompts(host)).toEqual([{ streamingBehavior: "steer" }])
+  })
+
+  test("#given a real host that reopens a session whose turn completed #when respawn resumes it #then the tail rule still sends no continuation", async () => {
+    // given
+    const project = tempProject()
+    const transcript = completedTranscript(project)
+    const host = await harness.fakeHost()
+    const started = recordingRunner(host)
+
+    // when
+    const result = await respawnManagedTask({
+      beforeLaunch: () => undefined,
+      record: hostRecord(project, realIdentity(host, transcript), REAL_MODEL),
+      sessionPath: transcript,
+      stateDir: project,
+      runners: unusedManagedRunners(),
+      rpcRunner: started,
+    })
+
+    // then
+    expect(result.ok).toBe(true)
+    const [handle] = started.handles
+    expect(handle !== undefined && isHostSessionHandle(handle) ? handle.openDisposition : undefined).toBe("reopened")
+    expect(prompts(host)).toEqual([])
   })
 
   test("#given a host that is draining an old generation #when open_session reports session_path_in_use #then respawn defers as host_draining with the advertised delay", async () => {
@@ -169,3 +265,37 @@ describe("respawn of a daemon-hosted child", () => {
     })
   })
 })
+
+const REAL_MODEL = "anthropic/claude-sonnet-4-5"
+
+function realIdentity(host: FakeHost, sessionPath: string): HostSessionIdentity {
+  return { socket: host.socketPath, routing_id: "routing-old", session_path: sessionPath, instance_id: "fake-instance" }
+}
+
+function unusedManagedRunners() {
+  return {
+    "in-process": { start: () => Promise.reject(new Error("unused")) },
+    process: { start: () => Promise.reject(new Error("unused")) },
+  }
+}
+
+/** The real `RpcHostRunner` over the fake host, keeping every handle it started. */
+function recordingRunner(host: FakeHost) {
+  const runner = harness.runnerOver(host)
+  const handles: RpcChildHandle[] = []
+  return {
+    handles,
+    start: async (spec: RpcRunnerSpec): Promise<RpcChildHandle> => {
+      const handle = await runner.start(spec)
+      handles.push(handle)
+      return handle
+    },
+  }
+}
+
+/** Each prompt the host received, reduced to its delivery mode - the continuation's wording is never pinned. */
+function prompts(host: FakeHost): ReadonlyArray<{ readonly streamingBehavior: unknown }> {
+  return host.commands
+    .filter((command) => command.type === "prompt")
+    .map((command) => ({ streamingBehavior: command.payload.streamingBehavior }))
+}
