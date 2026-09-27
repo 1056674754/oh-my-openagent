@@ -226,20 +226,11 @@ def _match_reasons(item: Session, query: str) -> list[JsonMap]:
     for field, value in _search_fields(item):
         if needle in value.lower():
             reasons.append({"query": query, "platform": item.platform, "field": field, "snippet": _snippet(value, needle)})
-    if not reasons and item.path.endswith(".jsonl"):
-        prompt = _user_event_match(Path(item.path), needle)
+    if not reasons:
+        prompt = next((message for message in item.user_messages or () if needle in message.lower()), "")
         if prompt:
             reasons.append({"query": query, "platform": item.platform, "field": "user_message", "snippet": _snippet(prompt, needle)})
     return reasons
-
-
-def _user_event_match(path: Path, needle: str) -> str:
-    for event in iter_jsonl(path):
-        message = as_map(event.get("message")) or as_map(event.get("payload")) or {}
-        prompt = user_text(event, message)
-        if needle in prompt.lower():
-            return prompt
-    return ""
 
 
 def _search_fields(item: Session) -> tuple[tuple[str, str], ...]:
