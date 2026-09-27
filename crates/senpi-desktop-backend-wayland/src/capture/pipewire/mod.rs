@@ -11,6 +11,9 @@ mod live_tests;
 mod pixels;
 mod pod;
 mod screencast;
+mod selection;
+#[cfg(test)]
+mod selection_tests;
 mod stream;
 #[cfg(test)]
 mod tests;
@@ -22,6 +25,7 @@ use tokio::runtime::Runtime;
 
 use screencast::Cast;
 pub use window::crop_window;
+pub(super) use selection::select_capture;
 
 pub const DISPLAY_PREFIX: &str = "wayland-screencast-";
 

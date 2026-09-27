@@ -110,6 +110,8 @@ impl PortalCapture {
         let runtime = portal_runtime()?;
         match self.screencast.capture(runtime) {
             Ok((image, displays)) => {
+                let (image, displays) =
+                    pipewire::select_capture(&self.selector, image, displays)?;
                 self.probe = Probe::Granted;
                 self.displays = displays;
                 return match target {
