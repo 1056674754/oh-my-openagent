@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs"
 
+import { isClosingFence, parseOpeningFence, type MarkdownFence } from "./markdown-fence"
 import type { PlanChecklist, TopLevelTaskRef } from "./types"
 
 const SIMPLE_CHECKBOX_PATTERN = /^[-*][ \t]*\[[ \t]*([xX]?)[ \t]*\][ \t]+(.+)$/
@@ -7,7 +8,6 @@ const TODO_HEADING_PATTERN = /^##[ \t]+TODOs(?:[ \t]+#+)?[ \t]*$/i
 const FINAL_VERIFICATION_HEADING_PATTERN =
   /^##[ \t]+Final Verification Wave(?:[ \t]+#+)?[ \t]*$/i
 const SECTION_BOUNDARY_HEADING_PATTERN = /^#{1,2}(?:[ \t]+|$)/
-const FENCE_PATTERN = /^[ \t]{0,3}(`{3,}|~{3,})(.*)$/
 const STRUCTURED_CHECKBOX_PATTERN = /^- \[([ xX])\] (.+)$/
 const TODO_TASK_LABEL_PATTERN =
   /^([1-9]\d*|T[1-9]\d*(?:\.[1-9]\d*[a-z]?)?)(?:\.[ \t]+|[ \t]+(?:[-\u2014][ \t]+)?)(.+)$/i
@@ -23,11 +23,6 @@ type ParsedCheckbox = {
 
 type ParsedStructuredCheckbox = ParsedCheckbox & {
   readonly task: TopLevelTaskRef
-}
-
-type MarkdownFence = {
-  readonly marker: "`" | "~"
-  readonly length: number
 }
 
 type ParsedStructuredPlan = {
@@ -249,27 +244,6 @@ function buildTaskRef(section: "todo" | "final-wave", label: string): TopLevelTa
     label: rawLabel,
     title,
   }
-}
-
-function parseOpeningFence(line: string): MarkdownFence | null {
-  const match = line.match(FENCE_PATTERN)
-  const run = match?.[1]
-  const info = match?.[2]
-  const marker = run?.charAt(0)
-  if (
-    run === undefined ||
-    info === undefined ||
-    (marker !== "`" && marker !== "~") ||
-    (marker === "`" && info.includes("`"))
-  ) {
-    return null
-  }
-  return { marker, length: run.length }
-}
-
-function isClosingFence(line: string, fence: MarkdownFence): boolean {
-  const run = line.match(/^[ \t]{0,3}(`{3,}|~{3,})[ \t]*$/)?.[1]
-  return run?.charAt(0) === fence.marker && run.length >= fence.length
 }
 
 function emptyChecklist(): PlanChecklist {
