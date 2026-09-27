@@ -140,7 +140,8 @@ describe("acquireDesktopEngine", () => {
 		expect(basename(result.path)).toBe(asset);
 		expect(basename(dirname(result.path))).toMatch(new RegExp(`^${digest}-[0-9a-f-]{36}$`));
 		expect(readFileSync(result.path)).toEqual(bytes);
-		expect(statSync(result.path).mode & 0o777).toBe(0o755);
+		// Windows ignores POSIX chmod bits; the .exe name and verified bytes still apply there.
+		if (process.platform !== "win32") expect(statSync(result.path).mode & 0o777).toBe(0o755);
 		expect(existsSync(join(cacheDir, version, host, ".current"))).toBe(false);
 		expect(readdirSync(join(cacheDir, version, host)).some((entry) => entry.startsWith(".download-"))).toBe(false);
 		expect(requests).toEqual([
