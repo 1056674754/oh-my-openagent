@@ -120,6 +120,18 @@ interface LockIdentity {
   readonly body: string
 }
 
+export type RecordLockReapStage = "recovery_held" | "judged_unchanged"
+let reapHook: ((stage: RecordLockReapStage, lockPath: string) => void) | undefined
+
+/** Test seam: steps a reaper inside its window between the judgement and the unlink. */
+export function setRecordLockReapHookForTests(hook: typeof reapHook): () => void {
+  const previous = reapHook
+  reapHook = hook
+  return () => {
+    reapHook = previous
+  }
+}
+
 function isAbandoned(lock: LockIdentity): boolean {
   const owner = parseLockOwner(lock.body)
   return owner === undefined ? Date.now() - lock.mtimeMs > LOCK_STALE_MS : isLockOwnerProvenDead(owner)
@@ -142,8 +154,10 @@ function reapAbandonedLock(lockPath: string): AcquireAttempt {
     if (!reclaimAbandonedRecoveryLock(recoveryPath) || !publishLock(recoveryPath, recoveryToken)) return held
   }
   try {
+    reapHook?.("recovery_held", lockPath)
     const current = readLockIdentity(lockPath)
     if (current === undefined || !isSameLock(current, judged)) return "retry"
+    reapHook?.("judged_unchanged", lockPath)
     // Fence: a reaper that lost its recovery lock (see below) must not unlink the primary.
     if (readToken(recoveryPath) !== recoveryToken) return held
     rmSync(lockPath, { force: true })
