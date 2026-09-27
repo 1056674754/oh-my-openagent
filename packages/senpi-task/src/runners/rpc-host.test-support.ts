@@ -53,6 +53,7 @@ export function testRouting(socket: string, agentDir: string) {
     storeDir: CHILD_STATE_DIR,
     shardResolver: () => rootResolution(socket),
     ownHostSocket: () => undefined,
+    insideHost: () => false,
     onNotice: () => undefined,
   } as const
 }

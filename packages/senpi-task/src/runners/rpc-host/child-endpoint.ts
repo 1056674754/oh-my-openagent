@@ -5,7 +5,7 @@ import { RunnerError } from "../in-process/runner-error"
 import type { RpcRunnerSpec } from "../types"
 import { TASK_DAEMON_PROTOCOL_VERSION, type EnsureTaskDaemonInput, type EnsuredTaskDaemon } from "./daemon"
 import type { HostNoticeKind } from "./host-notice"
-import { isOwnEndpoint } from "./own-endpoint"
+import { attachOnlyEndpoint } from "./own-endpoint"
 import { registerSidecarStore, type ShardOwner } from "./shard-sidecar"
 import { parseShardBasename, type ShardNotice, type ShardResolution } from "./shard-socket"
 import type { HostProtocolProbe } from "./session-transport"
@@ -22,6 +22,8 @@ export interface ChildEndpointPorts {
   readonly storeDir: string
   readonly shardResolver: ShardResolver
   readonly ownHostSocket: () => string | undefined
+  // This session was opened inside a host (its context carries an inherited tree key).
+  readonly insideHost: () => boolean
   readonly probeHost: HostProtocolProbe
   readonly notice: (kind: HostNoticeKind, detail?: string) => void
   readonly now: () => number
@@ -137,7 +139,7 @@ function ownHostUnreachable(socket: string, detail: string, cause?: unknown): Ru
  * open it guards.
  */
 export async function ensureChildEndpoint(ports: ChildEndpointPorts, endpoint: ChildEndpoint): Promise<string> {
-  if (endpoint.attachOnly || isOwnEndpoint(endpoint.socket, ports.ownHostSocket())) {
+  if (endpoint.attachOnly || attachOnlyEndpoint(endpoint.socket, ports.ownHostSocket(), ports.insideHost())) {
     await attachOwnEndpoint(ports.probeHost, endpoint.socket)
     return endpoint.socket
   }

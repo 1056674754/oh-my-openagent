@@ -195,4 +195,19 @@ describe("every session routes its process children to its own shard", () => {
     expect(verdict).toBe("ensured")
     expect(w.ensures.map((input) => input.socket)).toEqual(["/tmp/omo-t8-recorded/rpc.sock"])
   })
+
+  test("#given a session inside its tree's host on an engine without host_socket #when the lifecycle and a lost grandchild reach a recorded shard #then both only attach", () => {
+    // given
+    const inside = world({ sessionContext: { role: "child", shard_key: TREE_KEY, tree_key: TREE_KEY } })
+    const root = world({ sessionId: "01a0e4ae-root" })
+
+    // when
+    const recorded = "/tmp/omo-t8-recorded/p-0123456789abcdef.sock"
+
+    // then
+    expect(inside.host.routing.insideHost()).toBe(true)
+    expect(inside.host.hostEndpoint.isOwn(recorded)).toBe(true)
+    expect(root.host.routing.insideHost()).toBe(false)
+    expect(root.host.hostEndpoint.isOwn(recorded)).toBe(false)
+  })
 })

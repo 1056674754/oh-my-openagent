@@ -75,6 +75,9 @@ export type RpcHostRunnerOptions = {
   readonly storeDir: string
   // The public socket this session lives behind (`readOwnHostSocket(pi)`); never ensured from inside.
   readonly ownHostSocket: () => string | undefined
+  // Whether this session runs inside a host (an inherited tree key): with `ownHostSocket` unknown it
+  // may only attach to recorded endpoints, never start a supervisor.
+  readonly insideHost: () => boolean
   // `host_notice:*` / `host_unavailable:*` tokens, once per token and endpoint.
   readonly onNotice: HostNoticeSink
   // The attach-only probe for the session's own endpoint; defaults to the engine's `probeHost`.
@@ -134,6 +137,7 @@ export class RpcHostRunner {
       storeDir: options.storeDir,
       shardResolver: options.shardResolver,
       ownHostSocket: options.ownHostSocket,
+      insideHost: options.insideHost,
       probeHost: options.probeHost ?? probeWithEngine,
       notice: onceNoticeSink(options.onNotice),
       now: this.now,

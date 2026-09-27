@@ -20,6 +20,15 @@ export function isOwnEndpoint(socket: string, ownHostSocket: string | undefined)
   return ownHostSocket !== undefined && canonicalSocketPath(socket) === canonicalSocketPath(ownHostSocket)
 }
 
+/**
+ * Whether this process may only ATTACH to `socket`, never ensure it. A process inside a host must
+ * never start a supervisor: when its engine does not stamp `host_socket` (`ownHostSocket` unknown),
+ * the inherited tree context is the only inside-host fact, and every recorded endpoint counts as its own.
+ */
+export function attachOnlyEndpoint(socket: string, ownHostSocket: string | undefined, insideHost: boolean): boolean {
+  return ownHostSocket === undefined ? insideHost : isOwnEndpoint(socket, ownHostSocket)
+}
+
 // The rule the host stamps `host_socket` with (senpi #2245): the directory canonicalised through
 // its deepest EXISTING ancestor, the missing tail re-appended verbatim, then the socket's basename -
 // so a shard whose `rpc/shards/` does not exist yet still compares equal across `/tmp` spellings.

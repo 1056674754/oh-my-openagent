@@ -9,7 +9,7 @@ import {
 } from "./child-endpoint"
 import { isHostIncompatible } from "./daemon"
 import type { HostSessionFacts, HostSessionPort } from "./handle-port"
-import { isOwnEndpoint } from "./own-endpoint"
+import { attachOnlyEndpoint } from "./own-endpoint"
 import type { HostSessionReattach, HostSessionReattached, HostSessionReattachRefused } from "./reattach"
 import type { OpenedHostSession } from "./session-client"
 
@@ -52,7 +52,7 @@ export function createReattachPort<Port extends HostSessionPort>(input: Reattach
         log("senpi-task host session reattach attempt failed", { taskId: spec.task_id, error: String(error) })
       }
     }
-    if (!isOwnEndpoint(lost.socket, endpoint.ownHostSocket?.())) return undefined
+    if (!attachOnlyEndpoint(lost.socket, endpoint.ownHostSocket(), endpoint.insideHost())) return undefined
     endpoint.notice("own_host_unreachable", lost.socket)
     return { refused: "own_host_unreachable" }
   }

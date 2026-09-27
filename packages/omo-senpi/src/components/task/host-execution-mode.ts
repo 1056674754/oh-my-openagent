@@ -199,6 +199,7 @@ export function createEngineHostRuntime(
     policy: settings.host_engine_policy,
     ensureDaemon: routing.ensureDaemon,
     ownHostSocket: routing.ownHostSocket,
+    insideHost: routing.insideHost,
     onNotice: routing.onNotice,
   })
   return { agentDir, notices, executionModeGate: gate, routing, hostEndpoint, shardSocket: () => routing.shardResolver().socket }

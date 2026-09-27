@@ -74,6 +74,7 @@ function endpointDeps(store: TaskRecordStore, world: EndpointWorld, ownHostSocke
       policy: "upgrade",
       ensureDaemon: world.ensureDaemon,
       ownHostSocket: () => readOwnHostSocket(pi),
+      insideHost: () => false,
       onNotice: (token, detail) => world.notices.push(`${token} ${detail ?? ""}`.trim()),
     }),
   }

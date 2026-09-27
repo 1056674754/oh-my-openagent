@@ -217,6 +217,7 @@ export function buildProcessChildRunner(build: RunnerBuildContext): RpcHostRunne
     shardResolver: () => routing.shardResolver(),
     storeDir: routing.storeDir,
     ownHostSocket: routing.ownHostSocket,
+    insideHost: routing.insideHost,
     onNotice: routing.onNotice,
     probeHost: routing.probeHost,
   })

@@ -42,6 +42,8 @@ export interface SessionShardRouting {
   readonly ensureDaemon: EnsureTaskDaemonPort
   readonly shardResolver: () => ShardResolution
   readonly ownHostSocket: () => string | undefined
+  // The session context carries an inherited tree key: this process runs inside a host.
+  readonly insideHost: () => boolean
   readonly probeHost: HostProtocolProbe
   readonly onNotice: HostNoticeSink
 }
@@ -59,9 +61,14 @@ export interface SessionShardRoutingInput {
   readonly probeHost?: HostProtocolProbe
 }
 
+function inheritedShardKey(pi: unknown): string | undefined {
+  const key = readSessionContext(pi)?.[SHARD_KEY_CONTEXT]
+  return key !== undefined && SHARD_KEY_SHAPE.test(key) ? key : undefined
+}
+
 export function sessionShardIdentity(runtime: SessionIdentitySource, pi: unknown): ShardIdentity {
-  const inheritedKey = readSessionContext(pi)?.[SHARD_KEY_CONTEXT]
-  if (inheritedKey !== undefined && SHARD_KEY_SHAPE.test(inheritedKey)) {
+  const inheritedKey = inheritedShardKey(pi)
+  if (inheritedKey !== undefined) {
     return { kind: "p", key: inheritedKey, ownerSessionId: INHERITED_SHARD_OWNER, inherited: true }
   }
   const sessionId = runtime.sessionId()
@@ -94,6 +101,7 @@ export function createSessionShardRouting(input: SessionShardRoutingInput): Sess
     shardResolver: () =>
       resolveShardSocket({ agentDir: input.agentDir, env: input.env, identity: sessionShardIdentity(input.runtime, input.pi) }),
     ownHostSocket: () => readOwnHostSocket(input.pi),
+    insideHost: () => inheritedShardKey(input.pi) !== undefined,
     probeHost: input.probeHost ?? probeWithEngine,
     onNotice: (token, detail) => {
       input.notices.add(detail === undefined ? token : `${token} ${detail}`)

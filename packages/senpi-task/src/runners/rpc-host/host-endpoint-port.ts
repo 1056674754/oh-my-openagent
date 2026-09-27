@@ -3,7 +3,7 @@ import type { HostEndpointPort } from "../../lifecycle/host-session"
 import type { EnsureTaskDaemonPort } from "./child-endpoint"
 import { ensureTaskDaemon, isHostIncompatible } from "./daemon"
 import { onceNoticeSink, type HostNoticeSink } from "./host-notice"
-import { isOwnEndpoint } from "./own-endpoint"
+import { attachOnlyEndpoint } from "./own-endpoint"
 
 export interface HostEndpointPortInput {
   readonly agentDir: string
@@ -11,6 +11,7 @@ export interface HostEndpointPortInput {
   readonly policy: HostEnginePolicy
   readonly ensureDaemon?: EnsureTaskDaemonPort
   readonly ownHostSocket: () => string | undefined
+  readonly insideHost: () => boolean
   readonly onNotice: HostNoticeSink
 }
 
@@ -19,7 +20,7 @@ export function createHostEndpointPort(input: HostEndpointPortInput): HostEndpoi
   const ensureDaemon = input.ensureDaemon ?? ensureTaskDaemon
   const notice = onceNoticeSink(input.onNotice)
   return {
-    isOwn: (socket) => isOwnEndpoint(socket, input.ownHostSocket()),
+    isOwn: (socket) => attachOnlyEndpoint(socket, input.ownHostSocket(), input.insideHost()),
     ensure: async (socket) => {
       try {
         await ensureDaemon({ agentDir: input.agentDir, env: input.env, policy: input.policy, socket })

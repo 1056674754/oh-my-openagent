@@ -18,6 +18,7 @@ const STUBBED_HOST_ROUTING: TaskHostRouting = {
     throw new Error("the runner start is stubbed; no shard is resolved")
   },
   ownHostSocket: () => undefined,
+  insideHost: () => false,
   probeHost: () => Promise.resolve(undefined),
   onNotice: () => undefined,
   storeDir: "/state",

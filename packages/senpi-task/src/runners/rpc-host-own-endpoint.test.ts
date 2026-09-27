@@ -3,6 +3,8 @@ import { afterEach, describe, expect, test } from "bun:test"
 import type { SenpiHostProtocolInfo } from "../lazy/senpi-barrel"
 import { RunnerError } from "./in-process/runner-error"
 import { isHostSessionHandle, RpcHostRunner } from "./rpc-host"
+import type { HostSessionParked } from "./rpc-host/session-client"
+import type { RpcChildHandle } from "./types"
 import { SHARD_KEY_CONTEXT, TREE_KEY_CONTEXT, type ShardResolution } from "./rpc-host/shard-socket"
 import { childSpec, fakeFallbackRunner, hostRunnerHarness } from "./rpc-host.test-support"
 import { cleanupTempDirs, ensureRecorder, shardEndpoint, tempDir, type ShardEndpoint } from "./rpc-host-endpoint.test-support"
@@ -31,6 +33,17 @@ function answering(instanceId: string, protocolVersion = 1): () => Promise<Senpi
       engineOrdinal: [2026, 9, 27, 0, 0],
       capabilities: ["multi_session", "extension_events", "session_context", "session_kind", "generation_handoff"],
     })
+}
+
+function parkedOnce(handle: RpcChildHandle): Promise<HostSessionParked> {
+  if (!isHostSessionHandle(handle)) throw new Error("not a host-session handle")
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("waited 5s for the child to park, it never did")), 5_000)
+    handle.onParked((event) => {
+      clearTimeout(timer)
+      resolve(event)
+    })
+  })
 }
 
 function openContexts(commands: readonly { readonly type: string; readonly payload: Readonly<Record<string, unknown>> }[]) {
@@ -118,6 +131,34 @@ describe("a child inside a host attaches to its tree's shard and never ensures i
     // then
     expect(RunnerError.is(failure) ? failure.failure.reason : undefined).toBe("own_host_unreachable")
     expect(ensure.inputs).toEqual([])
+  })
+
+  test("#given a child inside a host on an engine that does not stamp host_socket #when its shard dies under it #then it parks own_host_unreachable and never ensures (spawns) a supervisor", async () => {
+    // given - senpi 2026.9.27: ownHostSocket is unknown, the inherited shard_key is the only inside-host fact
+    const host = await fakeHost()
+    const shard = shardEndpoint(host, TREE_KEY)
+    const ensure = ensureRecorder()
+    const notices: string[] = []
+    const runner = runnerOver(host, {
+      reattachDelaysMs: [0, 0, 0],
+      sleep: () => Promise.resolve(),
+      ensureDaemon: ensure.ensure,
+      shardResolver: () => inherited(shard),
+      ownHostSocket: () => undefined,
+      insideHost: () => true,
+      onNotice: (token) => notices.push(token),
+    })
+    const handle = await runner.start(childSpec())
+    const settled = Promise.race([parkedOnce(handle), handle.waitForExit()])
+
+    // when
+    host.crash()
+
+    // then
+    const outcome = await settled
+    expect(ensure.inputs.map((input) => input.socket)).toEqual([])
+    expect(outcome).toMatchObject({ reason: "own_host_unreachable" })
+    expect(notices).toEqual(["host_notice:own_host_unreachable"])
   })
 })
 
