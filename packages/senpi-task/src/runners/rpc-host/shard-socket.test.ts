@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdtempSync, realpathSync, rmSync, statSync } from "node:fs"
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, dirname, join } from "node:path"
 import { afterEach, describe, expect, test } from "bun:test"
@@ -21,6 +21,7 @@ import {
   shardSocketPath,
   shardSocketPathForKey,
   validateBindPath,
+  type AltRootFs,
   type ShardIdentity,
 } from "./shard-socket"
 
@@ -59,6 +60,12 @@ function inheritedIdentity(): ShardIdentity {
   return { kind: "p", key: OWNER_KEY, ownerSessionId: "child-session-0002", inherited: true }
 }
 
+function currentUid(): number {
+  return process.getuid?.() ?? -1
+}
+
+const actualFs: AltRootFs = { mkdirSync, lstatSync, realpathSync, getuid: currentUid }
+
 // senpi `daemonDirectoryName` on POSIX: the endpoint directory is keyed by the socket string.
 function daemonDirectoryName(socket: string): string {
   return createHash("sha256").update(socket, "utf8").digest("hex").slice(0, 16)
@@ -74,7 +81,6 @@ describe("shard naming", () => {
       expect(key).toBe(vector.key)
       expect(key).toMatch(/^[0-9a-f]{16}$/)
       expect(shardSocketPath("/r", vector.kind, vector.owner)).toBe(vector.socket)
-      expect(shardSocketPath("/r", vector.kind, vector.owner)).toBe(shardSocketPath("/r", vector.kind, vector.owner))
       expect(shardSocketPathForKey("/r", vector.kind, key)).toBe(vector.socket)
     }
   })
@@ -163,6 +169,128 @@ describe("altRoot", () => {
 })
 
 describe("resolveShardSocket", () => {
+  test("#given a fresh alternate root #when resolving #then it is created as a private directory and accepted", () => {
+    const agentDir = freshAgentDir()
+
+    const resolution = resolveShardSocket({ agentDir, env: { [SHARD_ROOT_ENV]: LONG_ROOT }, identity: rootIdentity() })
+
+    expect(resolution.root).toBe("alt")
+    expect(statSync(dirname(resolution.socket)).mode & 0o777).toBe(0o700)
+  })
+
+  test("#given a pre-existing alternate root with broad permissions #when resolving #then it throws shard_alt_root_unsafe", () => {
+    const agentDir = freshAgentDir()
+    const root = altRoot(agentDir)
+    mkdirSync(root, { recursive: true, mode: 0o700 })
+    chmodSync(root, 0o755)
+
+    expect(() => resolveShardSocket({ agentDir, env: { [SHARD_ROOT_ENV]: LONG_ROOT }, identity: rootIdentity() })).toThrow(
+      "shard_alt_root_unsafe",
+    )
+  })
+
+  test("#given a symlink at the alternate root path #when resolving #then it throws shard_alt_root_unsafe", () => {
+    const agentDir = freshAgentDir()
+    const root = altRoot(agentDir)
+    symlinkSync(agentDir, root)
+
+    expect(() => resolveShardSocket({ agentDir, env: { [SHARD_ROOT_ENV]: LONG_ROOT }, identity: rootIdentity() })).toThrow(
+      "shard_alt_root_unsafe",
+    )
+  })
+
+  for (const shape of ["file", "dangling symlink"] as const) {
+    test(`#given a ${shape} at the alternate root path #when resolving #then it throws shard_alt_root_unsafe`, () => {
+      const agentDir = freshAgentDir()
+      const root = altRoot(agentDir)
+      if (shape === "file") writeFileSync(root, "occupied")
+      else symlinkSync(join(agentDir, "absent"), root)
+
+      expect(() => resolveShardSocket({ agentDir, env: { [SHARD_ROOT_ENV]: LONG_ROOT }, identity: rootIdentity() })).toThrow(
+        "shard_alt_root_unsafe",
+      )
+    })
+  }
+
+  test("#given an owned 0700 symlink at the alternate root path #when resolving #then the shape alone refuses it with shard_alt_root_unsafe", () => {
+    // given: owner and mode pass the other guards, only the symlink shape is wrong
+    const agentDir = freshAgentDir()
+    const root = altRoot(agentDir)
+    const target = join(agentDir, "target")
+    mkdirSync(target, { mode: 0o700 })
+    symlinkSync(target, root)
+    const fs: AltRootFs = {
+      ...actualFs,
+      lstatSync(path) {
+        const stat = actualFs.lstatSync(path)
+        // lchmod is not portable (Linux symlinks are always 0777): report the link itself as 0700, keeping its type bits.
+        if (path === root) Object.defineProperty(stat, "mode", { value: (stat.mode & ~0o777) | 0o700 })
+        return stat
+      },
+    }
+    const stat = fs.lstatSync(root)
+    expect(stat.isSymbolicLink()).toBe(true)
+    expect(stat.uid).toBe(currentUid())
+    expect(stat.mode & 0o777).toBe(0o700)
+
+    // when / then
+    expect(() => resolveShardSocket({ agentDir, env: { [SHARD_ROOT_ENV]: LONG_ROOT }, identity: rootIdentity(), fs })).toThrow(
+      "shard_alt_root_unsafe",
+    )
+  })
+
+  test("#given an owned 0600 regular file at the alternate root path #when resolving #then the shape alone refuses it with shard_alt_root_unsafe", () => {
+    // given: owner and mode pass the other guards, only the non-directory shape is wrong
+    const agentDir = freshAgentDir()
+    const root = altRoot(agentDir)
+    writeFileSync(root, "occupied", { mode: 0o600 })
+    const stat = lstatSync(root)
+    expect(stat.isFile()).toBe(true)
+    expect(stat.uid).toBe(currentUid())
+    expect(stat.mode & 0o777).toBe(0o600)
+
+    // when / then
+    expect(() => resolveShardSocket({ agentDir, env: { [SHARD_ROOT_ENV]: LONG_ROOT }, identity: rootIdentity() })).toThrow(
+      "shard_alt_root_unsafe",
+    )
+  })
+
+  test("#given the created alternate root is replaced by a symlink before validation #when resolving #then it refuses the replacement", () => {
+    const agentDir = freshAgentDir()
+    const root = altRoot(agentDir)
+    const fs: AltRootFs = {
+      ...actualFs,
+      lstatSync(path) {
+        const stat = actualFs.lstatSync(path)
+        if (path === root) {
+          rmSync(root, { recursive: true })
+          symlinkSync(agentDir, root)
+        }
+        return stat
+      },
+    }
+
+    expect(() => resolveShardSocket({ agentDir, env: { [SHARD_ROOT_ENV]: LONG_ROOT }, identity: rootIdentity(), fs })).toThrow(
+      "shard_alt_root_unsafe",
+    )
+  })
+
+  test("#given an alternate root owned by another uid through the injected port #when resolving #then it throws shard_alt_root_unsafe", () => {
+    const agentDir = freshAgentDir()
+    const fs: AltRootFs = {
+      ...actualFs,
+      lstatSync(path) {
+        const stat = actualFs.lstatSync(path)
+        Object.defineProperty(stat, "uid", { value: actualFs.getuid() + 1 })
+        return stat
+      },
+    }
+
+    expect(() => resolveShardSocket({ agentDir, env: { [SHARD_ROOT_ENV]: LONG_ROOT }, identity: rootIdentity(), fs })).toThrow(
+      "shard_alt_root_unsafe",
+    )
+  })
+
   test("#given a root and an inherited identity for one owner #when resolving #then socket, meta, parse and child context agree on one key", () => {
     // given
     const agentDir = "/h/.omo/agent"
