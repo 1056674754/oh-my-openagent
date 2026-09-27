@@ -188,6 +188,8 @@ mod capture_tests;
 #[cfg(test)]
 mod eis_tests;
 #[cfg(test)]
+mod eis_safety_tests;
+#[cfg(test)]
 mod portal_tests;
 #[cfg(test)]
 mod tests;
