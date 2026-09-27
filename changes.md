@@ -1,3 +1,7 @@
+## 2026-09-27 - Stop in-flight desktop typing before the remaining characters (#8937)
+
+The macOS physical stop chord previously latched the supervisor while an active `typeText` kept posting the entire text, then reported `Suspended` only after the backend returned. Desktop text delivery now checks suspension and request cancellation between Unicode scalars inside each native backend's single input call. An interrupted request releases held input, keeps the existing single admission and focus-restoration transaction, and audits both the requested and fully delivered scalar counts without recording the text.
+
 ## 2026-09-27 - macOS computer focus guard preserves the visible window (#8925)
 
 The macOS engine now captures the frontmost application's first on-screen layer-0 WindowServer window instead of assuming its AX-focused window is visually on top. Foreground delivery passes that captured window to SkyLight; when the foreground SPI is unavailable, it retains the existing public app-activation fallback. Synthetic window-order tests reject off-screen, non-normal-layer, and other-process windows. Window enumeration no longer cuts off after 48 windows, so a target behind many other windows remains addressable.
