@@ -25,6 +25,8 @@ interface Waiter {
 /** Every child the factory spawned, the requests they received, and how often the service killed one. */
 export interface SpawnLog {
 	readonly factory: ChildFactory;
+	/** The same spawn as `factory`, synchronously, for callers that need the child itself. */
+	readonly spawn: () => ChildProcessWithoutNullStreams;
 	readonly children: readonly ChildProcessWithoutNullStreams[];
 	readonly requests: readonly WireRequest[];
 	readonly kills: () => number;
@@ -60,7 +62,7 @@ export function fakeEngineFactory(env: Readonly<Record<string, string>> = {}): S
 			if (waiter.method === request.method && waiter.n === count) waiter.resolve(request);
 		}
 	};
-	const factory: ChildFactory = () => {
+	const spawnChild = (): ChildProcessWithoutNullStreams => {
 		const index = children.length;
 		const child = spawn(process.execPath, [fakeEngine, "--stdio"], {
 			env: { ...process.env, ...env },
@@ -81,7 +83,7 @@ export function fakeEngineFactory(env: Readonly<Record<string, string>> = {}): S
 		return new Promise<WireRequest>((resolve) => waiters.push({ method, n, resolve }));
 	};
 	const totalKills = () => kills.reduce((sum, spy) => sum + spy.calls(), 0);
-	return { factory, children, requests, kills: totalKills, nthRequest };
+	return { factory: spawnChild, spawn: spawnChild, children, requests, kills: totalKills, nthRequest };
 }
 
 /** Resolves when `child` has exited. */

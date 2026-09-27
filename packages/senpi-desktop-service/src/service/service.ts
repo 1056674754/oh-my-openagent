@@ -179,7 +179,7 @@ export class DesktopService {
 	}
 
 	async #start(desired: DesiredSession): Promise<{ connection: Connection; capabilities: DesktopCapabilities }> {
-		const rpc: RpcClient = new RpcClient(this.#createChild(), {
+		const rpc: RpcClient = new RpcClient(await this.#createChild(), {
 			onNotification: (method, params) => this.#hub.dispatch(method, params),
 			onExit: () => {
 				if (this.#connection?.rpc === rpc) this.#drop(this.#connection);

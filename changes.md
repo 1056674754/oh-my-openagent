@@ -1,3 +1,15 @@
+## 2026-09-27 - Computer use acquires its engine for npm installs (#8893)
+
+`omo-ai` installed from npm ships no native binaries. So the `computer-use` component used to report `native-unavailable` unless the engine had been built locally.
+
+The component's default engine source is now `packages/omo-senpi/src/components/computer-use/engine-source.ts`:
+- `computer.engine_path` still wins.
+- Under an OmO launch, it acquires the engine for OmO's own release. That version comes from the compiled runtime's stamped manifest (`OMO_PACKAGE_DIR`) or from the `omo-ai` package the npm launcher runs from (`OMO_BIN`).
+- Acquiring means the local sidecar or prebuild first, then the checksum-verified GitHub release download. `acquireDesktopEngine` (#8923) caches the result.
+- Anything else keeps the synchronous locator.
+
+`senpi-desktop-service`'s `ChildFactory` may now resolve asynchronously. The new `acquiringEngineChildFactory` acquires once and reuses the path. When acquisition finds no engine, it rejects with `DesktopEngineUnavailableError` carrying the acquisition diagnostic and spawns nothing.
+
 ## 2026-09-27 - Desktop engine binaries join the OmO release channels (#8893)
 
 The compiled OmO binaries stage `senpi-desktop-engine` inside their extracted runtime on supported macOS, glibc Linux x64 and Windows x64 hosts. The locator checks that runtime before the executable directory, while targets without an engine still report `native-unavailable`. The release workflow builds and uploads the engine binaries with checksums. An independent asynchronous API can acquire and verify the corresponding asset into a versioned cache for npm installs; hooking that API into the computer-use component follows the separate component PR.
