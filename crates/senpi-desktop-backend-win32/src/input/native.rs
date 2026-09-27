@@ -5,11 +5,8 @@
 use std::ffi::c_void;
 
 use senpi_desktop_core::error::{CoreResult, DesktopError};
-use windows_sys::Win32::Foundation::{CloseHandle, HWND, POINT};
+use windows_sys::Win32::Foundation::{HWND, POINT};
 use windows_sys::Win32::Graphics::Gdi::ScreenToClient;
-use windows_sys::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
-};
 use windows_sys::Win32::UI::HiDpi::{
     GetWindowDpiAwarenessContext, PhysicalToLogicalPointForPerMonitorDPI, SetThreadDpiAwarenessContext,
 };
@@ -150,57 +147,6 @@ impl Window {
                 | "Windows.UI.Core.CoreWindow"
                 | "Microsoft.UI.Content.DesktopChildSiteBridge"
         )
-            || self.executable_is_any(&[
-                "notepad.exe",
-                "calculatorapp.exe",
-                "calc.exe",
-                "applicationframehost.exe",
-                "photos.exe",
-                "systemsettings.exe",
-            ])
-    }
-
-    fn executable_is_any(self, names: &[&str]) -> bool {
-        let Some(pid) = self.process_id() else {
-            return false;
-        };
-        // SAFETY: [Category 8 - FFI boundary] scalar access rights and PID;
-        // a null result is handled without dereference.
-        let process =
-            unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
-        if process.is_null() {
-            return false;
-        }
-        let mut path = [0u16; 1024];
-        let mut length = u32::try_from(path.len()).unwrap_or(u32::MAX);
-        // SAFETY: [Category 10 - Out-of-bounds] `path` is writable for the
-        // advertised `length` and `process` remains live for this call.
-        let read = unsafe {
-            QueryFullProcessImageNameW(
-                process,
-                PROCESS_NAME_WIN32,
-                path.as_mut_ptr(),
-                &mut length,
-            )
-        } != 0;
-        // SAFETY: [Category 12 - Invalid free] `process` was opened once above
-        // and is closed exactly once here.
-        unsafe { CloseHandle(process) };
-        if !read {
-            return false;
-        }
-        let path = &path[..usize::try_from(length).unwrap_or(usize::MAX).min(path.len())];
-        let file_name = path
-            .iter()
-            .rposition(|&unit| unit == u16::from(b'\\') || unit == u16::from(b'/'))
-            .map_or(path, |separator| &path[separator + 1..]);
-        names.iter().any(|name| {
-            file_name.len() == name.len()
-                && file_name.iter().zip(name.bytes()).all(|(&unit, byte)| {
-                    u8::try_from(unit)
-                        .is_ok_and(|unit| unit.eq_ignore_ascii_case(&byte))
-                })
-        })
     }
 
     pub(super) fn deepest_child(self, screen: POINT) -> Option<(Self, POINT)> {
