@@ -1,3 +1,15 @@
+## 2026-09-27 - Native doctor reports computer-use readiness (#8939)
+
+### What changed
+
+- `computer-use-doctor-runtime.ts` is bundled into the existing Native doctor runtime. It loads the effective `[native]` computer config, honors `computer.engine_path`, otherwise follows the desktop locator and versioned release acquisition path, and preserves `native-unavailable`, `quarantined`, and ABI/handshake diagnostics with every attempted path.
+- The probe starts the engine under a five-second bound and sends only `engine.hello` and `capabilities`. It never sends `session.open`, so it does not create a desktop session, arm input, or trigger an OS permission request.
+- `bin/lib/computer-use-doctor.js` renders enabled/supported state, engine path plus version/ABI/protocol, backend and capture/input/accessibility permissions, display count and lock state, and stop-path availability as `INFO` / `PASS` / `WARN` / `FAIL` lines. `launcher.js` computes those lines alongside task-category coverage and `doctor.js` includes them in its existing exit status.
+
+### Tests
+
+`test/computer-use-doctor.test.ts` covers the healthy output, degraded permission/display/stop-path warnings, quarantined paths, disabled config, explicit engine-path precedence, and the exact prompt-free request sequence (`engine.hello`, `capabilities`, no `session.open`).
+
 ## 2026-09-24 - omo doctor and omo setup report task-category coverage (#8858)
 
 ### What changed

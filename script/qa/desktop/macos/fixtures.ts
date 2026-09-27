@@ -120,10 +120,12 @@ const found = Application('Terminal').windows().find((w) => w.tabs().some((c) =>
 JSON.stringify(found === undefined ? 0 : found.id());`)),
 		(id) => id > 0,
 	);
+	await jxa(`const t = Application('Terminal'); t.activate(); t.windows.byId(${windowId}).index = 1; '"ok"';`);
 	await settle(
-		"key sink frontmost",
-		() => jxa(`JSON.stringify(Application('System Events').processes.whose({ frontmost: true })[0].name())`),
-		(app) => app === "Terminal",
+		"key sink focused",
+		() => jxa(`const t = Application('Terminal');
+JSON.stringify(Application('System Events').processes.whose({ frontmost: true })[0].name() === 'Terminal' ? t.windows[0].id() : 0);`),
+		(id) => id === windowId,
 	);
 	return { path, tty: String(tty).replace("/dev/", ""), windowId, read: () => readFileSync(path, "utf8") };
 }

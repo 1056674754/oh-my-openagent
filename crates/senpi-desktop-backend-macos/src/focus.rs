@@ -1,7 +1,11 @@
-//! Focus-guard primitives: the AX-truthful front window, its restore, and the
+//! Focus-guard primitives: the WindowServer front window, its restore, and the
 //! symmetric key-focus hand-back after background keyboard delivery.
 
+use core_graphics::window::{kCGNullWindowID, kCGWindowListOptionAll};
 use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSWorkspace};
+use objc2_core_foundation::{
+    CFArray, CFBoolean, CFDictionary, CFNumber, CFRetained, CFString, CFType,
+};
 use senpi_desktop_core::error::{CoreResult, DesktopError};
 use senpi_desktop_core::types::{DesktopWindow, FrontWindow};
 
@@ -9,8 +13,28 @@ use crate::ax;
 use crate::input::MacInput;
 use crate::skylight;
 
-/// The frontmost application and its AX focused window. xcap's `focused` flag
-/// marks every window of the active app, so the AX attribute is the truth.
+#[derive(Clone, Copy)]
+struct WindowInfo {
+    pid: u32,
+    window_number: u32,
+    layer: i32,
+    on_screen: bool,
+}
+
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGWindowListCopyWindowInfo(options: u32, relative_to_window: u32) -> *mut CFArray;
+}
+
+fn first_front_window(windows: &[WindowInfo], pid: u32) -> Option<u32> {
+    windows
+        .iter()
+        .find(|window| window.pid == pid && window.layer == 0 && window.on_screen)
+        .map(|window| window.window_number)
+}
+
+/// The frontmost application's first visible, normal-layer WindowServer window.
+/// AX provides its title, not its identity: AXFocusedWindow may be behind it.
 pub(crate) fn front_window() -> CoreResult<Option<FrontWindow>> {
     let Some(app) = NSWorkspace::sharedWorkspace().frontmostApplication() else {
         return Ok(None);
@@ -27,43 +51,100 @@ pub(crate) fn front_window() -> CoreResult<Option<FrontWindow>> {
             .map_or_else(String::new, |name| name.to_string()),
         key_window_ax_title: None,
     };
-    if let Ok(application) = ax::element::create_application(pid) {
-        if let Some(window) = ax::element::copy_element(&application, "AXFocusedWindow") {
-            front.key_window_ax_title = ax::element::copy_string(&window, "AXTitle");
-            if let Some(id) = ax::element::window_id(&window) {
-                front.window_id = Some(id.to_string());
-            }
+    let windows = window_info()?;
+    if let Some(id) = first_front_window(&windows, pid_u32) {
+        front.window_id = Some(id.to_string());
+        if let Ok(application) = ax::element::create_application(pid) {
+            front.key_window_ax_title = ax::element::copy_elements(&application, "AXWindows")
+                .and_then(|windows| {
+                    windows
+                        .iter()
+                        .find(|window| ax::element::window_id(window) == Some(id))
+                        .and_then(|window| ax::element::copy_string(window, "AXTitle"))
+                });
         }
     }
     Ok(Some(front))
 }
 
-/// Brings a previously captured front window back to the foreground through
-/// the SkyLight set-front SPI, falling back to the public activation API.
+fn window_info() -> CoreResult<Vec<WindowInfo>> {
+    // SAFETY: CoreGraphics returns a create-rule CFArray of immutable window
+    // dictionaries; the retained wrapper owns it for the entire iteration.
+    let raw = unsafe { CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID) };
+    let raw = std::ptr::NonNull::new(raw).ok_or_else(|| {
+        DesktopError::input_failed("copying the WindowServer front-to-back window list failed")
+    })?;
+    // SAFETY: CGWindowListCopyWindowInfo gives the caller a +1 CFArray.
+    let array: CFRetained<CFArray> = unsafe { CFRetained::from_raw(raw) };
+    // SAFETY: Each entry in the CoreGraphics window-info array is a CFDictionary.
+    let array = unsafe { CFRetained::cast_unchecked::<CFArray<CFDictionary>>(array) };
+    let pid_key = CFString::from_str("kCGWindowOwnerPID");
+    let number_key = CFString::from_str("kCGWindowNumber");
+    let layer_key = CFString::from_str("kCGWindowLayer");
+    let on_screen_key = CFString::from_str("kCGWindowIsOnscreen");
+    Ok(array
+        .iter()
+        .filter_map(|entry| {
+            // SAFETY: CoreGraphics window-info dictionaries have CFString keys
+            // and CFType values; downcasts below reject absent or wrong types.
+            let entry =
+                unsafe { CFRetained::cast_unchecked::<CFDictionary<CFString, CFType>>(entry) };
+            Some(WindowInfo {
+                pid: u32::try_from(entry.get(&pid_key)?.downcast::<CFNumber>().ok()?.as_i64()?)
+                    .ok()?,
+                window_number: u32::try_from(
+                    entry
+                        .get(&number_key)?
+                        .downcast::<CFNumber>()
+                        .ok()?
+                        .as_i64()?,
+                )
+                .ok()?,
+                layer: entry
+                    .get(&layer_key)?
+                    .downcast::<CFNumber>()
+                    .ok()?
+                    .as_i32()?,
+                on_screen: entry
+                    .get(&on_screen_key)?
+                    .downcast::<CFBoolean>()
+                    .ok()?
+                    .as_bool(),
+            })
+        })
+        .collect())
+}
+
+/// Restores the captured process and window through SkyLight (or public
+/// activation if the foreground SPI is unavailable).
 pub(crate) fn restore_front_window(front: &FrontWindow) -> CoreResult<()> {
     let pid = front_pid(front)?;
-    if let Some(psn) = skylight::psn_for_process(pid) {
-        if skylight::set_front_process(&psn) {
-            return Ok(());
+    let window_id = front
+        .window_id
+        .as_deref()
+        .and_then(|id| id.parse::<u32>().ok());
+    let restored_with_spi = skylight::psn_for_process(pid, window_id.unwrap_or(0))
+        .is_some_and(|psn| skylight::set_front_process(&psn, window_id.unwrap_or(0)));
+    if !restored_with_spi {
+        let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid).ok_or_else(
+            || {
+                DesktopError::window_not_found(format!(
+                    "application process {pid} for the previous front window is no longer running"
+                ))
+            },
+        )?;
+        #[expect(
+            deprecated,
+            reason = "restoring the prior frontmost app must override the current one"
+        )]
+        let options = NSApplicationActivationOptions::ActivateIgnoringOtherApps;
+        if !app.activateWithOptions(options) {
+            return Err(DesktopError::input_failed(format!(
+                "restoring the previous front window of process {pid} was rejected"
+            )));
         }
     }
-    let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid).ok_or_else(|| {
-        DesktopError::window_not_found(format!(
-            "application process {pid} for the previous front window is no longer running"
-        ))
-    })?;
-    #[expect(
-        deprecated,
-        reason = "restoring the prior frontmost app must override the current one"
-    )]
-    let options = NSApplicationActivationOptions::ActivateIgnoringOtherApps;
-    if app.activateWithOptions(options) {
-        Ok(())
-    } else {
-        Err(DesktopError::input_failed(format!(
-            "restoring the previous front window of process {pid} was rejected"
-        )))
-    }
+    Ok(())
 }
 
 /// Hands key focus back to `front` after a background action that took it.
@@ -105,8 +186,8 @@ pub(crate) fn mark_key_window(front: &FrontWindow) -> CoreResult<()> {
     Ok(())
 }
 
-/// Re-activates the (already frontmost) previous application: the supported
-/// way to hand the global key window back without raising anything new.
+/// Re-activates the previous application so global keys land there; this
+/// process-level operation does not select a particular window.
 fn reactivate(pid: libc::pid_t) {
     if let Some(app) = NSRunningApplication::runningApplicationWithProcessIdentifier(pid) {
         #[expect(
@@ -126,3 +207,7 @@ fn front_pid(front: &FrontWindow) -> CoreResult<libc::pid_t> {
         ))
     })
 }
+
+#[cfg(test)]
+#[path = "focus_tests.rs"]
+mod tests;

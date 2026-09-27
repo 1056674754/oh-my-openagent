@@ -6,13 +6,12 @@ use senpi_desktop_core::error::{CoreResult, DesktopError};
 use senpi_desktop_core::types::DesktopWindow;
 use xcap::Window;
 
-const MAX_LISTED_WINDOWS: usize = 48;
 const MIN_WINDOW_EDGE: u32 = 16;
 /// `kCGWindowOwnerName` of WindowServer's own overlays (the cursor window),
 /// which `screencapture -l` cannot capture.
 const WINDOW_SERVER_OWNER: &str = "Window Server";
 
-/// Up to 48 visible, non-minimized, at-least-16px, titled-or-owned app windows
+/// Visible, non-minimized, at-least-16px, titled-or-owned app windows
 /// in front-to-back order, deduplicated by id.
 pub(crate) fn enumerate() -> CoreResult<Vec<DesktopWindow>> {
     let windows = Window::all().map_err(|error| {
@@ -21,14 +20,12 @@ pub(crate) fn enumerate() -> CoreResult<Vec<DesktopWindow>> {
     let mut result = Vec::new();
     let mut seen = HashSet::new();
     for window in windows {
-        if result.len() >= MAX_LISTED_WINDOWS {
-            break;
-        }
         let Ok(id) = window.id() else { continue };
         if !seen.insert(id) || window.is_minimized().unwrap_or(true) {
             continue;
         }
-        let (Ok(x), Ok(y), Ok(width), Ok(height)) = (window.x(), window.y(), window.width(), window.height())
+        let (Ok(x), Ok(y), Ok(width), Ok(height)) =
+            (window.x(), window.y(), window.width(), window.height())
         else {
             continue;
         };
