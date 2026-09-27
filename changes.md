@@ -1,3 +1,7 @@
+## 2026-09-28 - macOS foreground input lands in the target window (#9008)
+
+`delivery: "foreground"` clicks and keys on macOS used to report success while the target app ignored them. The engine fronted the process through SkyLight (`_SLPSSetFrontProcessWithOptions`), which makes it front to WindowServer and AX but leaves the app inactive in AppKit, so every click was consumed as an activation click. Foreground delivery now activates the app through accessibility (`AXFrontmost`) and AppKit, waits for `NSRunningApplication.isActive`, and waits until the target window is the app's focused main window. Only then does it post input. If the app never becomes active, nothing is posted and the call fails with `InputFailed`. The previous front app is still restored through SkyLight and AppKit.
+
 ## 2026-09-28 - macOS QA checks both canary policies (#8893)
 
 The live macOS harness (`script/qa/desktop/macos.ts`) gains a `canary-off` scenario next to `canary`. Both drive the packaged OmO component through a real Senpi session and make two background inputs to TextEdit. `canary` runs `computer.macos_canary: "session"` and expects exactly one canary dialog; `canary-off` runs `"off"` and expects none. Both inputs must succeed in each case. The dialog count comes from the harness's independent System Events observer, not from the engine, so the pair would fail if the observer missed a dialog or if the policy were ignored.
@@ -64,6 +68,10 @@ Every `@code-yeongyu/senpi` pin moves from 2026.9.27 to 2026.9.27-2: the root de
 - The `tool_activated` event.
 
 It also fixes session rebinding after a repository moves, fork-confirmation answers, and several pty issues. `packages/omo-native/bin/lib/provider-map.json` still matches the new engine's `builtinProviders()`, which `provider-map-registry.test.ts` checks against the installed package, so only its version comment changes.
+
+## 2026-09-28 - omo adopts senpi 2026.9.27-4: task children are never refused for host memory, and a handoff host no longer inherits the caller's session (#8960)
+
+Every `@code-yeongyu/senpi` pin moves from 2026.9.27-3 to 2026.9.27-4: the root devDependency, the `omo-native` dependency, the `omo-senpi` and `senpi-task` peer and dev pins, their pin tests, and `bun.lock`. The release carries code-yeongyu/senpi#2213, which removes the RSS admission refusal so opening a child session is never refused for host memory, and adds `host_rss_mb` to host status, measured from the OS rather than Bun's process counter. It also carries code-yeongyu/senpi#2220, under which `host handoff` launches the successor from the binary runtime's launch spec with the caller's session variables stripped, bumps the generation exactly once, and lets running parents follow the new generation without a restart. The release also removes senpi's leftover desktop engine crates and packages (code-yeongyu/senpi#2231); omo's computer use already lives in its own workspace packages. The fallback circuit breaker (code-yeongyu/senpi#2201) was reverted before the release (code-yeongyu/senpi#2228, Windows host-lifecycle regression, code-yeongyu/senpi#2227), so it does not ship. `packages/omo-native/bin/lib/provider-map.json` still matches the new engine's `builtinProviders()`, which `provider-map-registry.test.ts` checks against the installed package, so only its version comment changes.
 
 ## 2026-09-28 - omo adopts senpi 2026.9.27-3: starting omo no longer empties an upstream pi install (#8039)
 
