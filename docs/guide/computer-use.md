@@ -124,7 +124,7 @@ omo --permission computer:read=allow --permission computer:exec=deny
 - **What is captured:** only what the agent requests: screenshots of the desktop or a window, window lists (app names, titles, bounds), accessibility trees of a window (element roles, titles, values), and the clipboard when a helper reads it. Nothing is captured in the background or while computer use is inactive.
 - **What stays on your machine:** screenshot files are written to the system temporary directory and deleted after `screenshot_gc.stale_ms`; the audit log stays in the session directory. The engine makes no network requests; the only network access computer use performs is the one-time engine download from the OmO GitHub release for npm installs.
 - **What leaves your machine:** screenshots, accessibility text and window titles that a tool call returns become part of the conversation and are sent to your model provider like any other tool result. Keep sensitive windows closed or covered, or deny `computer:read`, when that matters.
-- **Telemetry:** OmO Native's product telemetry never includes screen content, window titles, app names, coordinates or typed text; see [Senpi telemetry](../reference/senpi-telemetry.md) for what is sent and how to turn it off.
+- **Telemetry:** OmO Native's product telemetry records three computer-use events, each with enumerated values only: `computer_use_activation` (on or off, and whether a tool call or `/computer on|off` did it), `computer_use_permission_denied` (which OS capability or permission tier refused), and `computer_use_engine_error` (the engine's error code). Screenshots, screen text, window titles, app names, coordinates, typed text, tool arguments, paths and error messages are never sent. See [Senpi telemetry](../reference/senpi-telemetry.md) for every field and how to turn telemetry off.
 
 ## Troubleshooting
 
@@ -144,7 +144,7 @@ omo --permission computer:read=allow --permission computer:exec=deny
 
 ## Known limitations
 
-- macOS: a background click can raise the clicked window to just below the frontmost window; your frontmost app, focus and cursor are kept ([#8925](https://github.com/code-yeongyu/oh-my-openagent/issues/8925)).
+- macOS: a background click can raise the clicked window to just below the frontmost window; your frontmost app, front window, focus, cursor and next-keystroke destination are kept. Restoring the full previous window order is tracked in [#8930](https://github.com/code-yeongyu/oh-my-openagent/issues/8930).
 - macOS: the stop chord latches immediately, but a `type` already in progress is not interrupted mid-string yet ([#8937](https://github.com/code-yeongyu/oh-my-openagent/issues/8937)).
 - macOS: `macos_canary: "off"` is accepted but not yet forwarded to the engine, so the delivery check always runs.
 - Wayland: no single-window capture, no per-window input, no `raise()`; the stop chord needs the GlobalShortcuts portal.

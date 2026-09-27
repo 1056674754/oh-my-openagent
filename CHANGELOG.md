@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **OmO Native can use your computer.** ([#8893](https://github.com/code-yeongyu/oh-my-openagent/issues/8893)) Agents get a `computer` tool that takes screenshots, lists windows, reads accessibility trees and clicks and types in native applications on macOS, Linux and Windows. Input goes to the target app in the background by default, so your frontmost app, focus and cursor stay where they are. A global stop chord (Control+Option+Command+Escape on macOS, Ctrl+Alt+Shift+Escape on Linux and Windows) or `/computer stop` suspends it until you run `/computer resume`, and permission rules split looking (`computer:read`) from touching (`computer:exec`). The compiled binary carries the engine; an npm install downloads the checksum-verified engine for its release on first use. On macOS, grant Screen Recording and Accessibility to the app you run OmO from. Setup, settings, safety, privacy and troubleshooting: [Computer use](docs/guide/computer-use.md).
 
+### Changed
+
+**Memory now learns from a very long conversation instead of parking it forever.** ([#8984](https://github.com/code-yeongyu/oh-my-openagent/issues/8984), contributed by @deadcode-walker in [#8985](https://github.com/code-yeongyu/oh-my-openagent/pull/8985)) Facts extraction sends conversations to the model in batches of at most 128 KiB. A single conversation entry larger than that used to be parked and never read, so the facts in it were lost. Now, after all normal batches are done, OmO Native gives one such entry a separate extraction run with a fixed budget:
+
+- the whole entry, up to 512 KiB, never split or trimmed
+- at most 8 model requests, each with at most 4,096 output tokens
+- no retries and no fallback to another model
+
+The run only starts when the memory model's context window is known to fit the whole entry. If the context gets compacted, the output is cut off, or any limit is hit, the run is thrown away and the entry stays queued exactly as before. This means extra model calls, and possibly new memory commits, for people who have such long entries queued. Entries above 512 KiB are still parked; see them with `/facts` and unpark them with `/facts retry`.
+
 ### Fixed
 
 **`omo doctor` now diagnoses computer use before you start a desktop session.** ([#8939](https://github.com/code-yeongyu/oh-my-openagent/issues/8939)) OmO Native reports whether computer use is enabled and supported, which desktop engine it selected and whether its ABI matches, the backend's capture/input/Accessibility permissions, and display and screen-lock state; the emergency stop chord is reported as not armed until computer use starts input, which is when the engine arms it. The check uses only the engine's read-only handshake and capabilities requests under a bounded timeout, so it does not open a desktop session, grab input, or request OS permissions.
