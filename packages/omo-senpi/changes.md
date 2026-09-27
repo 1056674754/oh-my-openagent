@@ -10,7 +10,8 @@ chain; POSIX `task.process_runner: host` only, fire-and-forget, at most once per
   session's own endpoint is never ensured (a child inside `p-A` does not warm `p-A`), and nothing is
   warmed when `resume_children` or `reattach_on_reconcile` is off.
 - `task.host_shard_prewarm: "session-start"` asks the execution-mode gate at `session_start`;
-  `"first-turn"` asks it on the first `input` or `before_agent_start` of the session; `"off"` (default)
+  `"first-turn"` asks it on the first `input` or `before_agent_start` of the session (later prompts of
+  that session return before capturing any context); `"off"` (default)
   does nothing beyond the revival pre-warm. The gate's memoization is unchanged, and a failed ensure
   surfaces as the gate's `host_unavailable:*` notice, never as a turn error.
 

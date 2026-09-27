@@ -121,10 +121,18 @@ function suspendedChild(parent: string, socket: string, overrides: Partial<TaskR
 function countingGateWorld(input: { readonly prewarm: Prewarm; readonly gate: () => Promise<"process" | "in-process"> }) {
   const pi = new FakeExtensionAPI()
   const calls: string[] = []
+  const captures: (string | undefined)[] = []
+  const runtime = new TaskRuntimeContext("/tmp")
   const settings = OmoTaskSettingsSchema.parse({ process_runner: "host", host_shard_prewarm: input.prewarm })
   wireHostPrewarm(pi, {
     settings,
-    runtime: new TaskRuntimeContext("/tmp"),
+    runtime: {
+      captureFrom: (ctx) => {
+        captures.push(ctx.sessionManager?.getSessionId())
+        runtime.captureFrom(ctx)
+      },
+      sessionId: () => runtime.sessionId(),
+    },
     host: {
       executionModeGate: { ensure: () => (calls.push("gate"), input.gate()) },
       hostEndpoint: { isOwn: () => false, ensure: () => Promise.resolve("ensured") },
@@ -133,9 +141,12 @@ function countingGateWorld(input: { readonly prewarm: Prewarm; readonly gate: ()
   }, "darwin")
   return {
     calls,
+    captures,
     prompt: (sessionId: string) => pi.dispatch("input", { type: "input", text: "hi", source: "interactive" }, sessionCtx(sessionId)),
     agentStart: (sessionId: string) => pi.dispatch("before_agent_start", { type: "before_agent_start" }, sessionCtx(sessionId)),
     sessionStart: (sessionId: string) => pi.dispatch("session_start", { type: "session_start", reason: "startup" }, sessionCtx(sessionId)),
+    // A host context without a session manager: the session id is the one session_start captured.
+    bareTurn: () => pi.dispatch("before_agent_start", { type: "before_agent_start" }, {}),
   }
 }
 
@@ -231,6 +242,38 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
     await w.prompt("root-2")
 
     // then
+    expect(w.calls).toEqual(["gate", "gate"])
+  })
+
+  test("#given first-turn and turn contexts that carry no session manager #when two turns start #then the gate is still asked once", async () => {
+    // given
+    const w = countingGateWorld({ prewarm: "first-turn", gate: () => Promise.resolve("process") })
+    await w.sessionStart("root-1")
+
+    // when
+    await w.bareTurn()
+    await w.bareTurn()
+
+    // then
+    expect(w.calls).toEqual(["gate"])
+  })
+
+  test("#given first-turn already fired for a session #when later prompts of that session arrive #then their context is not captured again", async () => {
+    // given
+    const w = countingGateWorld({ prewarm: "first-turn", gate: () => Promise.resolve("process") })
+    await w.sessionStart("root-1")
+    await w.prompt("root-1")
+    const capturesAtFirstFire = [...w.captures]
+
+    // when
+    await w.agentStart("root-1")
+    await w.prompt("root-1")
+    await w.agentStart("root-1")
+    await w.prompt("root-2")
+
+    // then: only the new session's first prompt is captured
+    expect(capturesAtFirstFire).toEqual(["root-1", "root-1"])
+    expect(w.captures).toEqual(["root-1", "root-1", "root-2"])
     expect(w.calls).toEqual(["gate", "gate"])
   })
 

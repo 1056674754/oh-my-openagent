@@ -38,14 +38,16 @@ export function wireHostPrewarm(
 ): void {
   if (engine.settings.process_runner !== "host" || platform === "win32") return
   const revived = createOncePerSessionGuard()
-  const warmed = createOncePerSessionGuard()
+  const warmed = new Set<string>()
   const mode = engine.settings.host_shard_prewarm
   const attachedSession = (eventCtx: unknown): string | undefined => {
     if (typeof eventCtx === "object" && eventCtx !== null) engine.runtime.captureFrom(eventCtx)
     return engine.runtime.sessionId()
   }
   const warmOwnHost = (sessionId: string): void => {
-    if (warmed(sessionId)) void engine.host.executionModeGate.ensure().catch(() => undefined)
+    if (warmed.has(sessionId)) return
+    warmed.add(sessionId)
+    void engine.host.executionModeGate.ensure().catch(() => undefined)
   }
 
   pi.on("session_start", (_payload, eventCtx) => {
@@ -57,11 +59,20 @@ export function wireHostPrewarm(
   if (mode !== "first-turn") return
   for (const event of FIRST_TURN_EVENTS) {
     pi.on(event, (_payload, eventCtx) => {
+      // A session that already warmed its host needs nothing from its later prompts, not even a capture.
+      const eventSession = contextSessionId(eventCtx)
+      if (eventSession !== undefined && warmed.has(eventSession)) return undefined
       const sessionId = attachedSession(eventCtx)
       if (sessionId !== undefined) warmOwnHost(sessionId)
       return undefined
     })
   }
+}
+
+function contextSessionId(eventCtx: unknown): string | undefined {
+  if (typeof eventCtx !== "object" || eventCtx === null) return undefined
+  const ctx: LiveTaskContext = eventCtx
+  return ctx.sessionManager?.getSessionId()
 }
 
 function warmRecordedHosts(engine: HostPrewarmEngine, sessionId: string): void {
