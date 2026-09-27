@@ -1,3 +1,9 @@
+## 2026-09-28 - Session search finds prompts in the middle of a session (#9012)
+
+`find`/`search` in the `coding-agent-sessions` skill used to match only session metadata and the first and last user prompts, so a query that appeared only in a middle prompt returned nothing even though `read` showed it. Scanners that already read the whole transcript (OmO/Senpi, oh-my-pi, gajae-code, Claude, Codex rollouts, OpenClaw, Qwen, Droid, Kimi, Aside) now keep every user prompt they parse, and search reports such a hit with the match reason field `user_message`. A Codex thread listed from the state database searches the prompts of its scanned rollout. The search adds no file reads, so a miss-heavy query costs the same as before. Claude subagent transcripts and Codex threads beyond the 2000 newest rollouts keep metadata and first/last-prompt search.
+
+The entrypoint now exits with status 2 and a message naming the required Python 3.11+ and the interpreter it found, instead of failing with `ImportError` on an older `python3`.
+
 ## 2026-09-28 - macOS QA checks both canary policies (#8893)
 
 The live macOS harness (`script/qa/desktop/macos.ts`) gains a `canary-off` scenario next to `canary`. Both drive the packaged OmO component through a real Senpi session and make two background inputs to TextEdit. `canary` runs `computer.macos_canary: "session"` and expects exactly one canary dialog; `canary-off` runs `"off"` and expects none. Both inputs must succeed in each case. The dialog count comes from the harness's independent System Events observer, not from the engine, so the pair would fail if the observer missed a dialog or if the policy were ignored.
