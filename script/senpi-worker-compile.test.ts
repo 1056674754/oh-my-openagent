@@ -48,7 +48,9 @@ console.log("two-workers-ready");`)
     expect(result.status, result.stderr).toBe(0)
     expect(result.stdout.trim()).toBe("two-workers-ready")
   } finally {
-    rmSync(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    // Windows keeps a just-executed image locked briefly after the process exits; allow the same
+    // bounded release window the isolation-core fixtures use for this EBUSY family.
+    rmSync(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 })
   }
 }, 45_000)
 
