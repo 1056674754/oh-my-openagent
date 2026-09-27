@@ -32,6 +32,7 @@ const workflowExpectations = [
   { path: ".github/workflows/cla.yml", jobs: ["cla"] },
   { path: ".github/workflows/compiled-worker.yml", jobs: ["relocated-worker"] },
   { path: ".github/workflows/desktop-engine.yml", jobs: ["native-contract"] },
+  { path: ".github/workflows/desktop-windows-qa.yml", jobs: ["windows-desktop-qa"] },
   { path: ".github/workflows/bot-merge.yml", jobs: ["merge"] },
   { path: ".github/workflows/lint-workflows.yml", jobs: ["actionlint"] },
   { path: ".github/workflows/npm-dist-tag-rollback.yml", jobs: ["retag"] },
