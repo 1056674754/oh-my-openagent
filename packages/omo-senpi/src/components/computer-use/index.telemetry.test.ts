@@ -190,6 +190,19 @@ describe("computer-use component telemetry", () => {
     expect(telemetry.observations.filter((observation) => observation.kind === "activation")).toHaveLength(1)
   })
 
+  test("#given concurrent command and tool activation #when one inactive handle activates #then activation emits once", async () => {
+    const telemetry = recorder()
+    const engine = fakeEngine()
+    const pi = register(engine.factory, telemetry.observers)
+
+    await Promise.all([
+      command(pi, "on"),
+      pi.dispatch("tool_activated", { type: "tool_activated", toolNames: ["computer"] }, context()),
+    ])
+
+    expect(telemetry.observations.filter((observation) => observation.kind === "activation")).toHaveLength(1)
+  })
+
   test("#given a denied computer call #when its tool result message ends #then the tier denial is observed", async () => {
     const telemetry = recorder()
     const engine = fakeEngine()

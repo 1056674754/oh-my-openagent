@@ -145,7 +145,7 @@ export function createComputerUseComponent(options: ComputerUseComponentOptions 
           session.runtime.telemetryContext = commandCtx
           try {
             const text = await runComputerCommand(args, handle, commandCtx)
-            if (command === "on" && !wasActive && handle.active) {
+            if (command === "on" && !wasActive && handle.active && !session.runtime.activationReported) {
               session.runtime.activationReported = true
               const capabilities = await service.capabilities()
               session.runtime.backend = capabilities.backend
