@@ -128,8 +128,6 @@ omo --permission computer:read=allow --permission computer:exec=deny
 
 ## Troubleshooting
 
-Start with `omo doctor`: its computer-use lines show whether computer use is enabled, which engine was found (or every path tried), the capture/input/accessibility permissions, and the display and screen-lock state, without opening a desktop session or triggering a permission prompt.
-
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `/computer` says "Computer use is unavailable in this session." | `computer.enabled` is `false`, the `computer` block is invalid (see the session log), or the platform is not macOS, Linux or Windows | Fix or remove the block and start a new session |
