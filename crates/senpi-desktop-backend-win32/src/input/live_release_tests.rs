@@ -1,3 +1,4 @@
+use senpi_desktop_core::error::ErrorCode;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 
 use super::barrier;
@@ -56,6 +57,8 @@ fn accepted_return_is_released_after_a_foreground_handoff() {
     raise_window(&other_window.id).unwrap();
     assert_eq!(native::foreground(), Some(other));
 
+    let refused = system::key(VK_RETURN, true, Some(target)).unwrap_err();
+    assert_eq!(refused.code, ErrorCode::InputFailed);
     let released = system::key(VK_RETURN, false, Some(target));
     println!("return_release_after_handoff={released:?}");
     assert_eq!(released, Ok(()));

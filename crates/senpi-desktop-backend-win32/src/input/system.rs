@@ -65,9 +65,10 @@ fn send(events: &[INPUT], target: Option<Window>) -> CoreResult<()> {
 
 /// Presses (`down`) or releases virtual key `vk`.
 pub(super) fn key(vk: u16, down: bool, target: Option<Window>) -> CoreResult<()> {
+    // A foreground handoff blocks new presses, not release of an inserted key.
     send(
         &[key_event(vk, 0, if down { 0 } else { KEYEVENTF_KEYUP })],
-        target,
+        if down { target } else { None },
     )
 }
 

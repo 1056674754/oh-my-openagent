@@ -6,7 +6,7 @@ use senpi_desktop_core::backend::DeliveryMode;
 use senpi_desktop_core::error::CoreResult;
 use senpi_desktop_core::types::Target;
 
-use super::dispatch::{enigo_error, Win32Input};
+use super::dispatch::{enigo_error, Via, Win32Input};
 use super::keys::VK_RETURN;
 use super::native::Window;
 use super::typing_progress::run_text_steps;
@@ -23,8 +23,8 @@ impl Win32Input {
         match (target, mode) {
             (Target::Desktop, _) => self.enigo.text(text).map_err(enigo_error),
             (Target::Window(id), DeliveryMode::Foreground) => {
-                self.with_foreground(id, |_, target| {
-                    text_units(text).try_for_each(|unit| foreground_unit(unit, target))
+                self.with_foreground(id, |input, target| {
+                    text_units(text).try_for_each(|unit| foreground_unit(input, unit, target))
                 })
             }
             (Target::Window(id), DeliveryMode::Background) => {
@@ -43,11 +43,11 @@ impl Win32Input {
     ) -> CoreResult<()> {
         match (target, mode) {
             (Target::Window(id), DeliveryMode::Foreground) => {
-                self.with_foreground(id, |_, target| {
+                self.with_foreground(id, |input, target| {
                     run_text_steps(
                         text,
                         check_stop,
-                        |unit| foreground_unit(unit, target),
+                        |unit| foreground_unit(input, unit, target),
                         delivered,
                     )
                 })
@@ -79,11 +79,10 @@ impl Win32Input {
     }
 }
 
-fn foreground_unit(unit: TextUnit, target: Window) -> CoreResult<()> {
+fn foreground_unit(input: &mut Win32Input, unit: TextUnit, target: Window) -> CoreResult<()> {
     match unit {
         TextUnit::Enter => {
-            system::key(VK_RETURN, true, Some(target))?;
-            system::key(VK_RETURN, false, Some(target))
+            input.holding(Via::SendInput(Some(target)), &[VK_RETURN], |_| Ok(()))
         }
         TextUnit::Char(character) => {
             let mut units = [0; 2];
