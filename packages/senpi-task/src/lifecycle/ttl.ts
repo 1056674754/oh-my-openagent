@@ -6,6 +6,7 @@ import type { TaskRecord } from "../state"
 import type { ExpungeOwner } from "../store"
 import { TERMINAL_STATUSES, type LifecycleContext } from "./context"
 import { destroyResidentTask } from "./destroy"
+import { attemptInFlight, holdAttempt } from "./expunge-attempts"
 import { endClosingFallbackChild } from "./fallback-closing-child"
 import { isHostSessionRecord } from "./host-session"
 import { closeHostSession } from "./host-session-close"
@@ -45,6 +46,15 @@ export async function cleanupExpiredRecords(context: LifecycleContext): Promise<
   context.hostSessionProbe.refresh()
 
   const owner: ExpungeOwner = { pid: context.hostPid, token: randomUUID() }
+  const endSweep = holdAttempt(owner.token)
+  try {
+    return await sweepExpired(context, owner, deleted, retained)
+  } finally {
+    endSweep()
+  }
+}
+
+async function sweepExpired(context: LifecycleContext, owner: ExpungeOwner, deleted: string[], retained: string[]): Promise<CleanupResult> {
 
   // Crash recovery before anything else: finish the expunges of attempts whose process is gone. A
   // tombstone owned by a live attempt (another sweep, possibly still waiting on its close) is its own.
@@ -117,13 +127,23 @@ async function finishExpunge(
     return
   }
   // The close is still in flight: the tombstone stays (this attempt still owns it, so no other sweep
-  // restores it), and the settled answer decides between deletion and restore.
+  // restores it), and the settled answer decides between deletion and restore. A failure there drops the
+  // attempt, so the next sweep takes the tombstone over instead of it staying stranded.
   result.retained.push(taskId)
-  void ended.pending.then((closed) => {
-    if (closed ? context.store.completeExpunge(taskId, owner) : (context.store.restoreExpunging(taskId, owner), false)) {
-      context.kernelToolBindings?.release(taskId)
+  const release = holdAttempt(owner.token)
+  void settleDeferred(context, taskId, ended.pending, owner).finally(release)
+}
+
+async function settleDeferred(context: LifecycleContext, taskId: string, pending: Promise<boolean>, owner: ExpungeOwner): Promise<void> {
+  try {
+    if (!(await pending)) {
+      context.store.restoreExpunging(taskId, owner)
+      return
     }
-  })
+    if (context.store.completeExpunge(taskId, owner)) context.kernelToolBindings?.release(taskId)
+  } catch (error) {
+    log("senpi-task TTL expunge could not settle after a late close; the next sweep retries", { taskId, error: String(error) })
+  }
 }
 
 // A throw while ending the child must not strand a tombstone this still-running process owns: no later
@@ -150,10 +170,10 @@ function loadTombstone(context: LifecycleContext, taskId: string): TaskRecord | 
   }
 }
 
-// An attempt owned by this process is live while this lifecycle runs; one owned by another process is
-// live while that process is.
+// An attempt of this process is live while it has work in flight here; one of another process is live
+// while that process is.
 function isLiveAttempt(context: LifecycleContext, owner: ExpungeOwner): boolean {
-  return owner.pid === context.hostPid || context.signaller.isAlive(owner.pid)
+  return owner.pid === context.hostPid ? attemptInFlight(owner.token) : context.signaller.isAlive(owner.pid)
 }
 
 // A daemon session that is still live is closed and must be confirmed; one the daemon already parked or

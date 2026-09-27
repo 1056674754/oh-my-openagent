@@ -28,6 +28,27 @@ Tests: `ttl-expunge-owner.test.ts`, `runtime-fallback-rejected-close.test.ts`, a
 case in `revival-claim-fence.test.ts`; each fails with its fix reverted. `runtime-fallback-live-close`
 no longer leaves an unawaited `AbortSignal.timeout` wait behind in its acknowledged variant.
 
+Follow-ups found while reviewing the above:
+
+- `manager/manager-reattach.ts`: a reattach rejected because another owner holds the task (claim not
+  held, claim superseded, task already attached) now only detaches a revived daemon-session handle. That
+  handle is attached to the task's one daemon session, which the other owner may be using; discarding it
+  sent `abort` + `close_session` and ended the other owner's run. A rejected process child, spawned for
+  that attempt alone, is still ended.
+- `store/expunge-owner.ts`: the owner file is written to a staging name and renamed into place under the
+  record lock, and an owner file that does not parse counts as no owner, so a torn file can never block
+  every later recovery (other read errors still surface).
+- `lifecycle/expunge-attempts.ts` (new): an attempt owned by this process is live only while it has work
+  in flight here (the sweep, or a pending close it left). A sweep that threw, or a late close whose
+  completion failed, no longer strands its tombstone until the process exits: the next sweep takes it
+  over. The late-close completion catches and logs its storage errors instead of leaving an unhandled
+  rejection, and a confirmed close is not turned into a refusal by a failure to record its event.
+- Crash recovery keeps `dev`'s rules from #8992: an unreadable tombstone still finishes phase 2, and only a
+  daemon session is closed after a crash, never a process pid from an old tombstone.
+
+Tests: `manager-reattach-rejected.test.ts`, plus torn-owner and failed-late-completion cases in
+`ttl-expunge-owner.test.ts`; each fails with its fix reverted.
+
 ## A child that starts after its task was stopped, and a child whose cleanup rejects
 
 `manager/manager.ts`: every launch now re-reads the record once `runner.start()` resolves and keeps the child only

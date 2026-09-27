@@ -13,7 +13,7 @@ import { join } from "node:path"
 import { parseTaskId, transitionTaskRecord } from "../state"
 import type { TaskId, TaskRecord } from "../state"
 import { appendTaskEvent, closeAppendFd, taskEventLogPath, type AppendFdCache } from "./event-log"
-import { expungeOwnerPath, holdsTombstone, readExpungeOwnerFile, restoreTombstone, takeOverTombstone, writeExpungeOwner } from "./expunge-owner"
+import { holdsTombstone, removeExpungeOwner, readExpungeOwnerFile, restoreTombstone, takeOverTombstone, writeExpungeOwner } from "./expunge-owner"
 import { withTaskRecordLock } from "./record-lock"
 import { parseTaskRecord } from "./record-parse"
 import { writeRecord } from "./record-write"
@@ -135,7 +135,7 @@ export function createTaskRecordStore(config: StateDirConfig, options: TaskRecor
       if (owner !== undefined && !holdsTombstone(taskPath(stateDir, parsedTaskId), tombstone, owner)) return false
       removeRecord(stateDir, parsedTaskId, cache, appendFds)
       rmSync(tombstone, { force: true })
-      rmSync(expungeOwnerPath(tombstone), { force: true })
+      removeExpungeOwner(tombstone)
       return true
     },
     loadExpunging(taskId) {

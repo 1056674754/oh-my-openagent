@@ -29,10 +29,15 @@ export async function closeHostSession(
   if (close === undefined) return { kind: "refused" }
   const settled = close({ hostSession, ...(cwd === undefined ? {} : { cwd }) }).then(
     () => {
-      context.store.appendEvent(taskId, {
-        type: "host_session_closed",
-        payload: { session_path: hostSession.session_path, socket: hostSession.socket },
-      })
+      // The daemon confirmed the close; failing to record that must not turn it into a refusal.
+      try {
+        context.store.appendEvent(taskId, {
+          type: "host_session_closed",
+          payload: { session_path: hostSession.session_path, socket: hostSession.socket },
+        })
+      } catch (error) {
+        log("senpi-task could not record a confirmed host session close", { taskId, error: String(error) })
+      }
       return true
     },
     (error: unknown) => {

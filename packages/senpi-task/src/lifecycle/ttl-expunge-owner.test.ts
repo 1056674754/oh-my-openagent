@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { existsSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 
 import type { HostSessionIdentity } from "../state"
 import { createTaskRecordStore, type TaskRecordStore } from "../store"
@@ -126,6 +128,63 @@ describe("TTL expunge ownership", () => {
       else expect(f.store.load(f.taskId)?.host_session).toEqual(f.identity satisfies HostSessionIdentity)
     })
   }
+
+  test("#given an owner file torn by a crashed writer #when a sweep runs #then the tombstone counts as abandoned and is finished", async () => {
+    // given
+    const f = expiredSession()
+    f.store.tombstoneIfExpired(f.taskId, () => false, { pid: 11_001, token: "torn-writer" })
+    const ownerFile = join(f.store.stateDir, "tasks", `${f.taskId}.json.expunging.owner`)
+    writeFileSync(ownerFile, '{"pid":11001,"tok')
+
+    // when
+    const running = sweep(f.deps)
+    const close = await f.closeAsked(0)
+    close.answer.resolve()
+    const result = await running
+
+    // then
+    expect(result.deleted).toEqual([f.taskId])
+    expect(existsSync(ownerFile)).toBe(false)
+  })
+
+  test("#given a late close whose completion hits a storage failure #when the next sweep runs in the same process #then it takes the stranded tombstone over", async () => {
+    // given
+    const f = expiredSession({ closeTimeoutMs: 1 })
+    let failures = 1
+    const failing: LifecycleDeps = {
+      ...f.deps,
+      store: {
+        ...f.deps.store,
+        completeExpunge: (id, owner) => {
+          if (failures > 0) {
+            failures -= 1
+            throw new Error("EACCES: storage refused")
+          }
+          return f.deps.store.completeExpunge(id, owner)
+        },
+      },
+    }
+    const first = await sweep(failing)
+    const [late] = f.closes
+    if (late === undefined) throw new Error("expected the first sweep to ask for a close")
+    const failed = f.store.readExpungeOwner(f.taskId)
+    late.answer.resolve()
+    // The late close settles through microtasks only (the fake close and the store are synchronous), so
+    // one macrotask turn has drained its failed completion.
+    await new Promise<void>((resolve) => setImmediate(resolve))
+
+    // when
+    const retry = sweep(failing)
+    const close = await f.closeAsked(1)
+    close.answer.resolve()
+    const result = await retry
+
+    // then
+    expect(first.retained).toEqual([f.taskId])
+    expect(failed).toBeDefined()
+    expect(result.deleted).toEqual([f.taskId])
+    expect(f.store.loadExpunging(f.taskId)).toBeNull()
+  })
 
   test("#given an attempt that no longer owns its tombstone #when it completes or restores #then the store changes nothing", () => {
     // given

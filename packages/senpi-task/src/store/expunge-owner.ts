@@ -9,14 +9,35 @@ export function expungeOwnerPath(tombstonePath: string): string {
   return `${tombstonePath}.owner`
 }
 
+function stagingPath(tombstonePath: string): string {
+  return `${expungeOwnerPath(tombstonePath)}.tmp`
+}
+
+// Written beside and renamed over, so a crash mid-write never leaves a torn owner file. Every caller
+// holds the record lock, so one fixed staging name cannot be shared by two writers.
 export function writeExpungeOwner(tombstonePath: string, owner: ExpungeOwner): void {
-  writeFileSync(expungeOwnerPath(tombstonePath), JSON.stringify(owner))
+  writeFileSync(stagingPath(tombstonePath), JSON.stringify(owner))
+  renameSync(stagingPath(tombstonePath), expungeOwnerPath(tombstonePath))
+}
+
+/** Drop the owner file and any staging copy a crash left behind. */
+export function removeExpungeOwner(tombstonePath: string): void {
+  rmSync(expungeOwnerPath(tombstonePath), { force: true })
+  rmSync(stagingPath(tombstonePath), { force: true })
 }
 
 export function readExpungeOwnerFile(tombstonePath: string): ExpungeOwner | undefined {
   const path = expungeOwnerPath(tombstonePath)
   if (!existsSync(path)) return undefined
-  const parsed: unknown = JSON.parse(readFileSync(path, "utf8"))
+  // An unreadable owner file (torn by an older non-atomic writer, or damaged) names nobody: the tombstone
+  // is treated as abandoned rather than blocking every later recovery.
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8"))
+  } catch (error) {
+    if (error instanceof SyntaxError) return undefined
+    throw error
+  }
   if (typeof parsed !== "object" || parsed === null) return undefined
   const { pid, token } = parsed as { pid?: unknown; token?: unknown }
   return typeof pid === "number" && typeof token === "string" ? { pid, token } : undefined
@@ -38,7 +59,7 @@ export function restoreTombstone(recordPath: string, tombstonePath: string, owne
     if (!existsSync(tombstonePath) || existsSync(recordPath)) return false
     if (owner !== undefined && !sameOwner(readExpungeOwnerFile(tombstonePath), owner)) return false
     renameSync(tombstonePath, recordPath)
-    rmSync(expungeOwnerPath(tombstonePath), { force: true })
+    removeExpungeOwner(tombstonePath)
     return true
   })
 }
