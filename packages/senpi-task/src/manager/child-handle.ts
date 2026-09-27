@@ -153,6 +153,26 @@ async function rpcOutcome(handle: RpcChildHandle): Promise<RunnerOutcome> {
   }
 }
 
+/**
+ * The same child, reporting `onReleased` only once a teardown of it succeeds: a rejected dispose
+ * leaves it owned, so the next teardown attempt retries it.
+ */
+export function releaseOnDispose(handle: ManagedChildHandle, onReleased: (owner: ManagedChildHandle) => void): ManagedChildHandle {
+  const owner: ManagedChildHandle = new Proxy(handle, {
+    get: (target, property) => {
+      if (property === "dispose") {
+        return async (): Promise<void> => {
+          await target.dispose()
+          onReleased(owner)
+        }
+      }
+      const value: unknown = Reflect.get(target, property, target)
+      return typeof value === "function" ? value.bind(target) : value
+    },
+  })
+  return owner
+}
+
 export async function discardManagedHandle(handle: ManagedChildHandle): Promise<void> {
   try {
     if (handle.terminate !== undefined) await handle.terminate()

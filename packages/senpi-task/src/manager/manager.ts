@@ -17,7 +17,7 @@ import { TaskIdSpaceExhaustedError } from "../state/id"
 import type { ResolvedModelRecord, TaskRecord, TaskRunStats } from "../state"
 import { createSteeringEngine } from "../steering"
 import type { CancelOptions, CancelOutcome, DestructionPort, InterruptOutcome, SendInput, SendOutcome, SteeringEngine, SteeringPort } from "../steering"
-import { discardManagedHandle, type ManagedChildHandle, type ManagedChildListener } from "./child-handle"
+import { discardManagedHandle, releaseOnDispose, type ManagedChildHandle, type ManagedChildListener } from "./child-handle"
 import { TaskConcurrency } from "./concurrency"
 import { runtimeFallbackCandidates } from "./credential-failure"
 import { createWorkpoolAdmission } from "./workpool-admission"
@@ -211,6 +211,11 @@ class TaskManagerImpl implements TaskManager {
   readonly #names = new NameRegistry()
   readonly #taskSequence = new TaskSequence()
   readonly #live = new Map<string, LiveTask>()
+  // Children whose teardown rejected and that have no pid or daemon session for the orphan path. They
+  // are resident for the lifecycle (eviction, idle reclaim, shutdown and TTL see them and retry their
+  // teardown) but are not live children: steering never reaches them, and only a teardown that
+  // succeeds releases them.
+  readonly #cleanupOwners = new Map<string, ManagedChildHandle>()
   // Callers can subscribe before a queued task owns a handle. Each entry is attached exactly once
   // when #launch promotes it, and its returned cleanup owns both pending and live subscriptions.
   readonly #childSubscribers = new Map<string, Map<ManagedChildListener, () => void>>()
@@ -655,10 +660,10 @@ class TaskManagerImpl implements TaskManager {
     if (residency !== "persisted_only" && residency !== "rpc_detached") this.#steering.dropPending(taskId)
   }
 
-  getResidentHandle(taskId: string): ManagedChildHandle | undefined { return this.#live.get(taskId)?.handle }
+  getResidentHandle(taskId: string): ManagedChildHandle | undefined { return this.#live.get(taskId)?.handle ?? this.#cleanupOwners.get(taskId) }
 
   subscribeChild(taskId: string, listener: ManagedChildListener): () => void {
-    const live = this.getResidentHandle(taskId)
+    const live = this.#live.get(taskId)?.handle
     // Idempotent cleanup: callers (task_output waits) may release twice, and the manager sweeps too.
     if (live !== undefined) return onceOnly(live.subscribe(listener))
     const subscribers = this.#childSubscribers.get(taskId) ?? new Map<ManagedChildListener, () => void>()
@@ -673,7 +678,7 @@ class TaskManagerImpl implements TaskManager {
 
   runStatsSnapshot(taskId: string): TaskRunStats | undefined { return this.#runStats.get(taskId)?.snapshot(this.#now()) }
 
-  residentTaskIds(): readonly string[] { return [...this.#live.keys()] }
+  residentTaskIds(): readonly string[] { return [...new Set([...this.#live.keys(), ...this.#cleanupOwners.keys()])] }
 
   residencyChanged(parentSessionId: string): Promise<void> { return this.#residency.changed(parentSessionId) }
 
@@ -1117,11 +1122,9 @@ class TaskManagerImpl implements TaskManager {
     // give the failed child a cleanup owner BEFORE its slot is freed.
     if (teardown.failed) {
       this.#failStrandedHandoff({ taskId: input.taskId, epoch: nextEpoch, owner: record.host_pid, nextModel: nextModel.display, error: teardown.error })
-      const kept = this.#keepUnclosedChild({ taskId: input.taskId, epoch: nextEpoch, handle: input.handle, model: input.model, identity: handoff.closed ?? {}, error: teardown.error })
-      if (kept !== "resident") {
-        live.unsubscribe()
-        this.#live.delete(input.taskId)
-      }
+      live.unsubscribe()
+      this.#live.delete(input.taskId)
+      const kept = this.#keepUnclosedChild({ taskId: input.taskId, epoch: nextEpoch, handle: input.handle, identity: handoff.closed ?? {}, error: teardown.error })
       this.#releaseSlot(input.taskId, input.model, input.epoch)
       this.#settleWaiters(input.taskId)
       if (kept === "orphan") await this.#terminateOrphanedChild(input.taskId)
@@ -1220,8 +1223,8 @@ class TaskManagerImpl implements TaskManager {
         await discardManagedHandle(handle)
       }
     } catch (error) {
-      const kept = this.#keepUnclosedChild({ taskId, epoch, handle, model: context.model, identity: childIdentityOf(handle), error })
-      if (kept !== "resident" && this.#live.get(taskId)?.handle === handle) this.#live.delete(taskId)
+      if (this.#live.get(taskId)?.handle === handle) this.#live.delete(taskId)
+      const kept = this.#keepUnclosedChild({ taskId, epoch, handle, identity: childIdentityOf(handle), error })
       this.#releaseSlot(taskId, context.model, epoch)
       this.#settleWaiters(taskId)
       if (kept === "orphan") await this.#terminateOrphanedChild(taskId)
@@ -1235,14 +1238,14 @@ class TaskManagerImpl implements TaskManager {
    * A child whose cleanup rejected may still be alive, so it keeps an owner on the record its run ended
    * (a newer epoch belongs to another run and is never touched). A child reachable from outside this
    * process has its pid or daemon session written back for the orphan path (`"orphan"`). An in-process
-   * child has neither, so it stays resident on that record, where LRU eviction, idle reclaim and
-   * session shutdown retry its teardown (`"resident"`).
+   * child has neither, so it becomes a cleanup owner (`"resident"`): its record stays `resident`, the
+   * lifecycle's eviction, idle reclaim, shutdown and TTL see it and retry its teardown, steering never
+   * reaches it, and only a teardown that succeeds releases it.
    */
   #keepUnclosedChild(input: {
     readonly taskId: string
     readonly epoch: number
     readonly handle: ManagedChildHandle
-    readonly model: string
     readonly identity: ChildIdentity
     readonly error: unknown
   }): "orphan" | "resident" | "unowned" {
@@ -1252,11 +1255,10 @@ class TaskManagerImpl implements TaskManager {
     let owned = false
     this.#options.store.mutate(taskId, (fresh) => {
       if (!isTerminalRecord(fresh) || fresh.notification.run_epoch !== input.epoch) return fresh
+      if (!external && this.#cleanupOwners.has(taskId)) return fresh
       owned = true
       return external ? { ...fresh, ...identity } : fresh
     })
-    const live = this.#live.get(taskId)
-    if (owned && !external && live !== undefined && live.handle !== input.handle) owned = false
     if (!owned) {
       this.#options.store.appendEvent(taskId, {
         type: "child_cleanup_failed",
@@ -1265,7 +1267,9 @@ class TaskManagerImpl implements TaskManager {
       return "unowned"
     }
     if (external) return "orphan"
-    if (live === undefined) this.#live.set(taskId, { handle: input.handle, model: input.model, unsubscribe: () => undefined })
+    this.#cleanupOwners.set(taskId, releaseOnDispose(input.handle, (owner) => {
+      if (this.#cleanupOwners.get(taskId) === owner) this.#cleanupOwners.delete(taskId)
+    }))
     if (this.#tryLoad(taskId)?.residency_state !== "resident") {
       this.#options.store.transition(taskId, { type: "mark_resident", timestamp: nowIso(this.#now) })
     }
