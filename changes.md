@@ -1,3 +1,11 @@
+## 2026-09-28 - X11 computer use keeps offscreen frames and newer user state (#8974)
+
+Partially offscreen X11 windows now keep a full-size capture frame with transparent pixels for the off-root area, so an unchanged window remains targetable from its screenshot instead of being misclassified as resized. Keyboard text, chords and XTEST modifiers read the current server keymap once per operation, so runtime layout changes no longer require reconnecting.
+
+Foreground delivery now confirms core X focus as well as EWMH active-window state. On a non-EWMH server it uses a core-focus fallback, delivers to the requested window, and restores the previous focus. Both the input-local guard and the shared session restore hooks preserve a newer user focus or pointer choice instead of replaying an older snapshot over it.
+
+Filtering toolkits still receive a truthful background-unavailable refusal. The supported Linux QA stack exposes XInput and XTEST but has no writable `/dev/uinput`, and a bounded Xvfb hierarchy probe did not establish an isolated real-input route; MPX support therefore remains a separate real-Xorg/uinput feature rather than an inferred fallback.
+
 ## 2026-09-27 - macOS computer focus guard preserves the visible window (#8925)
 
 The macOS engine now captures the frontmost application's first on-screen layer-0 WindowServer window instead of assuming its AX-focused window is visually on top. Foreground delivery passes that captured window to SkyLight; when the foreground SPI is unavailable, it retains the existing public app-activation fallback. Synthetic window-order tests reject off-screen, non-normal-layer, and other-process windows. Window enumeration no longer cuts off after 48 windows, so a target behind many other windows remains addressable.
