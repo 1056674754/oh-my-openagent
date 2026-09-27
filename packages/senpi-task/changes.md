@@ -1,3 +1,13 @@
+## The store index and shard sidecars survive a crash right after they are written
+
+`runners/rpc-host/durable-json.ts`: `writeTextDurably` fsynced the staged file and renamed it over the old
+one, but never fsynced the parent directory, so a crash right after the rename could lose the new name -
+an admission whose store index entry had already read back could come back without it. The directory is
+now fsynced after the rename (skipped on win32, which cannot open a directory for fsync; a filesystem that
+answers EINVAL/ENOTSUP for a directory fsync is accepted as is).
+
+Tests: `runners/rpc-host/durable-json.test.ts` (new: file fsync, rename, then directory fsync).
+
 ## A task record lock is reaped only after its owner is proven dead
 
 `store/record-lock.ts` + `store/lock-owner.ts` (new) + `lifecycle/pid-liveness.ts` (new): the lock body now

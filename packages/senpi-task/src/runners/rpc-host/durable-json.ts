@@ -5,7 +5,8 @@ import { dirname } from "node:path"
 /**
  * The two small JSON files the task host path keeps beside the shards (the agent-dir store index and
  * a shard's sidecar) are replaced whole: written to a sibling, fsynced, then renamed over the old
- * one, so a reader sees either the previous file or the next - never a torn one.
+ * one, so a reader sees either the previous file or the next - never a torn one. The parent directory
+ * is fsynced after the rename so the new name itself survives a crash.
  */
 
 export interface DurableJsonFs {
@@ -40,6 +41,22 @@ export function writeTextDurably(path: string, text: string): void {
   } catch (error) {
     rmSync(staging, { force: true })
     throw error
+  }
+  syncDirectory(dirname(path))
+}
+
+// Windows cannot open a directory for fsync; NTFS journals the rename itself. A filesystem that refuses
+// to fsync a directory (EINVAL/ENOTSUP) offers no stronger guarantee to ask for.
+function syncDirectory(directory: string): void {
+  if (process.platform === "win32") return
+  const fd = openSync(directory, "r")
+  try {
+    fsyncSync(fd)
+  } catch (error) {
+    const code = error instanceof Error && "code" in error ? error.code : undefined
+    if (code !== "EINVAL" && code !== "ENOTSUP") throw error
+  } finally {
+    closeSync(fd)
   }
 }
 
