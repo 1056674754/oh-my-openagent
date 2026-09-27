@@ -43,6 +43,32 @@ function completedTranscript(project: string): string {
   return path
 }
 
+// Extension bookkeeping a live senpi session appends after its last message - the hooks' stop state
+// when a turn stops, and the rules scan / memory binding a host writes when it reopens the session.
+// None of them is part of the conversation.
+const BOOKKEEPING_ROWS = [
+  { type: "custom", customType: "senpi.hooks.stop-state", data: {} },
+  { type: "custom", customType: "pi-rules.scan", data: {} },
+  { type: "custom", customType: "senpi-memory.session-binding", data: {} },
+]
+
+function transcriptOf(project: string, name: string, entries: readonly unknown[], trailer = ""): string {
+  const path = join(project, name)
+  writeFileSync(path, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n${trailer}`)
+  return path
+}
+
+const TOOL_TURN_IN_FLIGHT = [
+  { type: "message", message: { role: "user", content: "do the work" } },
+  { type: "message", message: { role: "assistant", content: [{ type: "toolCall", id: "call-1", name: "eval", arguments: {} }], stopReason: "toolUse" } },
+  { type: "message", message: { role: "toolResult", toolCallId: "call-1", content: [{ type: "text", text: "partial" }] } },
+]
+
+const TURN_ANSWERED = [
+  { type: "message", message: { role: "user", content: "do the work" } },
+  { type: "message", message: { role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" } },
+]
+
 function hostRunner(calls: HostRespawnCalls, openDisposition: "attached" | "reopened") {
   return {
     start: (spec: RpcRunnerSpec): Promise<RpcChildHandle> => {
@@ -227,6 +253,69 @@ describe("respawn of a daemon-hosted child", () => {
     expect(result.ok).toBe(true)
     const [handle] = started.handles
     expect(handle !== undefined && isHostSessionHandle(handle) ? handle.openDisposition : undefined).toBe("reopened")
+    expect(prompts(host)).toEqual([])
+  })
+
+  test("#given an interrupted turn followed by extension bookkeeping rows #when the host reopens the session #then exactly one continuation reaches the host", async () => {
+    // given - the shape a killed host leaves: the tool result is the last MESSAGE, custom rows follow
+    const project = tempProject()
+    const transcript = transcriptOf(project, "bookkept.jsonl", [...TOOL_TURN_IN_FLIGHT, ...BOOKKEEPING_ROWS])
+    const host = await harness.fakeHost()
+
+    // when
+    const result = await respawnManagedTask({
+      beforeLaunch: () => undefined,
+      record: hostRecord(project, realIdentity(host, transcript), REAL_MODEL),
+      sessionPath: transcript,
+      stateDir: project,
+      runners: unusedManagedRunners(),
+      rpcRunner: recordingRunner(host),
+    })
+
+    // then
+    expect(result.ok).toBe(true)
+    expect(prompts(host)).toEqual([{ streamingBehavior: "followUp" }])
+  })
+
+  test("#given an answered turn followed by extension bookkeeping rows #when the host reopens the session #then no continuation is sent", async () => {
+    // given
+    const project = tempProject()
+    const transcript = transcriptOf(project, "answered.jsonl", [...TURN_ANSWERED, ...BOOKKEEPING_ROWS])
+    const host = await harness.fakeHost()
+
+    // when
+    const result = await respawnManagedTask({
+      beforeLaunch: () => undefined,
+      record: hostRecord(project, realIdentity(host, transcript), REAL_MODEL),
+      sessionPath: transcript,
+      stateDir: project,
+      runners: unusedManagedRunners(),
+      rpcRunner: recordingRunner(host),
+    })
+
+    // then
+    expect(result.ok).toBe(true)
+    expect(prompts(host)).toEqual([])
+  })
+
+  test("#given an interrupted turn whose final JSONL record is malformed #when the host reopens the session #then no continuation is guessed", async () => {
+    // given - a torn final write is never skipped to reinterpret an earlier message
+    const project = tempProject()
+    const transcript = transcriptOf(project, "torn.jsonl", TOOL_TURN_IN_FLIGHT, '{"type":"custom","customType":')
+    const host = await harness.fakeHost()
+
+    // when
+    const result = await respawnManagedTask({
+      beforeLaunch: () => undefined,
+      record: hostRecord(project, realIdentity(host, transcript), REAL_MODEL),
+      sessionPath: transcript,
+      stateDir: project,
+      runners: unusedManagedRunners(),
+      rpcRunner: recordingRunner(host),
+    })
+
+    // then
+    expect(result.ok).toBe(true)
     expect(prompts(host)).toEqual([])
   })
 
