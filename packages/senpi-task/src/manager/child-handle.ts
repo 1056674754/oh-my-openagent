@@ -42,9 +42,9 @@ export type ManagedChildHandle = {
     readonly instanceId: string
   }
   readonly spawnSpec?: RpcSpawnSpec
-  // A daemon-session child that parked itself (its recorded endpoint refused a reattach): the record
-  // parks with that reason. Host-driven parks carry no reason and leave the record as it was.
-  onParked?(listener: (event: { readonly reason?: SuspensionReason }) => void): () => void
+  // A daemon-session child whose session parked - itself (its recorded endpoint refused a reattach) or
+  // by its host (idle sweep, generation handoff): the record parks with that reason either way.
+  onParked?(listener: (event: { readonly reason: SuspensionReason }) => void): () => void
   steer(text: string): Promise<void>
   followUp(text: string): Promise<void>
   abort(): Promise<void>
