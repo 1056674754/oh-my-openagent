@@ -61,6 +61,10 @@ Every `@code-yeongyu/senpi` pin moves from 2026.9.27 to 2026.9.27-2: the root de
 
 It also fixes session rebinding after a repository moves, fork-confirmation answers, and several pty issues. `packages/omo-native/bin/lib/provider-map.json` still matches the new engine's `builtinProviders()`, which `provider-map-registry.test.ts` checks against the installed package, so only its version comment changes.
 
+## 2026-09-28 - omo adopts senpi 2026.9.27-3: starting omo no longer empties an upstream pi install (#8039)
+
+Every `@code-yeongyu/senpi` pin moves from 2026.9.27-2 to 2026.9.27-3: the root devDependency, the `omo-native` dependency, the `omo-senpi` and `senpi-task` peer and dev pins, their pin tests, and `bun.lock`. The release carries code-yeongyu/senpi#2215: the first start copies `~/.pi/agent`, `~/.pi/mom` and a project's `.pi` into `~/.omo` instead of moving them, so pi keeps working next to omo, and a pi install that an earlier start already drained gets its settings, credentials, sessions and extensions copied back into `~/.pi/agent` on the next start. It also carries the RPC open-session fixes (senpi#2209, #2206) and the structured `providerDiagnostic` on failed provider turns. `packages/omo-native/bin/lib/provider-map.json` still matches the new engine's `builtinProviders()`, which `provider-map-registry.test.ts` checks against the installed package, so only its version comment changes.
+
 ## 2026-09-27 - Committed conflict markers fail the root suite (#8919)
 
 Merge resolutions had left twelve `||||||| <base>` diff3 lines as content: one in `changes.md`, three in `packages/omo-native/changes.md` and eight in `packages/omo-senpi/changes.md`. They are gone, and every tracker keeps all of its entries (128, 17 and 96 headings). `script/conflict-markers.test.ts` now scans every tracked text file in the root `bun test` and fails with `path:line` on a line that opens (`<<<<<<< `), bases (`||||||| `) or closes (`>>>>>>> `) a conflict. A bare `=======` is allowed, because it is a Markdown setext underline, and binary and untracked files are skipped.
