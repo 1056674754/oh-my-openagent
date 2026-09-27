@@ -82,6 +82,8 @@ function senpiEnvironment(senpiRoot) {
   const env = { ...process.env }
   delete env.OMO_BIN
   delete env.SENPI_BIN
+  delete env.OMO_PACKAGE_DIR
+  delete env.SENPI_PACKAGE_DIR
   // One directory for every surface. The legacy name travels too, so a bare senpi spawned by a
   // tool inherits the same state instead of falling back to its own home.
   const agentDir = canonicalAgentDir(env)

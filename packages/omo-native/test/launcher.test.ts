@@ -285,6 +285,21 @@ await runLauncher(["say", "hi"])
         expect(result.status).toBe(0)
         expect(capture(fixture).env.SENPI_BIN).toBeUndefined()
       })
+
+      test("#then inherited package dirs cannot redirect the engine while PI_PACKAGE_DIR remains explicit", () => {
+        const fixture = createFixture({ installLayout: "npm" })
+        const override = join(fixture.root, "deliberate-package")
+        const result = run(fixture, ["say", "hi"], {
+          OMO_PACKAGE_DIR: join(fixture.root, "foreign-omo"),
+          SENPI_PACKAGE_DIR: join(fixture.root, "foreign-senpi"),
+          PI_PACKAGE_DIR: override,
+        })
+        expect(result.status).toBe(0)
+        const environment = capture(fixture).env
+        expect(environment.OMO_PACKAGE_DIR).toBeUndefined()
+        expect(environment.SENPI_PACKAGE_DIR).toBeUndefined()
+        expect(environment.PI_PACKAGE_DIR).toBe(override)
+      })
     })
 
 
