@@ -828,6 +828,7 @@
 
   /* Ticker: a vertical column of rows scrolling on translateY. */
   .ticker {
+    max-height: var(--ticker-max-h);
     overflow: hidden;
     mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 88%, transparent);
   }
@@ -1374,6 +1375,10 @@
     .ticker {
       mask-image: none;
       overflow: visible;
+    }
+    /* The static list shows every row, so the scrolling window must grow to hold it. */
+    .ticker {
+      max-height: none;
     }
     .marquee-track,
     .ticker-track {
