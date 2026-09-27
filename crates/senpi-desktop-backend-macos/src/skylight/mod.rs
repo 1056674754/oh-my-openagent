@@ -20,7 +20,8 @@ use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSWork
 use senpi_desktop_core::error::{CoreResult, DesktopError};
 
 use self::psn::{
-    front_process, post_focus_record, process_psn, FocusMarker, ProcessSerialNumber, SET_FRONT_NO_WINDOWS,
+    front_process, post_focus_record, process_psn, FocusMarker, ProcessSerialNumber,
+    SET_FRONT_NO_WINDOWS,
 };
 pub(crate) use self::spi::is_available;
 use self::spi::required;
@@ -166,19 +167,19 @@ pub(crate) fn with_foreground<T>(
 }
 
 /// Focus restore: the PSN of `pid` when the SkyLight probe can produce one.
-pub(crate) fn psn_for_process(pid: libc::pid_t) -> Option<ProcessSerialNumber> {
-    spi::foreground().and_then(|spi| psn_for_pid(spi.psn, pid))
+pub(crate) fn psn_for_process(pid: libc::pid_t, wid: u32) -> Option<ProcessSerialNumber> {
+    spi::foreground().and_then(|spi| process_psn(spi.psn, pid, wid))
 }
 
-/// Sets `psn` front with window id 0 through the foreground SPI (the
+/// Sets `psn` front with the captured window id through the foreground SPI (the
 /// `restore_front_window` primitive).
-pub(crate) fn set_front_process(psn: &ProcessSerialNumber) -> bool {
+pub(crate) fn set_front_process(psn: &ProcessSerialNumber, wid: u32) -> bool {
     let Some(spi) = spi::foreground() else {
         return false;
     };
-    // SAFETY: The PSN came from WindowServer; window id 0 with
-    // kCPSNoWindows restores the process without gathering windows.
-    let set = unsafe { (spi.set_front)(psn, 0, SET_FRONT_NO_WINDOWS) };
+    // SAFETY: The PSN and window id came from WindowServer; kCPSNoWindows
+    // avoids gathering other windows while restoring this exact window.
+    let set = unsafe { (spi.set_front)(psn, wid, SET_FRONT_NO_WINDOWS) };
     set == 0
 }
 
@@ -186,12 +187,18 @@ fn psn_for_pid(lookup: spi::PsnLookup, pid: libc::pid_t) -> Option<ProcessSerial
     process_psn(lookup, pid, 0)
 }
 
-fn with_public_foreground<T>(pid: libc::pid_t, action: impl FnOnce() -> CoreResult<T>) -> CoreResult<T> {
+fn with_public_foreground<T>(
+    pid: libc::pid_t,
+    action: impl FnOnce() -> CoreResult<T>,
+) -> CoreResult<T> {
     let workspace = NSWorkspace::sharedWorkspace();
     let previous = workspace.frontmostApplication();
-    let target = NSRunningApplication::runningApplicationWithProcessIdentifier(pid).ok_or_else(|| {
-        DesktopError::window_not_found(format!("application process {pid} is no longer running"))
-    })?;
+    let target =
+        NSRunningApplication::runningApplicationWithProcessIdentifier(pid).ok_or_else(|| {
+            DesktopError::window_not_found(format!(
+                "application process {pid} is no longer running"
+            ))
+        })?;
     #[expect(
         deprecated,
         reason = "public foreground fallback must override another frontmost app"
