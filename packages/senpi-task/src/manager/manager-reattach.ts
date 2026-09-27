@@ -33,6 +33,12 @@ export async function reattachManagedTask(input: {
     await discardManagedHandle(input.handle)
     return { ok: false, kind: "already_attached", reason: "task already has a live handle" }
   }
+  // A respawn begun for a live run whose task was stopped meanwhile must not become resident: only a
+  // task that was already terminal when its revival began is reattached as terminal.
+  if (isTerminalRecord(fresh) && !isTerminalRecord(input.record)) {
+    await discardManagedHandle(input.handle)
+    return { ok: false, kind: "failed", reason: "task ended while its child was being reattached" }
+  }
   let unsubscribe: (() => void) | undefined
   let attached = false
   try {
