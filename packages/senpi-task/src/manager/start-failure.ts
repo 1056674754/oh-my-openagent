@@ -20,6 +20,10 @@ const REASON_MESSAGES: Readonly<Partial<Record<TaskStartFailureReason, string>>>
   ensure_failed: "The shared task host could not be ensured (ensure_failed).",
   ensure_timed_out:
     "The shared task host did not become ready before the ensure deadline (ensure_timed_out).",
+  shard_socket_too_long:
+    "The shard socket path exceeds the platform limit (shard_socket_too_long).",
+  shard_alt_root_unsafe:
+    "The alternate shard root is unsafe (shard_alt_root_unsafe).",
   open_timed_out:
     "The shared host did not finish opening the child session in time (open_timed_out).",
 }

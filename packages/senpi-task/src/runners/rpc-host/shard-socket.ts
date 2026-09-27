@@ -129,6 +129,7 @@ export function resolveShardSocket(input: ResolveShardSocketInput): ShardResolut
     // Impossible for the fixed prefix; reaching it is a bug, and a bind would truncate silently.
     throw new RunnerError({
       kind: "host_unavailable",
+      reason: "shard_socket_too_long",
       message: `shard_socket_too_long: ${Buffer.byteLength(alternate)}-byte shard socket under the alternate root`,
     })
   }
@@ -159,7 +160,7 @@ function ensureAltRoot(agentDir: string, fs: AltRootFs | undefined): string {
   ) {
     throw new RunnerError({
       kind: "host_unavailable",
-      reason: "host_unreachable",
+      reason: "shard_alt_root_unsafe",
       message: `shard_alt_root_unsafe: refusing unsafe alternate shard root ${root}`,
     })
   }

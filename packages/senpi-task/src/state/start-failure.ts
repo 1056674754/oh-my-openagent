@@ -27,6 +27,8 @@ export const HOST_START_FAILURE_REASONS = [
   "host_unreachable",
   "ensure_failed",
   "ensure_timed_out",
+  "shard_socket_too_long",
+  "shard_alt_root_unsafe",
 ] as const
 
 export const SESSION_START_FAILURE_REASONS = [
