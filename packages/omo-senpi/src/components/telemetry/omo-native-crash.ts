@@ -54,7 +54,7 @@ export function processCrashedProperties(
     uptime_ms: Math.round(record.uptimeMs),
     uptime_bucket: uptimeBucket(record.uptimeMs),
     crashed_bun_version: versionOrUnknown(record.bunVersion),
-    crashed_senpi_version: versionOrUnknown(record.senpiVersion),
+    crashed_engine_version: versionOrUnknown(record.engineVersion),
     crashed_omo_version: versionOrUnknown(record.productVersion),
     $os: osProvider.platform(),
     arch: osProvider.arch(),

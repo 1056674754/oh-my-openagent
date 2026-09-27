@@ -83,7 +83,7 @@ describe("OmO Native process_crashed", () => {
           uptime_ms: 420_000,
           uptime_bucket: "1_10m",
           crashed_bun_version: "1.4.2",
-          crashed_senpi_version: "2026.9.27-2",
+          crashed_engine_version: "2026.9.27-2",
           crashed_omo_version: "5.0.1",
           $os: "darwin",
           arch: "arm64",
@@ -165,7 +165,7 @@ describe("OmO Native process_crashed", () => {
         "$process_person_profile", "install_id", "package_version", "platform", "product_name", "schema_version", "surface",
       ])
       expect(Object.keys(crash?.properties ?? {}).filter((key) => !allowed.has(key))).toEqual([])
-      expect(crash?.properties).toMatchObject({ exit_code: 1, signal: "none", crashed_senpi_version: "unknown" })
+      expect(crash?.properties).toMatchObject({ exit_code: 1, signal: "none", crashed_engine_version: "unknown" })
       expect(JSON.stringify(crash)).not.toContain("/Users/someone")
     })
   })

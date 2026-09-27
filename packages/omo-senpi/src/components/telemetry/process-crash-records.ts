@@ -3,13 +3,13 @@ import { closeSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, stat
 import { join } from "node:path"
 
 /**
- * The crash records senpi (and the senpi-task parent of a process-mode child) leave on disk, read
+ * The crash records the engine (and the task parent of a process-mode child) leave on disk, read
  * back so each can be reported exactly once.
  *
  * - `<agentDir>/rpc-host-daemon/<endpoint>/crashes.jsonl`: written by the RPC host supervisor when
- *   its child dies (senpi#1950). Records written before senpi#2194 carry no `kind`/`detection`.
+ *   its child dies. Records written before the engine named them carry no `kind`/`detection`.
  * - `<agentDir>/process-crashes/crashes.jsonl`: dead lifetime markers of unsupervised processes
- *   (senpi#2194) and process-mode task children that died under their parent.
+ *   and process-mode task children that died under their parent.
  *
  * Reporting is claim-then-send: a record is claimed by exclusively creating a file named after its
  * fingerprint, so any number of concurrent reporters (every session in one RPC host, two terminals)
@@ -24,7 +24,7 @@ export type ProcessCrashRecord = {
   readonly kind?: string
   readonly detection?: string
   readonly bunVersion?: string
-  readonly senpiVersion?: string
+  readonly engineVersion?: string
   readonly productVersion?: string
 }
 
@@ -91,7 +91,7 @@ export function parseCrashRecord(line: string): ProcessCrashRecord | undefined {
     ...optionalString(value, "kind"),
     ...optionalString(value, "detection"),
     ...optionalString(value, "bunVersion"),
-    ...optionalString(value, "senpiVersion"),
+    ...renamed(optionalString(value, "senpiVersion").senpiVersion, "engineVersion"),
     ...optionalString(value, "productVersion"),
   }
 }
@@ -137,7 +137,7 @@ function claim(path: string): boolean {
 }
 
 /**
- * A claim outlives its record by a day, so a reporter that read the file just before senpi pruned
+ * A claim outlives its record by a day, so a reporter that read the file just before the engine pruned
  * that record still finds the claim and cannot send it twice.
  */
 function pruneStaleClaims(claimDir: string, live: ReadonlySet<string>, now: number): void {
@@ -156,6 +156,10 @@ function safeReaddir(dir: string): readonly string[] {
   } catch {
     return []
   }
+}
+
+function renamed<Key extends string>(value: string | undefined, key: Key): { [K in Key]?: string } {
+  return (value === undefined ? {} : { [key]: value }) as { [K in Key]?: string }
 }
 
 function optionalString<Key extends string>(value: Record<string, unknown>, key: Key): { [K in Key]?: string } {
