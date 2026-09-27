@@ -11,6 +11,7 @@ use reis::request::{Connection, Device};
 
 use super::HANG_GUARD;
 
+#[path = "fake_eis/protocol.rs"]
 mod protocol;
 
 use protocol::serve;
@@ -20,8 +21,6 @@ pub enum Recorded {
     Key { keycode: u32, pressed: bool },
     Button { code: u32, pressed: bool },
     Motion { x: f32, y: f32 },
-    ScrollDelta { dx: f32, dy: f32 },
-    ScrollDiscrete { dx: i32, dy: i32 },
 }
 
 #[derive(Debug, Default, Clone)]
@@ -30,6 +29,8 @@ pub struct Log {
     pub events: Vec<Recorded>,
     /// `stop_emulating` requests: one per finished client burst.
     pub bursts: usize,
+    pub continuous_scroll: Vec<(f32, f32)>,
+    pub discrete_scroll: Vec<(i32, i32)>,
     pub error: Option<String>,
 }
 

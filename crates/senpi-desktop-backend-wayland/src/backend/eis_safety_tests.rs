@@ -145,12 +145,8 @@ fn scroll_delta_is_emitted_as_discrete_wheel_units() {
     );
 
     assert_eq!(result, Ok(()));
-    let log = session.eis.wait_for(|log| log.events.len() >= 2);
-    assert_eq!(
-        log.events,
-        [
-            Recorded::Motion { x: 50.0, y: 60.0 },
-            Recorded::ScrollDiscrete { dx: 120, dy: -240 },
-        ]
-    );
+    let log = session.eis.wait_for(|log| !log.discrete_scroll.is_empty());
+    assert_eq!(log.events, [Recorded::Motion { x: 50.0, y: 60.0 }]);
+    assert!(log.continuous_scroll.is_empty());
+    assert_eq!(log.discrete_scroll, [(120, -240)]);
 }

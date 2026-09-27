@@ -112,16 +112,11 @@ pub(super) async fn serve(
                     });
                 }),
                 EisRequest::ScrollDelta(scroll) => update(log, |log| {
-                    log.events.push(Recorded::ScrollDelta {
-                        dx: scroll.dx,
-                        dy: scroll.dy,
-                    });
+                    log.continuous_scroll.push((scroll.dx, scroll.dy));
                 }),
                 EisRequest::ScrollDiscrete(scroll) => update(log, |log| {
-                    log.events.push(Recorded::ScrollDiscrete {
-                        dx: scroll.discrete_dx,
-                        dy: scroll.discrete_dy,
-                    });
+                    log.discrete_scroll
+                        .push((scroll.discrete_dx, scroll.discrete_dy));
                 }),
                 EisRequest::DeviceStopEmulating(_) => update(log, |log| log.bursts += 1),
                 EisRequest::Disconnect => return Ok(()),
