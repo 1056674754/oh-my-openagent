@@ -1,13 +1,18 @@
 import { createHash } from "node:crypto"
 import { closeSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs"
-import { join } from "node:path"
+import { basename, join, win32 } from "node:path"
+
+import { parseShardBasename } from "../../../../senpi-task/src/runners/rpc-host/shard-socket"
+import type { CrashShardKind } from "./crash-schema"
 
 /**
  * The crash records the engine (and the task parent of a process-mode child) leave on disk, read
  * back so each can be reported exactly once.
  *
  * - `<agentDir>/rpc-host-daemon/<endpoint>/crashes.jsonl`: written by the RPC host supervisor when
- *   its child dies. Records written before the engine named them carry no `kind`/`detection`.
+ *   its child dies, one file per endpoint directory - the legacy machine-wide host and every
+ *   per-session / per-thread shard host alike. Records written before the engine named them carry no
+ *   `kind`/`detection`. Each is tagged with its host's kind, read from the endpoint's own identity.
  * - `<agentDir>/process-crashes/crashes.jsonl`: dead lifetime markers of unsupervised processes
  *   and process-mode task children that died under their parent.
  *
@@ -31,6 +36,7 @@ export type ProcessCrashRecord = {
 export type ClaimedCrashRecord = {
   readonly record: ProcessCrashRecord
   readonly source: "rpc-host" | "process"
+  readonly shardKind: CrashShardKind
 }
 
 export type ClaimCrashRecordsInput = {
@@ -59,13 +65,16 @@ export function claimUnreportedCrashRecords(input: ClaimCrashRecordsInput): read
   const live = new Set<string>()
   const claimed: ClaimedCrashRecord[] = []
   for (const source of crashRecordSources(input.agentDir)) {
+    let shardKind: CrashShardKind | undefined
     for (const line of readLines(source.file)) {
       const record = parseCrashRecord(line)
       if (record === undefined) continue
       const fingerprint = createHash("sha256").update(`${source.id}\n${line}`).digest("hex").slice(0, 32)
       live.add(fingerprint)
       if (claimed.length >= maxRecords || Date.parse(record.at) < oldest) continue
-      if (claim(join(claimDir, fingerprint))) claimed.push({ record, source: source.kind })
+      if (!claim(join(claimDir, fingerprint))) continue
+      shardKind ??= source.endpointDir === undefined ? "none" : endpointShardKind(source.endpointDir)
+      claimed.push({ record, source: source.kind, shardKind })
     }
   }
   pruneStaleClaims(claimDir, live, input.now.getTime())
@@ -96,7 +105,12 @@ export function parseCrashRecord(line: string): ProcessCrashRecord | undefined {
   }
 }
 
-type CrashRecordSource = { readonly id: string; readonly file: string; readonly kind: "rpc-host" | "process" }
+type CrashRecordSource = {
+  readonly id: string
+  readonly file: string
+  readonly kind: "rpc-host" | "process"
+  readonly endpointDir?: string
+}
 
 function crashRecordSources(agentDir: string): readonly CrashRecordSource[] {
   const sources: CrashRecordSource[] = [
@@ -109,13 +123,41 @@ function crashRecordSources(agentDir: string): readonly CrashRecordSource[] {
     return sources
   }
   for (const endpoint of endpoints.sort()) {
-    sources.push({
-      id: `rpc-host-daemon/${endpoint}`,
-      file: join(agentDir, "rpc-host-daemon", endpoint, "crashes.jsonl"),
-      kind: "rpc-host",
-    })
+    const endpointDir = join(agentDir, "rpc-host-daemon", endpoint)
+    // The id carries the endpoint directory's hash, so two hosts' byte-identical lines never share a claim.
+    sources.push({ id: `rpc-host-daemon/${endpoint}`, file: join(endpointDir, "crashes.jsonl"), kind: "rpc-host", endpointDir })
   }
   return sources
+}
+
+/**
+ * The endpoint's socket as the engine names it: the durable `endpoint.json` first (it survives every
+ * generation's release), then the boot `settings.json` a pre-identity directory still holds. A name is
+ * trusted only when the socket hashes to the directory it was found in, as senpi's `listHostEndpoints`
+ * does, so a copied or foreign file never lends its kind to another endpoint.
+ */
+function endpointShardKind(endpointDir: string): CrashShardKind {
+  const socket = socketNamedBy(join(endpointDir, "endpoint.json"), endpointDir)
+    ?? socketNamedBy(join(endpointDir, "settings.json"), endpointDir)
+  if (socket === undefined) return "unknown"
+  return parseShardBasename(socket)?.kind ?? "none"
+}
+
+function socketNamedBy(file: string, endpointDir: string): string | undefined {
+  let value: unknown
+  try {
+    value = JSON.parse(readFileSync(file, "utf8"))
+  } catch {
+    return undefined
+  }
+  if (!isRecord(value) || typeof value.socket !== "string" || value.socket === "") return undefined
+  return endpointDirectoryName(value.socket) === basename(endpointDir) ? value.socket : undefined
+}
+
+/** senpi's `daemonDirectoryName`: `sha256(socket)[:16]`, over the case-folded normalized path on win32. */
+function endpointDirectoryName(socket: string): string {
+  const canonical = process.platform === "win32" ? win32.normalize(socket).toLowerCase() : socket
+  return createHash("sha256").update(canonical, "utf8").digest("hex").slice(0, 16)
 }
 
 function readLines(file: string): readonly string[] {

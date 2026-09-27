@@ -187,6 +187,7 @@ The curated plan agents were renamed to `plan-consultant` and `plan-reviewer`; `
 | `process_crashed` | `detection` | `string` | `supervisor`, `parent`, `unclean_exit`, `unknown` |
 | `process_crashed` | `exit_code` | `number` | - |
 | `process_crashed` | `process_kind` | `string` | `interactive`, `print`, `json`, `rpc-host`, `task-child`, `unknown` |
+| `process_crashed` | `shard_kind` | `string` | `p`, `i`, `none`, `unknown` |
 | `process_crashed` | `signal` | `string` | `SIGSEGV`, `SIGBUS`, `SIGILL`, `SIGTRAP`, `SIGABRT`, `SIGFPE`, `SIGKILL`, `SIGTERM`, `SIGHUP`, `SIGINT`, `SIGQUIT`, `SIGSYS`, `other`, `none`, `unknown` |
 | `process_crashed` | `uptime_bucket` | `string` | `lt_1m`, `1_10m`, `10_60m`, `1_6h`, `6_24h`, `24h_plus` |
 | `process_crashed` | `uptime_ms` | `number` | - |
@@ -261,6 +262,7 @@ A process that dies natively cannot report its own death, so `process_crashed` i
 
 - `crashed_bun_version`, `crashed_engine_version`, and `crashed_omo_version` are the versions of the process that died, not the reporter's. Per-version crash rates must group on them, never on `package_version`, which belongs to the reporting process. A value that is not version-shaped, or was not recorded (records written before the field existed), is `unknown`.
 - `uptime_ms` for an unclean exit runs to the last one-minute heartbeat, so it is short by up to a minute. Exit-code crashes carry `signal = 'none'` plus `exit_code`.
+- `shard_kind` names the kind of RPC host that crashed: `p` is a per-session task host, `i` is a Desktop per-thread host, and `none` is the legacy machine-wide host or a process that was not a host. `unknown` means an endpoint directory that names no socket of its own. Every host's endpoint directory is read, and the same record written by two hosts is reported once for each host. The shard key, socket path and owning session never leave the machine.
 - Records older than 14 days are never sent, and at most 20 crashes are sent per start; the rest wait for later starts. The event timestamp is the report time, not the crash time.
 - Opting out sends nothing and leaves the local records unread. Crash records never carry a stack, a path, a prompt, or session content.
 
