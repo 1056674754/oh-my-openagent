@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { delimiter, dirname, join, parse, relative } from "node:path"
-import { migrationReport } from "../bin/lib/doctor-migration.js"
+import { migrationReport, scanOmoBins, shadowingOmoBins } from "../bin/lib/doctor-migration.js"
 import { runDoctor } from "../bin/lib/doctor.js"
 import { updateTarget } from "../bin/lib/package-paths.js"
 
@@ -52,6 +52,13 @@ function installNpmLegacy(sandbox: Sandbox, name = "oh-my-openagent", withBin = 
 
 function installBunNative(sandbox: Sandbox): void {
   installPackage(join(sandbox.bunRoot, "install", "global", "node_modules"), sandbox.bunBin, "omo-ai", "5.0.0-0.beta.89")
+}
+
+function installBunWindowsNative(sandbox: Sandbox): void {
+  const packageDir = installPackage(join(sandbox.bunRoot, "install", "global", "node_modules"), sandbox.bunBin, "omo-ai", "5.0.0-0.beta.89", false)
+  const entry = join(packageDir, "bin", "omo.js")
+  writeFile(join(sandbox.bunBin, "omo.exe"), "\0Bun launcher")
+  writeFileSync(join(sandbox.bunBin, "omo.bunx"), Buffer.from(`${entry}"\0`, "utf16le"))
 }
 
 function report(sandbox: Sandbox, pathDirs: string[], extraEnv: Record<string, string> = {}): string[] {
@@ -119,6 +126,63 @@ describe("omo doctor migration checks", () => {
       writeFile(join(foreignDir, "omo"), "#!/bin/sh\necho other\n")
 
       expect(report(sandbox, [sandbox.bunBin, foreignDir])).toEqual([])
+    })
+  })
+
+  describe("#given Bun's Windows omo.exe points at omo-ai through its .bunx sidecar", () => {
+    test("#then it is native and a preceding legacy omo.cmd remains the only shadowing entry", () => {
+      const sandbox = createSandbox()
+      const legacyBin = join(sandbox.root, "legacy-bin")
+      const legacyEntry = installPackage(join(sandbox.npmPrefix, "node_modules"), legacyBin, "oh-my-openagent", "4.19.4", false)
+      writeFile(join(legacyBin, "omo.cmd"), `@echo off\nnode "${join(legacyEntry, "bin", "omo.js")}" %*\n`)
+      installBunWindowsNative(sandbox)
+
+      const bins = scanOmoBins({
+        isWindows: true,
+        pathDirectories: [legacyBin, sandbox.bunBin],
+        npmPrefixes: [],
+        bunRoot: sandbox.bunRoot,
+        opencodeConfigFiles: [],
+      })
+
+      expect(bins).toEqual([
+        {
+          binPath: join(legacyBin, "omo.cmd"),
+          directory: legacyBin,
+          owner: { name: "oh-my-openagent", version: "4.19.4" },
+          kind: "legacy",
+        },
+        {
+          binPath: join(sandbox.bunBin, "omo.exe"),
+          directory: sandbox.bunBin,
+          owner: { name: "omo-ai", version: "5.0.0-0.beta.89" },
+          kind: "native",
+        },
+      ])
+      expect(shadowingOmoBins(bins)).toEqual([bins[0]])
+    })
+  })
+
+  describe("#given a legacy Bun global install under the user home", () => {
+    test("#then its update target uses Bun when either Bun lockfile owns the home root", () => {
+      const home = String.raw`C:\Users\omo user`
+      const expected = {
+        manager: "bun",
+        command: "bun add -g omo-ai",
+        argv: ["bun", "add", "-g", "omo-ai"],
+      }
+      for (const lockfile of ["bun.lock", "bun.lockb"]) {
+        expect(updateTarget(`${home}\\node_modules\\omo-ai`, "win32", "5.0.0", home, (path) => String(path).endsWith(lockfile))).toEqual(expected)
+      }
+    })
+
+    test("#then an npm install in the home root keeps the npm update target without a Bun lockfile", () => {
+      const home = String.raw`C:\Users\omo user`
+      expect(updateTarget(`${home}\\node_modules\\omo-ai`, "win32", "5.0.0", home, () => false)).toEqual({
+        manager: "npm",
+        command: "npm i -g omo-ai",
+        argv: ["npm", "i", "-g", "omo-ai"],
+      })
     })
   })
 

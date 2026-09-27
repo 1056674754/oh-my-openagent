@@ -105,13 +105,16 @@ function resolveOwner(binPath) {
   const fromLink = isInsideNodeModules(real) ? ownerOfFile(real) : null
   if (fromLink !== null) return fromLink
   const shim = readFileHead(binPath, SHIM_READ_LIMIT)
-  if (shim === undefined) return null
-  if (shim.includes(CODEX_LIGHT_WRAPPER_MARKER)) {
+  if (shim?.includes(CODEX_LIGHT_WRAPPER_MARKER)) {
     const version = shim.match(CODEX_LIGHT_CACHE_VERSION)?.[1]
     if (version !== undefined) return { name: "lazycodex", version }
   }
-  // Ownership comes from an installed package the shim really launches, never from its text alone.
-  for (const entry of shimEntryPaths(shim, dirname(binPath))) {
+  // Ownership comes from an installed package the shim or its Bun sidecar really launches, never text alone.
+  const entries = [
+    ...(shim === undefined ? [] : shimEntryPaths(shim, dirname(binPath))),
+    ...bunxEntryPaths(binPath),
+  ]
+  for (const entry of entries) {
     if (!isInsideNodeModules(entry) || !pathExists(entry)) continue
     const owner = ownerOfFile(entry)
     if (owner !== null) return owner
@@ -130,6 +133,22 @@ function shimEntryPaths(shim, shimDirectory) {
     else if (isAbsolute(quoted)) paths.push(quoted)
   }
   return paths
+}
+
+// Bun's Windows shim stores its target as a UTF-16 path followed by a quote and a null terminator.
+function bunxEntryPaths(binPath) {
+  if (!/\.exe$/i.test(binPath)) return []
+  const sidecar = `${binPath.slice(0, -4)}.bunx`
+  try {
+    if (!statSync(sidecar).isFile()) return []
+    const contents = readFileSync(sidecar)
+    const end = contents.indexOf(Buffer.from([0x22, 0, 0, 0]))
+    if (end < 0 || end % 2 !== 0) return []
+    const entry = contents.subarray(0, end).toString("utf16le")
+    return isAbsolute(entry) ? [entry] : []
+  } catch {
+    return []
+  }
 }
 
 function isInsideNodeModules(path) {
