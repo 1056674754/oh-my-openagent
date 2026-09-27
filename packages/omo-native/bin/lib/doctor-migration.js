@@ -135,20 +135,22 @@ function shimEntryPaths(shim, shimDirectory) {
   return paths
 }
 
-// Bun's Windows shim stores its target as a UTF-16 path followed by a quote and a null terminator.
+// Bun's Windows bin is a copied `omo.exe` plus an `omo.bunx` sidecar: UTF-16LE, the target path up to
+// a `"` and a NUL. Bun writes that path relative to the bin dir's parent (`..\node_modules\...` or
+// `install\global\node_modules\...` from `~/.bun`), and its shim resolves it against that same dir.
 function bunxEntryPaths(binPath) {
   if (!/\.exe$/i.test(binPath)) return []
   const sidecar = `${binPath.slice(0, -4)}.bunx`
+  let contents
   try {
     if (!statSync(sidecar).isFile()) return []
-    const contents = readFileSync(sidecar)
-    const end = contents.indexOf(Buffer.from([0x22, 0, 0, 0]))
-    if (end < 0 || end % 2 !== 0) return []
-    const entry = contents.subarray(0, end).toString("utf16le")
-    return isAbsolute(entry) ? [entry] : []
+    contents = readFileSync(sidecar).toString("utf16le")
   } catch {
     return []
   }
+  const end = contents.indexOf('"\0')
+  if (end <= 0) return []
+  return [join(dirname(dirname(binPath)), contents.slice(0, end).replace(/\\/g, "/"))]
 }
 
 function isInsideNodeModules(path) {

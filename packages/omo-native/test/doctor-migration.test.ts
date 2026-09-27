@@ -56,9 +56,17 @@ function installBunNative(sandbox: Sandbox): void {
 
 function installBunWindowsNative(sandbox: Sandbox): void {
   const packageDir = installPackage(join(sandbox.bunRoot, "install", "global", "node_modules"), sandbox.bunBin, "omo-ai", "5.0.0-0.beta.89", false)
-  const entry = join(packageDir, "bin", "omo.js")
   writeFile(join(sandbox.bunBin, "omo.exe"), "\0Bun launcher")
-  writeFileSync(join(sandbox.bunBin, "omo.bunx"), Buffer.from(`${entry}"\0`, "utf16le"))
+  writeFileSync(join(sandbox.bunBin, "omo.bunx"), bunxSidecar(relative(sandbox.bunRoot, join(packageDir, "bin", "omo.js"))))
+}
+
+// The bytes `bun add -g omo-ai` wrote on a windows-latest runner: the target relative to the bin dir's
+// parent in UTF-16LE with backslashes, `"` + NUL, then the `node ` shebang tail and the flags word.
+function bunxSidecar(target: string): Buffer {
+  return Buffer.concat([
+    Buffer.from(`${target.replaceAll("/", "\\")}"\0`, "utf16le"),
+    Buffer.from("6e006f006400650020005a0000000a00000037ab", "hex"),
+  ])
 }
 
 function report(sandbox: Sandbox, pathDirs: string[], extraEnv: Record<string, string> = {}): string[] {
@@ -160,6 +168,18 @@ describe("omo doctor migration checks", () => {
         },
       ])
       expect(shadowingOmoBins(bins)).toEqual([bins[0]])
+    })
+
+    test("#then a legacy home-root install the sidecar reaches through ..\\node_modules is native too", () => {
+      const sandbox = createSandbox()
+      const packageDir = installPackage(join(sandbox.home, "node_modules"), sandbox.bunBin, "omo-ai", "5.0.0", false)
+      const bunBin = join(sandbox.home, ".bun", "bin")
+      writeFile(join(bunBin, "omo.exe"), "\0Bun launcher")
+      writeFileSync(join(bunBin, "omo.bunx"), bunxSidecar(relative(dirname(bunBin), join(packageDir, "bin", "omo.js"))))
+
+      const bins = scanOmoBins({ isWindows: true, pathDirectories: [bunBin], npmPrefixes: [], bunRoot: sandbox.bunRoot, opencodeConfigFiles: [] })
+
+      expect(bins.map(({ kind, owner }) => ({ kind, owner }))).toEqual([{ kind: "native", owner: { name: "omo-ai", version: "5.0.0" } }])
     })
   })
 
