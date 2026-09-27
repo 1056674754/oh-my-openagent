@@ -57,6 +57,11 @@ jobs:
         with:
           bun-version: "1.4.2"
 
+      - uses: actions/setup-python@v7
+        if: runner.os == 'Windows'
+        with:
+          python-version: "3.12"
+
       - name: Install display test dependencies
         if: runner.os == 'Linux'
         run: |

@@ -1,7 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { computerPreludeAssets } from "../src/index";
 
-const PYTHON_COMMAND = "python3";
+export function pythonCommandForPlatform(platform: NodeJS.Platform): string {
+	return platform === "win32" ? "python" : "python3";
+}
+
+const PYTHON_COMMAND = pythonCommandForPlatform(process.platform);
 const PYTHON_DIAGNOSTICS = process.env.OMO_DESKTOP_PRELUDE_PYTHON_DIAGNOSTICS === "1";
 
 if (PYTHON_DIAGNOSTICS) {
