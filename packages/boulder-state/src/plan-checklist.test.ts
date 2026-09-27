@@ -87,6 +87,57 @@ describe("parsePlanChecklist", () => {
     expect(checklist).toEqual({ completed: 1, remaining: 1, total: 2, nextTaskLabel: "F1. Verify the result" })
   })
 
+  test("#given structured T, F, and H task IDs #when parsed #then common task formats are counted", () => {
+    // given
+    const markdown = [
+      "## TODOs",
+      "- [x] T1.1 Completed implementation",
+      "- [ ] T6.3a Remaining implementation",
+      "## Final Verification Wave",
+      "- [ ] F1 \u2014 Plan compliance audit",
+      "- [x] H1 \u2014 User approval",
+    ].join("\n")
+
+    // when
+    const checklist = parsePlanChecklist(markdown)
+
+    // then
+    expect(checklist).toEqual({
+      completed: 2,
+      remaining: 2,
+      total: 4,
+      nextTaskLabel: "T6.3a Remaining implementation",
+    })
+  })
+
+  test("#given boilerplate structured sections and Progress Tracker rows #when parsed #then top-level rows fall back to simple parsing", () => {
+    // given
+    const markdown = [
+      "## TODOs",
+      "Template task guidance.",
+      "## Final Verification Wave",
+      "Template verification guidance.",
+      "## Progress Tracker",
+      "### Implementation Waves",
+      "- [x] T1.1 Completed implementation",
+      "- [ ] T6.3a Remaining implementation",
+      "### Final Verification Wave (all must APPROVE)",
+      "- [ ] F1 \u2014 Plan compliance audit",
+      "- [x] H1 \u2014 User approval",
+    ].join("\n")
+
+    // when
+    const checklist = parsePlanChecklist(markdown)
+
+    // then
+    expect(checklist).toEqual({
+      completed: 2,
+      remaining: 2,
+      total: 4,
+      nextTaskLabel: "T6.3a Remaining implementation",
+    })
+  })
+
   test("#given noncanonical structured rows #when parsed #then only exact positive-number grammar is counted", () => {
     // given
     const markdown = [
