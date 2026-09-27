@@ -1,3 +1,7 @@
+## 2026-09-27 - Computer use honors the macOS canary policy (#8945)
+
+`computer.macos_canary` now reaches the native session and macOS backend instead of being discarded by the TypeScript request builder. The wire accepts `session` and `off`, defaults to `session`, and rejects unknown values. Backend reconstruction receives the current policy, including when a session is reconfigured. The engine schema and shipped OmO extension are regenerated.
+
 ## 2026-09-27 - Stop in-flight desktop typing before the remaining characters (#8937)
 
 The macOS physical stop chord previously latched the supervisor while an active `typeText` kept posting the entire text, then reported `Suspended` only after the backend returned. Desktop text delivery now checks suspension and request cancellation between Unicode scalars inside each native backend's single input call. An interrupted request releases held input, keeps the existing single admission and focus-restoration transaction, and audits both the requested and fully delivered scalar counts without recording the text.

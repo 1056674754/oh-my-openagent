@@ -51,7 +51,7 @@ To grant them:
 
 OmO never opens the macOS permission prompt itself: it checks the grants with the non-prompting preflight calls and, when one is missing, reports it in `/computer status` and fails the call with `PermissionDenied` naming the process macOS evaluated. If you launch OmO from a different app later, that app needs its own grants.
 
-The first background input of a session on macOS runs a short delivery check: a small dialog reading "senpi desktop canary" appears for a moment, receives a marked keystroke, and is dismissed automatically (it closes on its own after five seconds at most). Leave it alone while it is up. It proves background keyboard delivery works before OmO relies on it. If the check fails, background window input is reported as unavailable (`stopReason=skylight-canary-failed`) and `/computer resume` re-arms it.
+By default, the first background input of a session on macOS runs a short delivery check: a small dialog reading "senpi desktop canary" appears for a moment, receives a marked keystroke, and is dismissed automatically (it closes on its own after five seconds at most). Leave it alone while it is up. It proves background keyboard delivery works before OmO relies on it. If the check fails, background window input is reported as unavailable (`stopReason=skylight-canary-failed`) and `/computer resume` re-arms it. Setting `computer.macos_canary` to `"off"` skips this check and its dialog.
 
 ### Linux
 
@@ -91,7 +91,7 @@ Put the `computer` block in `~/.omo/omo.jsonc` (or `~/.omo/omo.json`) for your a
 | `screenshot_max_bytes` | `5000000` | Largest inline screenshot; a bigger one is returned only as a file path |
 | `stop_hotkey` | `ctrl+alt+cmd+escape` on macOS, `ctrl+alt+shift+escape` elsewhere | The global stop chord |
 | `allow_host_relay_only_stop` | `false` | Allow input when the global chord cannot be armed, with `/computer stop` as the only stop path |
-| `macos_canary` | `"session"` | The macOS background-delivery check; `"off"` is reserved and not forwarded to the engine yet |
+| `macos_canary` | `"session"` | The macOS background-delivery check; `"off"` skips the check and its dialog |
 | `audit_log.enabled` | `true` | Write the mutating-action audit log |
 | `screenshot_gc.enabled` | `true` | Delete stale screenshot files |
 | `screenshot_gc.stale_ms` | `43200000` (12 hours) | Age after which a screenshot file is deleted |
@@ -145,7 +145,6 @@ omo --permission computer:read=allow --permission computer:exec=deny
 ## Known limitations
 
 - macOS: a background click can raise the clicked window to just below the frontmost window; your frontmost app, front window, focus, cursor and next-keystroke destination are kept. Restoring the full previous window order is tracked in [#8930](https://github.com/code-yeongyu/oh-my-openagent/issues/8930).
-- macOS: `macos_canary: "off"` is accepted but not yet forwarded to the engine, so the delivery check always runs.
 - Wayland: no single-window capture, no per-window input, no `raise()`; the stop chord needs the GlobalShortcuts portal.
 - No released engine for Linux arm64 or Windows arm64 yet.
 - Windows: no input into elevated applications from a non-elevated OmO (UIPI).
