@@ -16,7 +16,10 @@ import { dirname } from "node:path"
 import { formatLockBody, isLockOwnerProvenDead, parseLockOwner } from "./lock-owner"
 
 const LOCK_RETRY_MS = 10
-const LOCK_WAIT_TIMEOUT_MS = 1_000
+// A waiter gives up only when ONE holder keeps the lock this long. Holders that each finish promptly
+// hand the lock on, and a waiter queued behind any number of them keeps waiting: a busy lock never
+// fails an acquisition, only a holder that stops making progress does.
+const LOCK_HOLDER_WAIT_MS = 1_000
 // A lock is taken from its holder only on proof that the holder is dead (lock-owner.ts); age alone
 // never expires a lock. The one exception is a lock with no parseable owner - its writer died between
 // the create and the write, which takes microseconds - once it is older than this window.
@@ -49,31 +52,42 @@ export async function withTaskRecordLockAsync<T>(recordPath: string, operation: 
   }
 }
 
-type AcquireAttempt = { readonly acquired: string } | "retry" | "held"
+/** `held` names the holder (its lock file and body, which carries the acquisition token). */
+type AcquireAttempt = { readonly acquired: string } | { readonly held: string } | "retry"
 
 function acquireLock(lockPath: string): string {
-  const startedAt = Date.now()
+  const waitOn = holderWait(lockPath)
   for (;;) {
     const attempt = tryAcquire(lockPath)
     if (attempt === "retry") continue
-    if (attempt !== "held") return attempt.acquired
-    if (Date.now() - startedAt >= LOCK_WAIT_TIMEOUT_MS) {
-      throw new Error(`Timed out acquiring task record lock: ${lockPath}`)
-    }
+    if ("acquired" in attempt) return attempt.acquired
+    waitOn(attempt.held)
     Atomics.wait(sleeper, 0, 0, LOCK_RETRY_MS)
   }
 }
 
 async function acquireLockAsync(lockPath: string): Promise<string> {
-  const startedAt = Date.now()
+  const waitOn = holderWait(lockPath)
   for (;;) {
     const attempt = tryAcquire(lockPath)
     if (attempt === "retry") continue
-    if (attempt !== "held") return attempt.acquired
-    if (Date.now() - startedAt >= LOCK_WAIT_TIMEOUT_MS) {
-      throw new Error(`Timed out acquiring task record lock: ${lockPath}`)
-    }
+    if ("acquired" in attempt) return attempt.acquired
+    waitOn(attempt.held)
     await new Promise<void>((resolve) => setTimeout(resolve, LOCK_RETRY_MS))
+  }
+}
+
+function holderWait(lockPath: string): (holder: string) => void {
+  let current: string | undefined
+  let since = 0
+  return (holder) => {
+    const now = Date.now()
+    if (holder !== current) {
+      current = holder
+      since = now
+      return
+    }
+    if (now - since >= LOCK_HOLDER_WAIT_MS) throw new Error(`Timed out acquiring task record lock: ${lockPath}`)
   }
 }
 
@@ -117,20 +131,21 @@ function isAbandoned(lock: LockIdentity): boolean {
  * creates over an existing file), so re-reading it unchanged and unlinking it can never remove a
  * fresh holder's lock. A lock that changed since the judgement is simply judged again.
  */
-function reapAbandonedLock(lockPath: string): "retry" | "held" {
+function reapAbandonedLock(lockPath: string): AcquireAttempt {
   const judged = readLockIdentity(lockPath)
   if (judged === undefined) return "retry"
-  if (!isAbandoned(judged)) return "held"
+  const held = { held: `${judged.dev}:${judged.ino}:${judged.body}` }
+  if (!isAbandoned(judged)) return held
   const recoveryPath = `${lockPath}.recovery`
   const recoveryToken = randomUUID()
   if (!publishLock(recoveryPath, recoveryToken)) {
-    if (!reclaimAbandonedRecoveryLock(recoveryPath) || !publishLock(recoveryPath, recoveryToken)) return "held"
+    if (!reclaimAbandonedRecoveryLock(recoveryPath) || !publishLock(recoveryPath, recoveryToken)) return held
   }
   try {
     const current = readLockIdentity(lockPath)
     if (current === undefined || !isSameLock(current, judged)) return "retry"
     // Fence: a reaper that lost its recovery lock (see below) must not unlink the primary.
-    if (readToken(recoveryPath) !== recoveryToken) return "held"
+    if (readToken(recoveryPath) !== recoveryToken) return held
     rmSync(lockPath, { force: true })
     return "retry"
   } finally {

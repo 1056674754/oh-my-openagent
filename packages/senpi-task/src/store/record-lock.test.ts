@@ -166,6 +166,35 @@ describe("task record lock", () => {
     expect(existsSync(`${path}.lock.recovery`)).toBe(false)
   })
 
+  test("#given live holders that hand the lock on every 100ms for 1.5s #when a waiter queues behind them #then it waits past the per-holder budget and acquires", async () => {
+    // given - each holder is this live process under a fresh token, so none of them is ever reaped
+    const path = recordPath()
+    const holderBody = (token: string): string => `${process.pid}\n${Date.now()}\n${token}\n${readProcessStartIdentity(process.pid)}\n${hostname()}\n`
+    writeFileSync(`${path}.lock`, holderBody("holder-0"))
+    let handovers = 0
+    const chainEnded = new Promise<void>((resolve) => {
+      const rotation = setInterval(() => {
+        handovers += 1
+        if (handovers < 15) {
+          writeFileSync(`${path}.lock`, holderBody(`holder-${handovers}`))
+          return
+        }
+        clearInterval(rotation)
+        rmSync(`${path}.lock`, { force: true })
+        resolve()
+      }, 100)
+    })
+    const startedAt = Date.now()
+
+    // when
+    const result = await withTaskRecordLockAsync(path, () => Promise.resolve(Date.now() - startedAt))
+    await chainEnded
+
+    // then
+    expect(result).toBeGreaterThanOrEqual(1_400)
+    expect(handovers).toBe(15)
+  })
+
   test("#given a holder whose lock another process took over meanwhile #when the holder releases #then the other process's lock survives", async () => {
     // given - the lock file is replaced mid-operation, as after a reap and a fresh acquire
     const path = recordPath()

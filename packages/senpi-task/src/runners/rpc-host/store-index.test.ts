@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -19,7 +19,7 @@ function indexPath(): string {
 }
 
 describe("registerStoreIndex", () => {
-  test("#given a store registered twice #when read back #then it is listed once and keeps its first_seen", async () => {
+  test("#given a store registered twice #when read back #then it is listed once with the time it was first registered", async () => {
     // given
     const path = indexPath()
     let now = 1_000
@@ -32,8 +32,24 @@ describe("registerStoreIndex", () => {
     // then
     expect(readTaskStoreIndex(path)).toEqual({
       version: 1,
-      stores: { "/p1/.omo/senpi-task": { first_seen: new Date(1_000).toISOString(), last_seen: new Date(2_000).toISOString() } },
+      stores: { "/p1/.omo/senpi-task": { first_seen: new Date(1_000).toISOString(), last_seen: new Date(1_000).toISOString() } },
     })
+  })
+
+  test("#given a store already in the index #when it is registered again #then the index file is not rewritten", async () => {
+    // given - an mtime far in the past, so any rewrite (a new file renamed over it) shows
+    const path = indexPath()
+    await registerStoreIndex({ indexPath: path, storeDir: "/p1/.omo/senpi-task", now: Date.now })
+    const past = new Date(Date.now() - 3_600_000)
+    utimesSync(path, past, past)
+    const before = statSync(path)
+
+    // when
+    await registerStoreIndex({ indexPath: path, storeDir: "/p1/.omo/senpi-task", now: Date.now })
+
+    // then
+    const after = statSync(path)
+    expect({ ino: after.ino, mtimeMs: after.mtimeMs }).toEqual({ ino: before.ino, mtimeMs: before.mtimeMs })
   })
 
   test("#given a write whose read-back does not contain the store #when registering #then it is unavailable", async () => {
@@ -74,13 +90,13 @@ describe("registerStoreIndex", () => {
     expect(failure).toBeInstanceOf(StoreIndexUnavailableError)
   })
 
-  test("#given 16 processes each registering 25 distinct stores at once #when they all finish #then every one of the 400 stores is in the index", async () => {
+  test("#given 32 processes each registering 25 distinct stores at once #when they all finish #then every one of the 800 stores is in the index", async () => {
     // given
     const path = indexPath()
     const writer = join(import.meta.dir, "__fixtures__", "register-stores.ts")
 
     // when
-    const writers = Array.from({ length: 16 }, (_, writerIndex) =>
+    const writers = Array.from({ length: 32 }, (_, writerIndex) =>
       Bun.spawn([process.execPath, writer, path, `p${writerIndex}`, "25"], { stdout: "pipe", stderr: "pipe" }),
     )
     const failed = (
@@ -91,6 +107,6 @@ describe("registerStoreIndex", () => {
 
     // then
     expect(failed).toEqual([])
-    expect(Object.keys(readTaskStoreIndex(path).stores)).toHaveLength(400)
+    expect(Object.keys(readTaskStoreIndex(path).stores)).toHaveLength(800)
   }, 60_000)
 })

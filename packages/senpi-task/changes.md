@@ -1,3 +1,20 @@
+## A busy store index lock no longer fails an admission
+
+`runners/rpc-host/store-index.ts`: registering a store that the index already lists is a read under the
+lock and nothing else - no rewrite, no fsync, the file keeps its inode and mtime. A new entry writes
+`last_seen` equal to `first_seen` (the field stays for version 1 readers; nothing consumes it).
+
+`store/record-lock.ts`: a waiter now gives up only when ONE holder keeps the lock for the whole wait
+budget (1 s), instead of after 1 s in total. Holders that each finish promptly hand the lock on, and a
+waiter queued behind any number of them keeps waiting, so heavy contention no longer surfaces as
+`store_index_unavailable` (32 processes x 100 new stores: 12-15 of 32 processes failed per run before,
+none after); a holder that stops making progress still times the waiter out, and is never reaped while
+it is alive. This applies to every task record, workpool, lease, sidecar and index lock.
+
+Tests: `runners/rpc-host/store-index.test.ts` (a registered store is not rewritten; 32 processes x 25 stores
+all present), `store/record-lock.test.ts` (a waiter behind live holders handing over every 100 ms for 1.5 s
+acquires).
+
 ## The store index and shard sidecars survive a crash right after they are written
 
 `runners/rpc-host/durable-json.ts`: `writeTextDurably` fsynced the staged file and renamed it over the old
