@@ -114,6 +114,47 @@ def test_platform_filter_narrows_find_results(tmp_path: Path) -> None:
     assert results[0]["platform"] == "codex"
 
 
+def test_find_matches_a_user_event_between_the_first_and_last_prompts(tmp_path: Path) -> None:
+    # given: a transcript whose query text appears only in a middle user event
+    root = _fixture_root(tmp_path)
+    _write_jsonl(
+        root / "transcripts" / "claude-gamma.jsonl",
+        [
+            {"sessionId": "claude-gamma", "type": "user", "timestamp": "2026-06-11T00:00:00Z", "cwd": "/tmp/work", "content": "alpha-edge"},
+            {"sessionId": "claude-gamma", "type": "user", "timestamp": "2026-06-11T00:00:01Z", "cwd": "/tmp/work", "content": "needle-middle-only"},
+            {"sessionId": "claude-gamma", "type": "user", "timestamp": "2026-06-11T00:00:02Z", "cwd": "/tmp/work", "content": "omega-edge"},
+        ],
+    )
+
+    # when
+    payload = _run(root, "find", "needle-middle-only", "--platform", "claude")
+
+    # then
+    results = _rows(payload, "results")
+    assert [item["id"] for item in results] == ["claude-gamma"]
+    reasons = _rows(results[0], "match_reasons")
+    assert reasons[0]["field"] == "user_message"
+    assert reasons[0]["snippet"] == "needle-middle-only"
+
+
+def test_entrypoint_rejects_python_older_than_3_11(tmp_path: Path) -> None:
+    # given: an interpreter that reports Python 3.9
+    script = SKILL_ROOT / "scripts" / "find-agent-sessions.py"
+    launcher = (
+        "import runpy, sys\n"
+        + "sys.version_info = (3, 9, 6, 'final', 0)\n"
+        + f"runpy.run_path({str(script)!r}, run_name='__main__')\n"
+    )
+
+    # when
+    proc = subprocess.run([sys.executable, "-c", launcher, "list"], cwd=tmp_path, capture_output=True, text=True, check=False)
+
+    # then
+    assert proc.returncode == 2
+    assert "3.11" in proc.stderr
+    assert proc.stdout == ""
+
+
 def test_read_summarizes_first_and_last_user_prompts(tmp_path: Path) -> None:
     payload = _run(_fixture_root(tmp_path), "read", "claude-beta", "--platform", "claude")
 
