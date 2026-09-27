@@ -1,3 +1,11 @@
+## 2026-09-28 - macOS QA checks both canary policies (#8893)
+
+The live macOS harness (`script/qa/desktop/macos.ts`) gains a `canary-off` scenario next to `canary`. Both drive the packaged OmO component through a real Senpi session and make two background inputs to TextEdit. `canary` runs `computer.macos_canary: "session"` and expects exactly one canary dialog; `canary-off` runs `"off"` and expects none. Both inputs must succeed in each case. The dialog count comes from the harness's independent System Events observer, not from the engine, so the pair would fail if the observer missed a dialog or if the policy were ignored.
+
+## 2026-09-27 - Computer use honors the macOS canary policy (#8945)
+
+`computer.macos_canary` now reaches the native session and macOS backend instead of being discarded by the TypeScript request builder. The wire accepts `session` and `off`, defaults to `session`, and rejects unknown values. Backend reconstruction receives the current policy, including when a session is reconfigured. The engine schema and shipped OmO extension are regenerated.
+
 ## 2026-09-27 - Stop in-flight desktop typing before the remaining characters (#8937)
 
 The macOS physical stop chord previously latched the supervisor while an active `typeText` kept posting the entire text, then reported `Suspended` only after the backend returned. Desktop text delivery now checks suspension and request cancellation between Unicode scalars inside each native backend's single input call. An interrupted request releases held input, keeps the existing single admission and focus-restoration transaction, and audits both the requested and fully delivered scalar counts without recording the text.
@@ -56,6 +64,10 @@ Every `@code-yeongyu/senpi` pin moves from 2026.9.27 to 2026.9.27-2: the root de
 - The `tool_activated` event.
 
 It also fixes session rebinding after a repository moves, fork-confirmation answers, and several pty issues. `packages/omo-native/bin/lib/provider-map.json` still matches the new engine's `builtinProviders()`, which `provider-map-registry.test.ts` checks against the installed package, so only its version comment changes.
+
+## 2026-09-28 - omo adopts senpi 2026.9.27-3: starting omo no longer empties an upstream pi install (#8039)
+
+Every `@code-yeongyu/senpi` pin moves from 2026.9.27-2 to 2026.9.27-3: the root devDependency, the `omo-native` dependency, the `omo-senpi` and `senpi-task` peer and dev pins, their pin tests, and `bun.lock`. The release carries code-yeongyu/senpi#2215: the first start copies `~/.pi/agent`, `~/.pi/mom` and a project's `.pi` into `~/.omo` instead of moving them, so pi keeps working next to omo, and a pi install that an earlier start already drained gets its settings, credentials, sessions and extensions copied back into `~/.pi/agent` on the next start. It also carries the RPC open-session fixes (senpi#2209, #2206) and the structured `providerDiagnostic` on failed provider turns. `packages/omo-native/bin/lib/provider-map.json` still matches the new engine's `builtinProviders()`, which `provider-map-registry.test.ts` checks against the installed package, so only its version comment changes.
 
 ## 2026-09-27 - Committed conflict markers fail the root suite (#8919)
 
