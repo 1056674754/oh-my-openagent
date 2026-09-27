@@ -109,9 +109,11 @@ async function terminateOrphan(context: LifecycleContext, taskId: string, orphan
   if (record !== null) forgetConsumedPid(context, taskId, pid)
 }
 
+// A `lost` record keeps its pid: TTL reads it as the pid-dead proof and never signals it, only retains
+// the record while that pid is alive.
 function forgetConsumedPid(context: LifecycleContext, taskId: string, pid: number): void {
   context.store.mutate(taskId, (fresh) => {
-    if (fresh.pid !== pid) return fresh
+    if (fresh.pid !== pid || fresh.status === "lost") return fresh
     const { pid: _consumed, ...rest } = fresh
     return rest
   })

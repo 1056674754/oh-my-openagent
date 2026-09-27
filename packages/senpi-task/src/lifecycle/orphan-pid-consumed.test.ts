@@ -7,13 +7,13 @@ afterEach(cleanupProjects)
 
 const PID = 4_242
 
-function orphanLifecycle(initiallyAlive: boolean) {
+function orphanLifecycle(initiallyAlive: boolean, status: "error" | "lost" = "error") {
   const store = tempStore()
   const state = { alive: initiallyAlive }
   const signals: string[] = []
   seedRecord(store, {
     task_id: "st_0000dead",
-    status: "error",
+    status,
     residency_state: "resident",
     execution_mode: "process",
     pid: PID,
@@ -54,4 +54,29 @@ describe("an orphan pid the destruction port has handled is consumed", () => {
       lifecycle.dispose?.()
     })
   }
+})
+
+describe("a lost record keeps its pid-dead proof", () => {
+  test("#given a lost orphan that was signalled #when its process is gone at the TTL sweep #then the record is expunged without a second signal", async () => {
+    const { store, signals, lifecycle } = orphanLifecycle(true, "lost")
+
+    await lifecycle.destroyResidentTask("st_0000dead", "reconcile_lost")
+    await lifecycle.cleanupExpiredRecords()
+
+    expect(signals).toEqual([`SIGTERM:${PID}`])
+    expect(store.load("st_0000dead")).toBeNull()
+    lifecycle.dispose?.()
+  })
+
+  test("#given a lost orphan that was signalled #when the OS reuses its pid before the TTL sweep #then the record is retained and nothing is signalled", async () => {
+    const { store, state, signals, lifecycle } = orphanLifecycle(true, "lost")
+
+    await lifecycle.destroyResidentTask("st_0000dead", "reconcile_lost")
+    state.alive = true
+    await lifecycle.cleanupExpiredRecords()
+
+    expect(signals).toEqual([`SIGTERM:${PID}`])
+    expect(store.load("st_0000dead")?.status).toBe("lost")
+    lifecycle.dispose?.()
+  })
 })
