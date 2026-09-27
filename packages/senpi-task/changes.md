@@ -24,6 +24,12 @@ cleared from the record (fenced on the same pid). It used to stay on the dispose
 number the TTL sweep could signal an unrelated process. A `lost` record keeps its pid: TTL reads it as the pid-dead
 proof, never signals it, and only retains the record while that pid is alive. Test: `lifecycle/orphan-pid-consumed.test.ts`.
 
+`#tryRuntimeFallback`: the handoff write is also fenced on `status === "running"`. A cancel or interrupt that landed
+between reading the failed rung's record and writing the handoff used to be rewritten into a handoff (epoch and model
+advanced, marker set on the stopped record). The stop now stands: nothing is handed off, this run's lease is released
+and waiters settle here, because the stop's own teardown may already have dropped the live entry the normal outcome
+path would need.
+
 `#tryRuntimeFallback`: a rejected `destroyResidentTask(..., "fallback_handoff")` (any rejection value, `undefined`
 included) no longer escapes before cleanup or strands the task `running` behind this owner's pid fence. One fenced
 write clears the handoff marker while this owner still holds that handoff; the task then fails ("Runtime fallback
