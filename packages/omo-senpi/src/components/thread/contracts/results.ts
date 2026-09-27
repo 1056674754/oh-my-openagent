@@ -29,7 +29,7 @@ export type ThreadReadSource = "live_host" | "session_jsonl"
 
 export type ThreadTranscriptItem = {
   readonly seq: number
-  readonly role: "user" | "assistant" | "system"
+  readonly role: "user" | "assistant" | "tool" | "system"
   readonly content: string
 }
 

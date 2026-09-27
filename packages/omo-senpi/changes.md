@@ -3,13 +3,15 @@
 `components/thread/live-surface.ts`: the thread tools no longer see only the legacy socket. They enumerate endpoints
 with the engine CLI `host status --all --include-workers --json` (reused for 5 s), keep the legacy
 `resolveThreadSocket` endpoint in the list (where `omo daemon attach` sessions live), and list every endpoint live on
-each call (10 s budget per endpoint). A listed session carries its `socket`, and every per-session request
+each call (10 s budget per endpoint), every listing marked `observe: true` so a thread tool call never resets a shard's
+idle window. A listed session carries its `socket`, and every per-session request
 (`getMessages`, `getState`, `prompt`, `interrupt`, `setSessionName`, `setModel`, `getAvailableModels`,
 `setThinkingLevel`, `getAvailableThinkingLevels`) dials that socket through the new `ThreadHost.endpoint(socket)` port,
 because routing ids are per-host counters (`rpc-1` on every host). `thread_create` still opens on the legacy socket.
 An endpoint that does not answer degrades its sessions to disk truth: the session files its report still claims, or
 that it last listed, are read from JSONL and listed by `thread_list` as `resumable` with its failure in `error_note`,
-and `thread_read` answers them from JSONL (`source: "session_jsonl"`, `source_incomplete: true`, `error_note`).
+and `thread_read` answers them from JSONL (`source: "session_jsonl"`, `source_incomplete: true`, `error_note`), rendering
+only user/assistant/tool message entries. `thread_read` items gain the `tool` role (engine `toolResult`) on both paths.
 An engine that cannot enumerate (a pre-release engine rejecting `--all`, no resolvable CLI) degrades to the legacy
 endpoint alone - today's behavior, including `host_unavailable` as data when that socket is missing.
 

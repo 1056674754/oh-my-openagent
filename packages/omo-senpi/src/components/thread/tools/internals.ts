@@ -1,7 +1,7 @@
 import type { AgentToolResult, ToolDefinition } from "@code-yeongyu/senpi"
 import { assembleAddressBook, toThreadAddressEntries, type AddressEntry } from "../address-book"
 import { resolveTarget, type ThreadAddressEntry } from "../addressing"
-import type { ThreadToolName, ThreadToolResult } from "../contracts"
+import type { ThreadToolName, ThreadToolResult, ThreadTranscriptItem } from "../contracts"
 import { threadToolFailure, type ThreadErrorCode } from "../errors"
 import { THREAD_TOOL_SEARCH_METADATA } from "../metadata"
 import { createReceiptStore, type ReceiptStore } from "../receipts"
@@ -114,6 +114,12 @@ export function resolution(options: ThreadToolSurfaceOptions, entries: readonly 
 }
 
 export function routingId(session: ThreadHostSession): string { return session.sessionId }
+
+/** One role vocabulary for both read paths: engine `toolResult` is `tool`; every other non-chat kind is `system`. */
+export function transcriptRole(role: unknown): ThreadTranscriptItem["role"] {
+  if (role === "user" || role === "assistant") return role
+  return role === "toolResult" ? "tool" : "system"
+}
 
 export function targetSession(view: ThreadHostView, durableId: string): ThreadHostSession | undefined {
   return view.sessions.find((session) => (session.durableSessionId ?? session.sessionId) === durableId)

@@ -67,7 +67,11 @@ function writeSessionJsonl(path: string, durableId: string, text: string): void 
   writeFileSync(path, [
     { type: "session", id: durableId, cwd: process.cwd(), timestamp: "2026-09-27T00:00:00.000Z" },
     { type: "session_info", name: "desktop-thread", timestamp: "2026-09-27T00:00:01.000Z" },
+    { type: "model_change", provider: "openai", modelId: "gpt-x", timestamp: "2026-09-27T00:00:01.500Z" },
+    { type: "thinking_level_change", thinkingLevel: "high", timestamp: "2026-09-27T00:00:01.600Z" },
     { type: "message", timestamp: "2026-09-27T00:00:02.000Z", message: { role: "user", content: text } },
+    { type: "message", timestamp: "2026-09-27T00:00:03.000Z", message: { role: "assistant", content: [{ type: "toolCall", id: "c1", name: "read", arguments: {} }] } },
+    { type: "message", timestamp: "2026-09-27T00:00:04.000Z", message: { role: "toolResult", toolCallId: "c1", content: [{ type: "text", text: "file body" }] } },
   ].map((entry) => `${JSON.stringify(entry)}\n`).join(""))
 }
 
@@ -188,10 +192,38 @@ describe("thread tools across host endpoints", () => {
     expect(desktop).toMatchObject({ status: "resumable", socket: shard, error_note: `host_unavailable:${shard}` })
     expect(threads.find((thread) => thread.thread_id === "dur-terminal")).toMatchObject({ status: "live", socket: legacy })
     expect(read).toMatchObject({ kind: "ok", source: "session_jsonl", source_incomplete: true, error_note: `host_unavailable:${shard}` })
-    expect((read as { items: ReadonlyArray<{ seq: number; role: string; content: string }> }).items.at(-1)).toEqual({ seq: 3, role: "user", content: JSON.stringify("hello from disk") })
+    expect((read as { items: ReadonlyArray<{ seq: number; role: string; content: string }> }).items).toEqual([
+      { seq: 1, role: "user", content: JSON.stringify("hello from disk") },
+      { seq: 2, role: "assistant", content: JSON.stringify([{ type: "toolCall", id: "c1", name: "read", arguments: {} }]) },
+      { seq: 3, role: "tool", content: JSON.stringify([{ type: "text", text: "file body" }]) },
+    ])
     expect(sent).toMatchObject({ kind: "ok", thread_id: "dur-terminal" })
     expect(legacyHost.frames.some((frame) => frame.type === "prompt")).toBe(true)
     expect(w.dialed).not.toContain(shard)
+  })
+
+  test("#given thread tools listing and acting on both endpoints #when the frames are inspected #then every list_sessions is an observing read and no request that acts on a session is", async () => {
+    // given
+    const dir = tempDir("thr-ep-")
+    const legacy = join(dir, "rpc.sock")
+    const shard = join(dir, "i-0123456789abcdef.sock")
+    const legacyHost = await endpoint(legacy, hostWith("dur-terminal", "terminal", join(dir, "terminal.jsonl")))
+    const shardHost = await endpoint(shard, hostWith("dur-desktop", "desktop", join(dir, "desktop.jsonl")))
+    const w = world({ legacy, shard, reports: () => [report(legacy, true), report(shard, true)] })
+
+    // when
+    await w.run("thread_list", { all_scope: true })
+    await w.run("thread_send", { thread: "dur-desktop", message: "hello" })
+    await w.run("thread_create", { name: "fresh" })
+
+    // then
+    const frames = [...legacyHost.frames, ...shardHost.frames]
+    const listings = frames.filter((frame) => frame.type === "list_sessions")
+    const acting = frames.filter((frame) => frame.type !== "list_sessions")
+    expect(listings.length).toBeGreaterThanOrEqual(4)
+    expect(listings.every((frame) => frame.observe === true)).toBe(true)
+    expect(acting.map((frame) => frame.type)).toEqual(expect.arrayContaining(["get_state", "prompt", "open_session", "set_session_name"]))
+    expect(acting.some((frame) => "observe" in frame)).toBe(false)
   })
 
   test("#given an engine that cannot enumerate and no legacy socket #when any tool runs #then it answers host_unavailable as data", async () => {

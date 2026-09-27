@@ -31,6 +31,12 @@ export const ENDPOINT_LIST_TIMEOUT_MS = 10_000
 export const HOST_ENDPOINTS_CACHE_TTL_MS = 5_000
 const HOST_STATUS_ALL_TIMEOUT_MS = 30_000
 export const HOST_STATUS_ALL_ARGS = ["host", "status", "--all", "--include-workers", "--json"] as const
+/**
+ * Marks a read-only listing as an observation (senpi `OBSERVE_REQUEST_FIELD`): without it the supervisor
+ * counts the connection as an attachment, so every thread tool call would reset each shard's idle window
+ * and no shard would ever idle out. Never sent on a request that acts on a session.
+ */
+const OBSERVE = { observe: true } as const
 
 /**
  * One request, one correlated response. The multi-session host writes other lines on the same
@@ -188,7 +194,7 @@ export function createLiveThreadSurface(_pi: SenpiExtensionAPI, options: LiveThr
 
   const listEndpoint = async (socket: string, claimed: readonly string[]): Promise<EndpointListing> => {
     try {
-      const { sessions } = await callOn<{ sessions: ThreadHostSession[] }>(socket, "list_sessions", {}, ENDPOINT_LIST_TIMEOUT_MS)
+      const { sessions } = await callOn<{ sessions: ThreadHostSession[] }>(socket, "list_sessions", OBSERVE, ENDPOINT_LIST_TIMEOUT_MS)
       const tagged = sessions.map((session) => ({ ...session, socket }))
       lastListed.set(socket, tagged.flatMap((session) => (session.sessionPath === undefined ? [] : [session.sessionPath])))
       return { host: { socket, list_sessions: { sessions: tagged } }, sessions: tagged, disk: [] }
@@ -246,7 +252,7 @@ export function createLiveThreadSurface(_pi: SenpiExtensionAPI, options: LiveThr
       const routingId = result.sessionId
       const name = (params as { readonly name?: string }).name
       if (name !== undefined && name.trim() !== "") await call("set_session_name", { sessionId: routingId, name })
-      const { sessions } = await call<{ sessions: readonly ThreadHostSession[] }>("list_sessions")
+      const { sessions } = await call<{ sessions: readonly ThreadHostSession[] }>("list_sessions", OBSERVE)
       const listed = sessions.find((session) => session.sessionId === routingId)
       return { ...result.state, ...(listed ?? {}), sessionId: routingId, socket: legacy }
     },
