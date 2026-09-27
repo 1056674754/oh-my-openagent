@@ -1,7 +1,7 @@
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDesktopEngineCandidatePaths, locateDesktopEngine } from "../src/locator";
 
 const platform = "darwin";
@@ -13,6 +13,8 @@ let layout: {
 	readonly execDir: string;
 	readonly packageDir: string;
 	readonly repoRoot: string;
+	readonly runtimeDir: string;
+	readonly extracted: string;
 	readonly sidecar: string;
 	readonly prebuild: string;
 	readonly dev: string;
@@ -26,7 +28,7 @@ function placeEngine(enginePath: string, mode = 0o755): void {
 
 function locate(isQuarantined: (enginePath: string) => boolean = () => false) {
 	const { execDir, packageDir, repoRoot } = layout;
-	return locateDesktopEngine({ arch, execDir, isQuarantined, packageDir, platform, repoRoot });
+	return locateDesktopEngine({ arch, execDir, isQuarantined, packageDir, platform, repoRoot, runtimeDir: "" });
 }
 
 beforeEach(() => {
@@ -34,10 +36,13 @@ beforeEach(() => {
 	const execDir = path.join(root, "bin");
 	const repoRoot = path.join(root, "repo");
 	const packageDir = path.join(repoRoot, "packages", "desktop-engine");
+	const runtimeDir = path.join(root, "extracted-runtime");
 	layout = {
 		execDir,
 		packageDir,
 		repoRoot,
+		runtimeDir,
+		extracted: path.join(runtimeDir, "native", "prebuilds", host, "senpi-desktop-engine"),
 		sidecar: path.join(execDir, "native", "prebuilds", host, "senpi-desktop-engine"),
 		prebuild: path.join(packageDir, "native", "prebuilds", host, "senpi-desktop-engine"),
 		dev: path.join(repoRoot, "target", "release", "senpi-desktop-engine"),
@@ -45,10 +50,34 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	vi.unstubAllEnvs();
 	rmSync(root, { force: true, recursive: true });
 });
 
 describe("locateDesktopEngine", () => {
+	it("uses OMO_PACKAGE_DIR before a compiled sidecar without an explicit runtime directory", () => {
+		vi.stubEnv("OMO_PACKAGE_DIR", layout.runtimeDir);
+		placeEngine(layout.extracted);
+		placeEngine(layout.sidecar);
+
+		expect(locateDesktopEngine({
+			arch, execDir: layout.execDir, packageDir: layout.packageDir,
+			platform, repoRoot: layout.repoRoot, isQuarantined: () => false,
+		})).toEqual({ path: layout.extracted, diagnostic: null });
+	});
+
+	it("prefers the extracted compiled payload before the executable sidecar", () => {
+		placeEngine(layout.extracted);
+		placeEngine(layout.sidecar);
+		placeEngine(layout.prebuild);
+
+		expect(locateDesktopEngine({
+			arch, execDir: layout.execDir, packageDir: layout.packageDir,
+			platform, repoRoot: layout.repoRoot, runtimeDir: layout.runtimeDir,
+			isQuarantined: () => false,
+		})).toEqual({ path: layout.extracted, diagnostic: null });
+	});
+
 	it("prefers the compiled sidecar over the package prebuild and the dev build", () => {
 		placeEngine(layout.sidecar);
 		placeEngine(layout.prebuild);
@@ -119,6 +148,7 @@ describe("getDesktopEngineCandidatePaths", () => {
 			packageDir: layout.packageDir,
 			platform: "win32",
 			repoRoot: layout.repoRoot,
+			runtimeDir: "",
 		});
 
 		expect(paths).toEqual([

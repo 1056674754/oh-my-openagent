@@ -27,6 +27,8 @@ export type DesktopEngineQuarantineProbe = (enginePath: string) => boolean;
 export interface DesktopEngineLocatorOptions {
 	readonly platform?: string;
 	readonly arch?: string;
+	/** Overrides the OMO_PACKAGE_DIR extracted payload root (empty string disables it). */
+	readonly runtimeDir?: string;
 	/** Directory of the running executable; a compiled senpi ships the engine as a sidecar beside it. */
 	readonly execDir?: string;
 	/** Root of this package, which holds `native/prebuilds/<host>/`. */
@@ -46,7 +48,7 @@ export function getDesktopEngineFileName(platform: string = process.platform): s
 	return platform === "win32" ? `${DESKTOP_ENGINE_BINARY}.exe` : DESKTOP_ENGINE_BINARY;
 }
 
-/** Candidates in priority order: compiled sidecar, vendored package prebuild, dev `target/release`. */
+/** OMO_PACKAGE_DIR (or its explicit override) precedes the sidecar, prebuild and dev build. */
 export function getDesktopEngineCandidatePaths(options: DesktopEngineLocatorOptions = {}): readonly string[] {
 	const host = getDesktopEngineHost(options.platform, options.arch);
 	const file = getDesktopEngineFileName(options.platform);
@@ -54,7 +56,13 @@ export function getDesktopEngineCandidatePaths(options: DesktopEngineLocatorOpti
 	const execDir = options.execDir ?? dirname(process.execPath);
 	const repoRoot = options.repoRoot ?? join(packageDir, "..", "..");
 	const prebuild = join("native", "prebuilds", host, file);
-	return [join(execDir, prebuild), join(packageDir, prebuild), join(repoRoot, "target", "release", file)];
+	const runtimeDir = options.runtimeDir ?? process.env.OMO_PACKAGE_DIR;
+	return [
+		...(runtimeDir ? [join(runtimeDir, prebuild)] : []),
+		join(execDir, prebuild),
+		join(packageDir, prebuild),
+		join(repoRoot, "target", "release", file),
+	];
 }
 
 export function locateDesktopEngine(options: DesktopEngineLocatorOptions = {}): DesktopEngineLocation {
