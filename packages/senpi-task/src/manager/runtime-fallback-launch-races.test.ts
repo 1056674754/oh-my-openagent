@@ -121,7 +121,8 @@ describe("runtime fallback: the failed rung's teardown rejects", () => {
     expect(ended.error_message).toContain(rejection === undefined ? "was not started" : "dispose rejected")
     expect(ended.fallback_handoff_epoch).toBeUndefined()
     expect(starts).toEqual([PRIMARY])
-    expect(manager.getResidentHandle(started.task_id)).toBeUndefined()
+    // An in-process child has no pid or session to hand the orphan path: it stays resident as its own cleanup owner.
+    expect(manager.getResidentHandle(started.task_id)).toBe(first.handle)
     const other = await manager.start(baseSpec({ name: "after" }))
     expect(other).toMatchObject({ kind: "started", status: "running" })
     manager.workpools.dispose()
@@ -181,14 +182,16 @@ describe("runtime fallback: the failed rung's teardown rejects", () => {
 const HOST_PID = 21_001
 
 /** A manager over the REAL destruction port, so a child whose cleanup failed must reach the orphan path. */
-function managerWithLifecycle(store: TaskRecordStore, runner: ManagedRunner, project: string, alive: Set<number>) {
+function managerWithLifecycle(store: TaskRecordStore, runner: ManagedRunner, project: string, alive: Set<number>, now: () => number = Date.now) {
   const terminated = Promise.withResolvers<number>()
+  const orphaned = Promise.withResolvers<void>()
   const signals: string[] = []
   let manager: TaskManager | undefined
   const lifecycle = createTaskLifecycle({
     store,
     config: settings({ default_concurrency: 2, max_depth: 1 }),
     hostPid: HOST_PID,
+    now,
     registry: createManagerResidencyRegistry(() => {
       if (manager === undefined) throw new Error("manager not built")
       return manager
@@ -210,10 +213,18 @@ function managerWithLifecycle(store: TaskRecordStore, runner: ManagedRunner, pro
     config: settings({ default_concurrency: 2, max_depth: 1 }),
     cwd: project,
     hostPid: HOST_PID,
-    destruction: { destroyResidentTask: (taskId, cause) => lifecycle.destroyResidentTask(taskId, cause) },
+    destruction: {
+      destroyResidentTask: async (taskId, cause) => {
+        try {
+          await lifecycle.destroyResidentTask(taskId, cause)
+        } finally {
+          if (cause === "reconcile_lost") orphaned.resolve()
+        }
+      },
+    },
   })
   manager = built
-  return { manager: built, signals, terminated: terminated.promise }
+  return { manager: built, lifecycle, signals, terminated: terminated.promise, orphaned: orphaned.promise }
 }
 
 /** A per-process child whose terminate and dispose both reject: it stays alive until signalled. */
@@ -249,7 +260,7 @@ describe("runtime fallback: a child whose cleanup rejects is handed to orphan te
         return stubbornChild(spec.taskId, 2_222)
       },
     }
-    const { manager, signals, terminated } = managerWithLifecycle(store, runner, project, alive)
+    const { manager, signals, terminated, orphaned } = managerWithLifecycle(store, runner, project, alive)
     const started = await manager.start(baseSpec({ execution_mode: "process" }))
     if (started.kind !== "started" || first === undefined) throw new Error("setup failed")
     first.settle({ status: "error", failure: { kind: "child-turn-failed", message: "500: upstream overloaded" } })
@@ -259,8 +270,10 @@ describe("runtime fallback: a child whose cleanup rejects is handed to orphan te
     release.resolve()
 
     expect(await terminated).toBe(2_222)
+    await orphaned
     expect(signals[0]).toBe("SIGTERM:2222")
-    expect(store.load(started.task_id)).toMatchObject({ status: "cancelled", pid: 2_222 })
+    expect(store.load(started.task_id)?.status).toBe("cancelled")
+    expect(store.load(started.task_id)?.pid).toBeUndefined()
     expect(manager.getResidentHandle(started.task_id)).toBeUndefined()
     manager.workpools.dispose()
   })
@@ -278,7 +291,7 @@ describe("runtime fallback: a child whose cleanup rejects is handed to orphan te
         return Object.assign(first.handle, stubbornChild(spec.taskId, 3_333), { waitForOutcome: first.handle.waitForOutcome, subscribe: first.handle.subscribe })
       },
     }
-    const { manager, signals, terminated } = managerWithLifecycle(store, runner, project, alive)
+    const { manager, signals, terminated, orphaned } = managerWithLifecycle(store, runner, project, alive)
     const started = await manager.start(baseSpec({ execution_mode: "process" }))
     if (started.kind !== "started" || first === undefined) throw new Error("setup failed")
 
@@ -287,10 +300,115 @@ describe("runtime fallback: a child whose cleanup rejects is handed to orphan te
 
     expect((await ended).status).toBe("error")
     expect(await terminated).toBe(3_333)
+    await orphaned
     expect(signals[0]).toBe("SIGTERM:3333")
-    expect(store.load(started.task_id)).toMatchObject({ status: "error", pid: 3_333 })
+    expect(store.load(started.task_id)?.status).toBe("error")
+    expect(store.load(started.task_id)?.pid).toBeUndefined()
     expect(store.load(started.task_id)?.fallback_handoff_epoch).toBeUndefined()
     expect(starts).toEqual([PRIMARY])
+    manager.workpools.dispose()
+  })
+})
+
+/** An in-process child whose teardown rejects until `closable` is set: it has no pid and no session. */
+function inProcessChild(taskId: string, state: { closable: boolean; disposals: number }): ReturnType<typeof makeHandle> {
+  const fake = makeHandle(taskId)
+  Object.assign(fake.handle, {
+    kind: "in-process" as const,
+    abort: async () => { if (!state.closable) throw new Error("abort rejected") },
+    dispose: async () => {
+      state.disposals += 1
+      if (!state.closable) throw new Error("dispose rejected")
+    },
+  })
+  return fake
+}
+
+describe("runtime fallback: an in-process child whose cleanup rejects keeps a cleanup owner", () => {
+  const LATER = () => Date.now() + 24 * 60 * 60 * 1_000
+
+  test("#given the failed in-process rung's teardown rejects #when the task is failed #then the child stays resident and idle reclaim retries its teardown", async () => {
+    const project = tempProject()
+    const store = createTaskRecordStore({ project_dir: project })
+    const state = { closable: false, disposals: 0 }
+    const starts: string[] = []
+    let first: ReturnType<typeof makeHandle> | undefined
+    const runner: ManagedRunner = {
+      start: async (spec) => {
+        starts.push(spec.model ?? "")
+        first = inProcessChild(spec.taskId, state)
+        return first.handle
+      },
+    }
+    let clock = Date.now
+    const { manager, lifecycle } = managerWithLifecycle(store, runner, project, new Set(), () => clock())
+    const started = await manager.start(baseSpec())
+    if (started.kind !== "started" || first === undefined) throw new Error("setup failed")
+
+    const ended = manager.waitFor(started.task_id)
+    first.settle({ status: "error", failure: { kind: "child-turn-failed", message: "500: upstream overloaded" } })
+    expect((await ended).status).toBe("error")
+
+    expect(manager.getResidentHandle(started.task_id)).toBe(first.handle)
+    expect(store.load(started.task_id)?.residency_state).toBe("resident")
+    expect(starts).toEqual([PRIMARY])
+
+    state.closable = true
+    clock = LATER
+    expect(await lifecycle.reclaimIdleResidents?.()).toEqual([started.task_id])
+    expect(state.disposals).toBe(2)
+    expect(manager.getResidentHandle(started.task_id)).toBeUndefined()
+    manager.workpools.dispose()
+  })
+
+  test("#given a stale in-process next-rung child whose cleanup rejects #when the task was cancelled mid-start #then it stays resident and idle reclaim retries its teardown", async () => {
+    const project = tempProject()
+    const backing = createTaskRecordStore({ project_dir: project })
+    const keptResident = Promise.withResolvers<void>()
+    const store: TaskRecordStore = {
+      ...backing,
+      transition(taskId, transition) {
+        const result = backing.transition(taskId, transition)
+        if (transition.type === "mark_resident") keptResident.resolve()
+        return result
+      },
+    }
+    const state = { closable: false, disposals: 0 }
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    let first: ReturnType<typeof makeHandle> | undefined
+    let late: ReturnType<typeof makeHandle> | undefined
+    const runner: ManagedRunner = {
+      start: async (spec) => {
+        if (first === undefined) {
+          first = makeHandle(spec.taskId)
+          return first.handle
+        }
+        entered.resolve()
+        await release.promise
+        late = inProcessChild(spec.taskId, state)
+        return late.handle
+      },
+    }
+    let clock = Date.now
+    const { manager, lifecycle } = managerWithLifecycle(store, runner, project, new Set(), () => clock())
+    const started = await manager.start(baseSpec())
+    if (started.kind !== "started" || first === undefined) throw new Error("setup failed")
+    first.settle({ status: "error", failure: { kind: "child-turn-failed", message: "500: upstream overloaded" } })
+    await entered.promise
+    expect((await manager.cancelTask(started.task_id)).kind).toBe("cancelled")
+
+    release.resolve()
+    await keptResident.promise
+
+    expect(manager.getResidentHandle(started.task_id)).toBe(late?.handle)
+    expect(store.load(started.task_id)).toMatchObject({ status: "cancelled", residency_state: "resident" })
+
+    state.closable = true
+    clock = LATER
+    expect(await lifecycle.reclaimIdleResidents?.()).toEqual([started.task_id])
+    expect(state.disposals).toBe(2)
+    expect(manager.getResidentHandle(started.task_id)).toBeUndefined()
     manager.workpools.dispose()
   })
 })
