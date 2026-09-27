@@ -9,6 +9,7 @@ import { adaptRpcHandle } from "./child-handle"
 import { baseSpec, cleanupProjects, settings, tempProject } from "./__fixtures__/manager-fakes"
 import { createTaskManager } from "./manager"
 import type { ManagedRunner } from "./types"
+import { NO_HOST_ENDPOINT } from "../lifecycle/host-session"
 
 // Invariant: every committed state of a record whose failed rung was never confirmed closed still names
 // that rung's session, so a parent that dies after any single write leaves recovery something to close.
@@ -60,6 +61,7 @@ describe("runtime fallback whose failed-rung close is never acknowledged", () =>
       destruction: { destroyResidentTask: (taskId, cause) => lifecycle.destroyResidentTask(taskId, cause) },
     })
     const lifecycle = createTaskLifecycle({
+      hostEndpoint: NO_HOST_ENDPOINT,
       store,
       config,
       registry: createManagerResidencyRegistry(() => manager),

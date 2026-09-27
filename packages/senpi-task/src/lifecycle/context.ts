@@ -43,7 +43,7 @@ export type LifecycleContext = {
   readonly hostSessionProbe: HostSessionProbe
   readonly hostSessionClose: HostSessionCloser | undefined
   readonly hostRetry: HostSessionRetryPolicy
-  readonly hostEndpoint: HostEndpointPort | undefined
+  readonly hostEndpoint: HostEndpointPort
   readonly hostCloseTimeoutMs: number
   readonly isolation: IsolationRuntime | undefined
   readonly isolationProbe: OwnerProbe | undefined

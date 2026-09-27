@@ -203,7 +203,9 @@ export type LifecycleDeps = {
   readonly hostSessionProbe?: HostSessionProbe
   readonly hostSessionClose?: HostSessionCloser
   readonly hostRetry?: HostSessionRetryPolicy
-  readonly hostEndpoint?: HostEndpointPort
+  // REQUIRED so a composition cannot silently drop the revival ensure and the own-host guard. A
+  // lifecycle without a task host passes `NO_HOST_ENDPOINT` explicitly.
+  readonly hostEndpoint: HostEndpointPort
   // How long a close this process must see confirmed (a failed rung, an expired record) waits for the
   // daemon's answer before it counts as unconfirmed. Defaults to 10s.
   readonly hostCloseTimeoutMs?: number

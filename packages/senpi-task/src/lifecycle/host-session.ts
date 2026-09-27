@@ -33,12 +33,20 @@ export type HostSessionProbe = {
 /**
  * How revival reaches a RECORDED endpoint beyond probing it. `isOwn` names the endpoint this session
  * runs behind (never ensured from inside); `ensure` re-ensures any other recorded socket, and only
- * that socket; `notice` surfaces why a record stays parked. Absent: probe only, as before.
+ * that socket; `notice` surfaces why a record stays parked. A lifecycle with no task host passes
+ * `NO_HOST_ENDPOINT`: probe only, never an ensure.
  */
 export type HostEndpointPort = {
   readonly isOwn: (socket: string) => boolean
   readonly ensure: (socket: string) => Promise<"ensured" | "incompatible" | "unreachable">
   readonly notice: (reason: "host_incompatible" | "own_host_unreachable", socket: string) => void
+}
+
+/** The explicit "this lifecycle has no task host" answer: a silent recorded endpoint stays `host_unreachable`. */
+export const NO_HOST_ENDPOINT: HostEndpointPort = {
+  isOwn: () => false,
+  ensure: () => Promise.resolve("unreachable"),
+  notice: () => undefined,
 }
 
 export type HostSessionProbePorts = {

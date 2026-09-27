@@ -369,6 +369,7 @@ export {
   createTaskLifecycle,
   getLifecycleDetachedRevivalRollback,
   getLifecycleReattachPorts,
+  NO_HOST_ENDPOINT,
   registerLifecycleDetachedRevivalRollback,
   registerLifecycleReattachPorts,
 } from "./lifecycle"

@@ -19,6 +19,7 @@ import { HostSessionClient } from "../session-client"
 import { startFakeHost, type FakeHost, type FakeHostOptions } from "./fake-host"
 import { listFakeHostSessions, probeFakeHost } from "./fake-host-probe"
 import { fakeCloseChannel, fakeFallbackRunner } from "./host-world-ports"
+import { NO_HOST_ENDPOINT } from "../../../lifecycle/host-session"
 
 /**
  * A daemon and the parent sessions that share it: one fake host on a private socket, one project
@@ -192,6 +193,7 @@ function connectParent(input: ConnectParentInput): ParentSession {
     ...(input.options.hostPid === undefined ? {} : { hostPid: input.options.hostPid }),
   })
   const lifecycle = createTaskLifecycle({
+    hostEndpoint: NO_HOST_ENDPOINT,
     store,
     config,
     registry: createManagerResidencyRegistry(() => manager),

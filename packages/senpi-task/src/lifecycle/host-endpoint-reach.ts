@@ -16,7 +16,6 @@ export async function reachRecordedHost(
 ): Promise<RecordedHostVerdict> {
   if (await context.hostSessionProbe.daemonAlive(hostSession)) return "alive"
   const endpoint = context.hostEndpoint
-  if (endpoint === undefined) return "host_unreachable"
   if (endpoint.isOwn(hostSession.socket)) {
     endpoint.notice("own_host_unreachable", hostSession.socket)
     return "own_host_unreachable"
