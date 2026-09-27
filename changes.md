@@ -1,3 +1,7 @@
+## 2026-09-27 - The computer-use QA proves tool_search discovery (#8893)
+
+`computer-use-e2e.mjs` now also drives the path a model takes to a deferred tool. It runs `tool_search` for a desktop-control capability, calls the matched `computer` tool by name, and confirms the eval `computer` global. It passes 5 of 5 against senpi 2026.9.27-2, and the check fails when the query cannot match.
+
 ## 2026-09-27 - Computer use acquires its engine for npm installs (#8893)
 
 `omo-ai` installed from npm ships no native binaries. So the `computer-use` component used to report `native-unavailable` unless the engine had been built locally.
