@@ -106,12 +106,12 @@ export default function registerFallbackMockProvider(pi: ExtensionAPI): void {
     },
   })
 
-  // Builtin chain fixture providers for the "quick" category: rung 1 (openai-codex/
+  // Builtin chain fixture providers for the "quick" category: rung 1 (chatgpt-subscription/
   // gpt-6-luna-fast) always dies on the child; rung 2 (deepseek/deepseek-flash) answers
   // unless the scenario exhausts the chain. Both fixtures declare reasoning so the runtime
   // accepts the rung variants ("low" / "off") in its fallback selector.
-  pi.registerProvider("openai-codex", {
-    name: "omo runtime fallback openai-codex fixture",
+  pi.registerProvider("chatgpt-subscription", {
+    name: "omo runtime fallback chatgpt subscription fixture",
     baseUrl: "file://omo-runtime-fallback-mock",
     apiKey: "mock",
     api: "openai-completions",
@@ -139,10 +139,9 @@ export default function registerFallbackMockProvider(pi: ExtensionAPI): void {
       fs.writeFileSync(`/tmp/fallback-dump-${label}.json`, JSON.stringify({
         label,
         count: ids.length,
-        quotio: ids.filter((id) => id.includes("quotio")),
-        kimi: ids.filter((id) => id.includes("kimi")),
+        quick: ids.filter((id) => id.includes("chatgpt-subscription") || id.includes("deepseek")),
         mock: ids.filter((id) => id.includes("omo-fallback-mock")),
-        findQuotio: registry?.find("openai-codex", "gpt-6-luna-fast") !== undefined,
+        findQuickPrimary: registry?.find("chatgpt-subscription", "gpt-6-luna-fast") !== undefined,
       }, null, 2))
     }
     dump("t0")
@@ -173,7 +172,14 @@ function mockModel(id: string, name: string) {
   }
 }
 
+// The identity line is written by the in-process subagent prompt only. A per-child process and a
+// task daemon session both run senpi in `--mode rpc` while the driver's parent runs `-p`, so the rpc
+// argv is the structural child signal there (the same selector task-e2e-mock-provider.ts uses).
 function isChild(context: Context): boolean {
+  return messagesContainChild(context) || process.argv.includes("rpc")
+}
+
+function messagesContainChild(context: Context): boolean {
   return (context.messages ?? []).some((message) => {
     if (typeof message.content === "string") return message.content.includes(CHILD_IDENTITY)
     return message.content.some((part) => part.text?.includes(CHILD_IDENTITY) === true)
