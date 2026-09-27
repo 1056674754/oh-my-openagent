@@ -22,6 +22,20 @@ started beside a child that may still be alive. The live mapping and slot are re
 settle, and the failed child goes to the orphan path. Tests: `runtime-fallback-launch-races.test.ts`,
 `launch-ownership-races.test.ts`.
 
+## The failed rung's lease survives a stop during the handoff, and a lost handoff lets go of its run
+
+The handoff record names the next epoch while the failed rung's child is still closing and still holds
+its own lease. `cancelTask`/`interruptTask` released by the record's epoch, so they released the next
+epoch (which no lease held yet), raised the release high-water mark, and the old lease was then never
+returned: one lane slot lost for good. `#tryRuntimeFallback` now records the closing rung's epoch for
+the length of the teardown and `#releaseSlotForTask` releases that one; the next rung's launch already
+refuses a record that is no longer running and returns its own lease. A lost handoff fence
+(another owner took the task at this epoch) used to return with the old subscription, live entry,
+lease and handle still held; it now retires exactly those, releasing the handle with
+`releaseSupersededHandle` (a detach for a daemon session), and never touches the winner's record or
+session. Tests: `runtime-fallback-handoff-races.test.ts` (a lost fence, an interrupt and a cancel
+during the slow close, at concurrency one).
+
 ## Runtime fallback forgets the closed rung's daemon session before the next one opens
 
 `manager/manager.ts` `#tryRuntimeFallback` closes the failed rung's child and hands the task to the next

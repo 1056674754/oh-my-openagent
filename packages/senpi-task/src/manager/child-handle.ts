@@ -161,6 +161,14 @@ export async function discardManagedHandle(handle: ManagedChildHandle): Promise<
   }
 }
 
+/**
+ * Let go of a handle whose child now belongs to another owner: drop this process's connection and
+ * never end the child. For a daemon session that is a detach; `discardManagedHandle` would close it.
+ */
+export async function releaseSupersededHandle(handle: ManagedChildHandle): Promise<void> {
+  await handle.dispose()
+}
+
 export async function discardRpcHandle(handle: RpcChildHandle): Promise<void> {
   try {
     await handle.terminate()
