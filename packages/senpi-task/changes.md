@@ -38,6 +38,24 @@ from `running`, so a cancel that landed first stands, and the next rung is not s
 be alive. The failed child gets its cleanup owner (above) before its slot is released and waiters settle. Tests: `runtime-fallback-launch-races.test.ts`,
 `launch-ownership-races.test.ts`.
 
+## Each generation of a task owns only its own lease, handle and claim while an old rung closes
+
+A reload can revive the task while runtime fallback is still closing its failed rung, so two runs of one
+task coexist. `manager/manager.ts`: `#releaseSlot`'s per-task high-water mark skipped every lease below
+the newest released epoch, so a revived run that finished first stranded the old rung's lease (and the
+handoff's) for good; a lease that is still held is now always released. `#closingRungs` records the
+closing rung's handle as well as its epoch, so steering hides and `#releaseSlotForTask` targets only
+that handle: an interrupt of the revived run aborts it and releases its own lease, not the old rung's.
+`forget()` releases a cancelled run's lease before it drops the live entry that names it. The next
+rung is refused before it takes a slot if the task moved while the old rung closed.
+`lifecycle/revive-rollback.ts`: a revival's rollback is fenced on the epoch it claimed, so a revival
+that lost to a later one no longer detaches the winner's run. `lifecycle/ttl.ts`: an expired record's
+own daemon session is closed before the record is tombstoned, and a close the daemon did not confirm
+keeps the record for the next sweep instead of deleting its only pointer to a session that is still
+open. Tests: `runtime-fallback-generation-races.test.ts` (the revived run completing, interrupted or
+cancelled before the old close resolves or rejects, at concurrency two; two racing revivals), and a
+retained-session TTL case in `fallback-closing-obligation.test.ts`.
+
 ## The closing rung's child is ended only on a confirmed close, by whoever owns the record next
 
 `lifecycle/host-session-default.ts`: `defaultHostSessionCloser` discarded `closeHostSession`'s

@@ -227,7 +227,7 @@ class TaskManagerImpl implements TaskManager {
   readonly #released = new Map<string, number>()
   // Epoch of a failed rung whose child is still closing under a handoff. Its record already names the
   // next epoch, so the lease the live handle holds is looked up here, not on the record.
-  readonly #closingRungs = new Map<string, number>()
+  readonly #closingRungs = new Map<string, { readonly epoch: number; readonly handle: ManagedChildHandle }>()
   readonly #waiters = new Map<string, TaskWaiter[]>()
   readonly #background = new Set<string>()
   readonly #evicting = new Set<string>()
@@ -268,7 +268,10 @@ class TaskManagerImpl implements TaskManager {
       isEvicting: (taskId) => this.isEvicting(taskId),
       // A rung that runtime fallback is closing is never steered, interrupted through, or revived: its
       // handle is being torn down, and the fallback path retires it once the close ends.
-      liveHandle: (taskId) => this.#closingRungs.has(taskId) ? undefined : this.#live.get(taskId)?.handle,
+      liveHandle: (taskId) => {
+        const handle = this.#live.get(taskId)?.handle
+        return handle !== undefined && this.#closingRungs.get(taskId)?.handle === handle ? undefined : handle
+      },
       dequeuePending: (taskId) => {
         const rec = this.#tryLoad(taskId)
         if (rec === null || rec === undefined) return false
@@ -650,6 +653,9 @@ class TaskManagerImpl implements TaskManager {
   }
 
   forget(taskId: string): void {
+    // A cancel tears the child down through here before its caller releases the slot, and the live
+    // entry that names the stopped run's lease is gone after this line.
+    if (this.#tryLoad(taskId)?.status === "cancelled") this.#releaseSlotForTask(taskId)
     // Eviction, suspension, and destruction all land here; each frees (or is about to free) a slot.
     this.#residency.notify(this.#tryLoad(taskId)?.parent_session_id)
     this.#live.get(taskId)?.unsubscribe()
@@ -1136,7 +1142,7 @@ class TaskManagerImpl implements TaskManager {
 
     // A rejection may carry any value, `undefined` included, so the outcome is tracked on its own.
     const teardown: { failed: boolean; error?: unknown } = { failed: false }
-    this.#closingRungs.set(input.taskId, input.epoch)
+    this.#closingRungs.set(input.taskId, { epoch: input.epoch, handle: input.handle })
     try {
       await (this.#options.destruction ?? NOOP_DESTRUCTION)
         .destroyResidentTask(input.taskId, "fallback_handoff")
@@ -1176,6 +1182,14 @@ class TaskManagerImpl implements TaskManager {
         ...(candidates.skipped.length === 0 ? {} : { skipped_models: candidates.skipped.map((model) => model.display) }),
       },
     })
+
+    // A stop, a lifecycle revival or another owner may have moved the task while the failed rung
+    // closed: the obsolete next rung is refused here, before it takes a slot.
+    const current = this.#tryLoad(input.taskId)
+    if (!ownsRun({ taskId: input.taskId, epoch: nextEpoch, owner: nextRecord.host_pid }, current)) {
+      this.#settleWaiters(input.taskId)
+      return true
+    }
 
     const nextSpec: ManagedStartSpec = {
       ...managedSpec,
@@ -1450,9 +1464,11 @@ class TaskManagerImpl implements TaskManager {
   #releaseSlot(taskId: string, model: string, epoch: number): void {
     // Release once per (task, epoch). A stale re-release of an already-released epoch is a no-op;
     // a revived task's higher epoch supersedes the prior one so its later release still counts.
+    // A lease an older run still holds is released even after a newer epoch was: runtime fallback can
+    // finish closing an old rung after a revived run has already completed.
     const released = this.#released.get(taskId)
-    if (released !== undefined && released >= epoch) return
-    this.#released.set(taskId, epoch)
+    if (released !== undefined && released >= epoch && this.#concurrency.leaseState(taskId, epoch) === undefined) return
+    this.#released.set(taskId, Math.max(released ?? epoch, epoch))
     this.#concurrency.releaseLease(taskId, epoch)
   }
 
@@ -1471,7 +1487,8 @@ class TaskManagerImpl implements TaskManager {
   #releaseSlotForTask(taskId: string): void {
     const live = this.#live.get(taskId)
     if (live === undefined) return
-    const epoch = this.#closingRungs.get(taskId) ?? this.#tryLoad(taskId)?.notification.run_epoch ?? 0
+    const closing = this.#closingRungs.get(taskId)
+    const epoch = closing?.handle === live.handle ? closing.epoch : this.#tryLoad(taskId)?.notification.run_epoch ?? 0
     this.#releaseSlot(taskId, live.model, epoch)
   }
 

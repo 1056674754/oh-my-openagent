@@ -82,6 +82,37 @@ describe("the failed rung's child as an obligation of the record", () => {
     })
   }
 
+  test("#given an expired record whose own daemon session is retained #when TTL's close is refused #then the record is kept until a later sweep closes the session", async () => {
+    // given
+    const f = await crashedHandoff("cancelled", { terminalAt: "2000-01-01T00:00:00.000Z" })
+    f.store.mutate(f.taskId, (record) => {
+      const { fallback_closing_child: _moved, fallback_handoff_epoch: _ended, ...rest } = record
+      return { ...rest, residency_state: "disposed", runner_kind: "host-session", host_session: f.closing.host_session }
+    })
+    // The production probe lists sessions without workers, so it is asked the path directly here.
+    const lifecycle = createTaskLifecycle({
+      ...f.deps,
+      config: { ...f.deps.config, ttl_ms: 1_000 },
+      hostSessionProbe: {
+        daemonAlive: async () => true,
+        sessionLive: async (session) => f.host.sessions().some((live) => live.sessionPath === session.session_path),
+        refresh: () => undefined,
+      },
+    })
+    f.host.failOpen({ code: "open_failed", detail: "controlled refusal" })
+
+    // when
+    const refused = await lifecycle.cleanupExpiredRecords()
+    f.host.failOpen(undefined)
+    const retried = await lifecycle.cleanupExpiredRecords()
+
+    // then
+    expect(refused.retained).toContain(f.taskId)
+    expect(retried.deleted).toContain(f.taskId)
+    expect(f.host.sessions()).toEqual([])
+    lifecycle.dispose?.()
+  })
+
   test("#given an expired terminal handoff whose close is refused #when TTL sweeps #then the record is kept until a later sweep closes the child", async () => {
     // given
     const f = await crashedHandoff("cancelled", { terminalAt: "2000-01-01T00:00:00.000Z" })

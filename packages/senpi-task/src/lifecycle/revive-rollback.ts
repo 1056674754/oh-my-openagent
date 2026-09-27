@@ -37,16 +37,20 @@ export function rollbackOrDeferred(
   taskId: string,
   residency: SuspendedResidency,
   successReason: ReconcileDeferredReason,
+  claimedEpoch?: number,
 ): ReconcileOutcome {
-  return rollbackClaim(context, taskId, residency)
+  return rollbackClaim(context, taskId, residency, claimedEpoch)
     ? deferred(taskId, successReason)
     : deferred(taskId, "rollback_failed")
 }
 
-function rollbackClaim(context: LifecycleContext, taskId: string, residency: SuspendedResidency): boolean {
+// Only the claim this revival took is rolled back: a newer run of the same process (another revival
+// that attached a later epoch) is left exactly as it is.
+function rollbackClaim(context: LifecycleContext, taskId: string, residency: SuspendedResidency, claimedEpoch: number | undefined): boolean {
   try {
     context.store.mutate(taskId, (fresh) => {
       if (fresh.host_pid !== context.hostPid || fresh.residency_state !== "resident") return fresh
+      if (claimedEpoch !== undefined && fresh.notification.run_epoch !== claimedEpoch) return fresh
       const { host_pid: _hostPid, ...withoutHost } = fresh
       if (residency === "rpc_detached") {
         return { ...withoutHost, residency_state: residency, updated_at: nowIso(context) }

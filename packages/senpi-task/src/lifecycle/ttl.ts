@@ -1,8 +1,10 @@
+import { log } from "@oh-my-opencode/utils"
+
 import type { TaskRecord } from "../state"
 import { TERMINAL_STATUSES, type LifecycleContext } from "./context"
 import { destroyResidentTask } from "./destroy"
 import { endClosingFallbackChild } from "./fallback-closing-child"
-import { isHostSessionRecord } from "./host-session"
+import { isHostSessionRecord, type HostSessionRecord } from "./host-session"
 import type { CleanupResult } from "./types"
 
 /**
@@ -50,6 +52,13 @@ export async function cleanupExpiredRecords(context: LifecycleContext): Promise<
       retained.push(record.task_id)
       continue
     }
+    // The same holds for the record's own daemon session: it is closed BEFORE the tombstone, and a
+    // close the daemon did not confirm keeps the record (and its only pointer to the session) for the
+    // next sweep instead of deleting it with the session still open.
+    if (isHostSessionRecord(record) && !(await closeExpiredSession(context, record))) {
+      retained.push(record.task_id)
+      continue
+    }
     // Phase 1: atomic re-validate + tombstone. A revival claim that landed after the scan is seen
     // by the locked re-read and the record is retained instead of deleted underneath its new owner.
     const outcome = context.store.tombstoneIfExpired(record.task_id, (fresh) => shouldRetain(context, fresh, cutoff))
@@ -60,11 +69,7 @@ export async function cleanupExpiredRecords(context: LifecycleContext): Promise<
     // The record is now committed to deletion. A live orphan must not outlive its record: destroy
     // it through the single-writer port BEFORE phase 2 artifact deletion (no-orphan law). A daemon
     // session that is still live is CLOSED; one the daemon already parked needs nothing at all.
-    if (isHostSessionRecord(outcome.record)) {
-      if (await context.hostSessionProbe.sessionLive(outcome.record.host_session)) {
-        await destroyResidentTask(context, record.task_id, "ttl", { record: outcome.record })
-      }
-    } else {
+    if (!isHostSessionRecord(outcome.record)) {
       const orphanPid = outcome.record.execution_mode === "process" ? outcome.record.pid : undefined
       if (orphanPid !== undefined && context.signaller.isAlive(orphanPid)) {
         await destroyResidentTask(context, record.task_id, "ttl", { pid: orphanPid })
@@ -77,6 +82,23 @@ export async function cleanupExpiredRecords(context: LifecycleContext): Promise<
     deleted.push(record.task_id)
   }
   return { deleted, retained }
+}
+
+async function closeExpiredSession(context: LifecycleContext, record: HostSessionRecord): Promise<boolean> {
+  if (!(await context.hostSessionProbe.sessionLive(record.host_session))) return true
+  const close = context.hostSessionClose
+  if (close === undefined) return false
+  try {
+    await close({ hostSession: record.host_session, ...(record.spawn_spec?.cwd === undefined ? {} : { cwd: record.spawn_spec.cwd }) })
+  } catch (error) {
+    log("senpi-task expired session close not confirmed; record kept", { taskId: record.task_id, error: String(error) })
+    return false
+  }
+  context.store.appendEvent(record.task_id, {
+    type: "host_session_closed",
+    payload: { session_path: record.host_session.session_path, socket: record.host_session.socket },
+  })
+  return true
 }
 
 function shouldRetain(context: LifecycleContext, record: TaskRecord, cutoff: number): boolean {
