@@ -74,4 +74,10 @@ export type TaskRecordStore = {
   // Task ids with a leftover <taskId>.json.expunging tombstone from a sweep that crashed between
   // the phases. Every TTL sweep completes phase 2 for these before doing anything else.
   readonly listExpunging: () => readonly string[]
+  // The record inside a tombstone, for a sweep that must end the record's child before phase 2.
+  readonly loadExpunging: (taskId: string) => TaskRecord | null
+  // Undo phase 1 (inside the record lock): a sweep that could not confirm the record's child is gone
+  // puts the record back, visible and claimable, instead of deleting its only pointer to that child.
+  // A no-op when the record was already restored or never tombstoned.
+  readonly restoreExpunging: (taskId: string) => void
 }

@@ -38,6 +38,34 @@ from `running`, so a cancel that landed first stands, and the next rung is not s
 be alive. The failed child gets its cleanup owner (above) before its slot is released and waiters settle. Tests: `runtime-fallback-launch-races.test.ts`,
 `launch-ownership-races.test.ts`.
 
+## A child is ended only while its owner holds it exclusively, and only on a confirmed close
+
+`lifecycle/ttl.ts`: an expired record's child (its daemon session, or its process) is now ended only
+after the record is tombstoned, while no revival can see or claim it. A close the daemon does not
+confirm puts the record back (`store.restoreExpunging`, new with `store.loadExpunging`) with its
+residency unchanged, so it stays revivable and the next sweep retries; crash recovery applies the same
+close-or-restore rule to tombstones a crashed sweep left behind. Closing before the tombstone let a
+`task_send` revival claim the task between the liveness probe and the close, and TTL then closed the
+session the revived run was using.
+
+`lifecycle/host-session-close.ts` (new) `closeHostSessionConfirmed` is the one confirmed close:
+refusals and a daemon that does not answer within `hostCloseTimeoutMs` (new lifecycle dep, 10s) count
+as unconfirmed. TTL, orphan destruction and the closing-child obligation use it.
+`lifecycle/destroy.ts`: a `fallback_handoff` teardown now also requires the failed rung's session to be
+confirmed closed. The live handle's own teardown is best-effort and bounded, so it resolved even when the
+daemon never acknowledged `close_session`, and the next model started beside the old session; the
+handoff now fails the task instead and the old session stays on the record.
+
+`lifecycle/residency.ts`: every residency claim writes a fresh `residency_claim` token.
+`revive-rollback.ts` `holdsClaim` fences rollback, `markLost` and the new `disposeClaimed` on it:
+reviving an interrupted or terminal task keeps its `run_epoch`, so the epoch alone let a failed revival
+undo another revival's successful claim on the same epoch.
+
+Tests: `revival-claim-fence.test.ts` (a failed scoped or `task_send` revival beside a same-epoch
+winner), `runtime-fallback-live-close.test.ts` (real `RpcHostRunner` over the fake daemon, close
+acknowledged or withheld), and a TTL-during-close case in `fallback-closing-obligation.test.ts`.
+`#8932` (on dev) already made the production liveness probe list worker sessions.
+
 ## Each generation of a task owns only its own lease, handle and claim while an old rung closes
 
 A reload can revive the task while runtime fallback is still closing its failed rung, so two runs of one

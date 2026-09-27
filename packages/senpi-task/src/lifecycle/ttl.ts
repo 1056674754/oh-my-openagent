@@ -1,10 +1,9 @@
-import { log } from "@oh-my-opencode/utils"
-
 import type { TaskRecord } from "../state"
 import { TERMINAL_STATUSES, type LifecycleContext } from "./context"
 import { destroyResidentTask } from "./destroy"
 import { endClosingFallbackChild } from "./fallback-closing-child"
-import { isHostSessionRecord, type HostSessionRecord } from "./host-session"
+import { isHostSessionRecord } from "./host-session"
+import { closeHostSessionConfirmed } from "./host-session-close"
 import type { CleanupResult } from "./types"
 
 /**
@@ -21,25 +20,34 @@ import type { CleanupResult } from "./types"
  * Every expunge is TWO PHASES around an atomic conditional tombstone (store.tombstoneIfExpired):
  * phase 1 (inside the record lock) re-reads + re-validates + renames the record to
  * <taskId>.json.expunging - the locked re-read is what closes the scan-then-delete claim race, and
- * the tombstone makes the record invisible so no claim can take it afterwards. Phase 2 (outside
- * the lock) deletes the children dir, spill, and log, then drops the tombstone. Every sweep FIRST
- * completes phase 2 for tombstones left behind by a crashed sweep: a tombstoned record is already
- * committed to deletion and is never resurrected, so completion is idempotent and lock-free.
+ * the tombstone makes the record invisible so no claim can take it afterwards. The record's child (its
+ * daemon session or process) is ended only while the tombstone holds that exclusive claim, and a
+ * close the daemon does not confirm puts the record back (restoreExpunging) for the next sweep
+ * instead of deleting its only pointer to a session that may still be open. Phase 2 (outside the
+ * lock) deletes the children dir, spill, and log, then drops the tombstone. Every sweep FIRST
+ * finishes the tombstones a crashed sweep left behind, under the same close-or-restore rule.
  */
 export async function cleanupExpiredRecords(context: LifecycleContext): Promise<CleanupResult> {
   const deleted: string[] = []
   const retained: string[] = []
 
+  // ONE daemon snapshot for the whole sweep: every host-session record below is matched against it
+  // by session path, never probed on its own.
+  context.hostSessionProbe.refresh()
+
   // Crash recovery before anything else: finish the interrupted expunges of a previous sweep.
   for (const taskId of context.store.listExpunging()) {
+    const pending = context.store.loadExpunging(taskId)
+    if (pending !== null && !(await endExpiredChild(context, pending))) {
+      context.store.restoreExpunging(taskId)
+      retained.push(taskId)
+      continue
+    }
     context.store.completeExpunge(taskId)
     context.kernelToolBindings?.release(taskId)
     deleted.push(taskId)
   }
 
-  // ONE daemon snapshot for the whole sweep: every host-session record below is matched against it
-  // by session path, never probed on its own.
-  context.hostSessionProbe.refresh()
   const cutoff = context.now() - context.config.ttl_ms
   for (const record of context.store.list().records) {
     if (shouldRetain(context, record, cutoff)) {
@@ -52,13 +60,6 @@ export async function cleanupExpiredRecords(context: LifecycleContext): Promise<
       retained.push(record.task_id)
       continue
     }
-    // The same holds for the record's own daemon session: it is closed BEFORE the tombstone, and a
-    // close the daemon did not confirm keeps the record (and its only pointer to the session) for the
-    // next sweep instead of deleting it with the session still open.
-    if (isHostSessionRecord(record) && !(await closeExpiredSession(context, record))) {
-      retained.push(record.task_id)
-      continue
-    }
     // Phase 1: atomic re-validate + tombstone. A revival claim that landed after the scan is seen
     // by the locked re-read and the record is retained instead of deleted underneath its new owner.
     const outcome = context.store.tombstoneIfExpired(record.task_id, (fresh) => shouldRetain(context, fresh, cutoff))
@@ -66,14 +67,12 @@ export async function cleanupExpiredRecords(context: LifecycleContext): Promise<
       retained.push(record.task_id)
       continue
     }
-    // The record is now committed to deletion. A live orphan must not outlive its record: destroy
-    // it through the single-writer port BEFORE phase 2 artifact deletion (no-orphan law). A daemon
-    // session that is still live is CLOSED; one the daemon already parked needs nothing at all.
-    if (!isHostSessionRecord(outcome.record)) {
-      const orphanPid = outcome.record.execution_mode === "process" ? outcome.record.pid : undefined
-      if (orphanPid !== undefined && context.signaller.isAlive(orphanPid)) {
-        await destroyResidentTask(context, record.task_id, "ttl", { pid: orphanPid })
-      }
+    // The record is now invisible to every claim. A live orphan must not outlive its record (no-orphan
+    // law): its child is ended BEFORE phase 2, and a close that is not confirmed restores the record.
+    if (!(await endExpiredChild(context, outcome.record))) {
+      context.store.restoreExpunging(record.task_id)
+      retained.push(record.task_id)
+      continue
     }
     // Phase 2: children dir, spill, log, then drop the tombstone. An expunged record can never be
     // revived, so its runtime parent kernel-tool binding goes with it.
@@ -84,20 +83,17 @@ export async function cleanupExpiredRecords(context: LifecycleContext): Promise<
   return { deleted, retained }
 }
 
-async function closeExpiredSession(context: LifecycleContext, record: HostSessionRecord): Promise<boolean> {
-  if (!(await context.hostSessionProbe.sessionLive(record.host_session))) return true
-  const close = context.hostSessionClose
-  if (close === undefined) return false
-  try {
-    await close({ hostSession: record.host_session, ...(record.spawn_spec?.cwd === undefined ? {} : { cwd: record.spawn_spec.cwd }) })
-  } catch (error) {
-    log("senpi-task expired session close not confirmed; record kept", { taskId: record.task_id, error: String(error) })
-    return false
+// A daemon session that is still live is closed and must be confirmed; one the daemon already parked or
+// dropped needs nothing. A live process is ended through the single-writer port.
+async function endExpiredChild(context: LifecycleContext, record: TaskRecord): Promise<boolean> {
+  if (isHostSessionRecord(record)) {
+    if (!(await context.hostSessionProbe.sessionLive(record.host_session))) return true
+    return closeHostSessionConfirmed(context, record.task_id, record.host_session, record.spawn_spec?.cwd)
   }
-  context.store.appendEvent(record.task_id, {
-    type: "host_session_closed",
-    payload: { session_path: record.host_session.session_path, socket: record.host_session.socket },
-  })
+  const orphanPid = record.execution_mode === "process" ? record.pid : undefined
+  if (orphanPid !== undefined && context.signaller.isAlive(orphanPid)) {
+    await destroyResidentTask(context, record.task_id, "ttl", { pid: orphanPid })
+  }
   return true
 }
 

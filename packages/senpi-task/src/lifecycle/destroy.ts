@@ -3,6 +3,7 @@ import { log } from "@oh-my-opencode/utils"
 import type { TaskRecord } from "../state"
 import { delay, nowIso, type LifecycleContext } from "./context"
 import { endClosingFallbackChild } from "./fallback-closing-child"
+import { closeHostSessionConfirmed } from "./host-session-close"
 import { isHostSessionRecord } from "./host-session"
 import type { DestroyCause, ResidentHandle } from "./port"
 
@@ -51,10 +52,19 @@ export async function destroyResidentTask(
       await terminateOrphan(context, taskId, orphan)
       if (cause === "revive_failure") recordRevivalFailure(context, taskId)
     }
+    // Runtime fallback starts the next model only once the failed rung's child is confirmed gone: the
+    // handle's own teardown is best-effort and bounded, so it cannot tell a refused close from a done one.
+    if (cause === "fallback_handoff") await confirmClosingChildGone(context, taskId)
     if (cause !== "fallback_handoff" && cause !== "revive_failure") recordResidency(context, taskId, cause)
   } finally {
     if (claimedEviction) context.registry.releaseEviction?.(taskId)
   }
+}
+
+async function confirmClosingChildGone(context: LifecycleContext, taskId: string): Promise<void> {
+  const record = context.store.load(taskId)
+  if (record === null || (await endClosingFallbackChild(context, record))) return
+  throw new Error("the failed model's child could not be confirmed closed")
 }
 
 // A host-session handle's terminate() IS `abort` then `close_session` (runners/rpc-host/handle.ts),
@@ -128,18 +138,8 @@ async function closeOrphanSession(
   hostSession: TaskRecord["host_session"] & {},
   cwd: string | undefined,
 ): Promise<void> {
-  const close = context.hostSessionClose
-  if (close === undefined) return
-  try {
-    await close({ hostSession, ...(cwd === undefined ? {} : { cwd }) })
-  } catch (error) {
-    log("senpi-task orphan session close rejected", { taskId, error: String(error) })
-    return
-  }
-  context.store.appendEvent(taskId, {
-    type: "host_session_closed",
-    payload: { session_path: hostSession.session_path, socket: hostSession.socket },
-  })
+  // An unconfirmed close leaves the session on the record, where the TTL sweep retries it.
+  await closeHostSessionConfirmed(context, taskId, hostSession, cwd)
 }
 
 function recordRevivalFailure(context: LifecycleContext, taskId: string): void {

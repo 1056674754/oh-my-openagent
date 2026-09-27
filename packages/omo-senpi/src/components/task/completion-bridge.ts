@@ -55,6 +55,8 @@ export function createCompletionObservingStore(backing: TaskRecordStore, deps: C
     tombstoneIfExpired: (taskId, shouldRetain) => backing.tombstoneIfExpired(taskId, shouldRetain),
     completeExpunge: (taskId) => backing.completeExpunge(taskId),
     listExpunging: () => backing.listExpunging(),
+    loadExpunging: (taskId) => backing.loadExpunging(taskId),
+    restoreExpunging: (taskId) => backing.restoreExpunging(taskId),
   }
 }
 

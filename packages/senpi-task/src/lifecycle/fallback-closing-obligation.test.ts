@@ -113,6 +113,40 @@ describe("the failed rung's child as an obligation of the record", () => {
     lifecycle.dispose?.()
   })
 
+  test("#given TTL is closing an expired record's session #when a revival looks for the task meanwhile #then it cannot claim it, and a refused close hands the record back revivable", async () => {
+    // given
+    const f = await crashedHandoff("cancelled", { terminalAt: "2000-01-01T00:00:00.000Z" })
+    f.store.mutate(f.taskId, (record) => {
+      const { fallback_closing_child: _moved, fallback_handoff_epoch: _ended, ...rest } = record
+      return { ...rest, residency_state: "rpc_detached", runner_kind: "host-session", host_session: f.closing.host_session }
+    })
+    const closing = Promise.withResolvers<void>()
+    const refuse = Promise.withResolvers<void>()
+    const lifecycle = createTaskLifecycle({
+      ...f.deps,
+      config: { ...f.deps.config, ttl_ms: 1_000 },
+      hostSessionProbe: { daemonAlive: async () => true, sessionLive: async () => true, refresh: () => undefined },
+      hostSessionClose: async () => {
+        closing.resolve()
+        await refuse.promise
+        throw new Error("close refused")
+      },
+    })
+
+    // when
+    const sweep = lifecycle.cleanupExpiredRecords()
+    await closing.promise
+    const duringClose = f.store.load(f.taskId)
+    refuse.resolve()
+    const result = await sweep
+
+    // then
+    expect(duringClose).toBeNull()
+    expect(result.retained).toContain(f.taskId)
+    expect(f.store.load(f.taskId)).toMatchObject({ residency_state: "rpc_detached", host_session: f.closing.host_session })
+    lifecycle.dispose?.()
+  })
+
   test("#given an expired terminal handoff whose close is refused #when TTL sweeps #then the record is kept until a later sweep closes the child", async () => {
     // given
     const f = await crashedHandoff("cancelled", { terminalAt: "2000-01-01T00:00:00.000Z" })

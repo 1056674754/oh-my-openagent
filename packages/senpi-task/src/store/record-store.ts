@@ -1,4 +1,5 @@
 import {
+  existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -130,6 +131,19 @@ export function createTaskRecordStore(config: StateDirConfig, options: TaskRecor
       // invisible to load/list, never resurrected - so this is idempotent and needs no lock.
       removeRecord(stateDir, parsedTaskId, cache, appendFds)
       rmSync(tombstonePath(stateDir, parsedTaskId), { force: true })
+    },
+    loadExpunging(taskId) {
+      return readRecord(tombstonePath(stateDir, parseTaskId(taskId)))
+    },
+    restoreExpunging(taskId) {
+      const parsedTaskId = parseTaskId(taskId)
+      const path = taskPath(stateDir, parsedTaskId)
+      withTaskRecordLock(path, () => {
+        const tombstone = tombstonePath(stateDir, parsedTaskId)
+        if (!existsSync(tombstone) || existsSync(path)) return
+        renameSync(tombstone, path)
+        cache.delete(path)
+      })
     },
     listExpunging() {
       const tasksDir = join(stateDir, "tasks")
