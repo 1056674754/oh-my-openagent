@@ -35,7 +35,10 @@ at open is the only check the own endpoint gets), parks the revival `host_incomp
 closed with its own reason, instead of reopening the retained session in a child process. A lost transport re-ensures only the recorded socket: an incompatible answer parks the
 child `host_incompatible` (never reopened elsewhere), and the session's own endpoint
 (`readOwnHostSocket(pi)`, `isOwnEndpoint`) is re-opened but never ensured - silent, the child parks
-`own_host_unreachable`. `manager/manager-outcome.ts` parks the record (`rpc_detached` + the reason) when
+`own_host_unreachable`. `isOwnEndpoint` canonicalises both sockets the way the host stamps `host_socket`
+(senpi #2245: the directory through its deepest existing ancestor, the missing tail re-appended), so a
+shard whose `rpc/shards/` does not exist yet still matches across `/tmp` vs `/private/tmp` spellings.
+`manager/manager-outcome.ts` parks the record (`rpc_detached` + the reason) when
 the child parks itself; a host-driven park is unchanged.
 
 `lifecycle/host-endpoint-reach.ts` (new): revival (`reviveClaimed`, `reconcileHostSessionOrphan`,
@@ -51,7 +54,8 @@ Audit: `host_session.daemon_pid` has no reader outside the record parser round-t
 the PARENT `host_pid`. No single-daemon reader needed changing.
 
 Tests: `rpc-host-endpoint.test.ts`, `lifecycle/host-session-endpoint.test.ts`,
-`manager/host-session-park.test.ts`, `rpc-host/daemon-shard.test.ts`, `rpc-host/store-index.test.ts`.
+`manager/host-session-park.test.ts`, `rpc-host/daemon-shard.test.ts`, `rpc-host/store-index.test.ts`,
+`rpc-host/own-endpoint.test.ts`.
 
 ## A TTL tombstone belongs to the sweep that wrote it until that sweep's close settles
 

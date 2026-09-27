@@ -1,5 +1,5 @@
-import { realpathSync } from "node:fs"
-import { basename, dirname, join } from "node:path"
+import { existsSync, realpathSync } from "node:fs"
+import { basename, dirname, join, resolve } from "node:path"
 
 import { readSessionContext } from "./session-role"
 
@@ -20,10 +20,25 @@ export function isOwnEndpoint(socket: string, ownHostSocket: string | undefined)
   return ownHostSocket !== undefined && canonicalSocketPath(socket) === canonicalSocketPath(ownHostSocket)
 }
 
+// The rule the host stamps `host_socket` with (senpi #2245): the directory canonicalised through
+// its deepest EXISTING ancestor, the missing tail re-appended verbatim, then the socket's basename -
+// so a shard whose `rpc/shards/` does not exist yet still compares equal across `/tmp` spellings.
 function canonicalSocketPath(socket: string): string {
+  return join(canonicalDirectory(dirname(resolve(socket))), basename(socket))
+}
+
+function canonicalDirectory(directory: string): string {
+  const missing: string[] = []
+  let existing = directory
+  while (!existsSync(existing)) {
+    const parent = dirname(existing)
+    if (parent === existing) return directory
+    missing.unshift(basename(existing))
+    existing = parent
+  }
   try {
-    return join(realpathSync(dirname(socket)), basename(socket))
+    return join(realpathSync(existing), ...missing)
   } catch {
-    return socket
+    return directory
   }
 }
