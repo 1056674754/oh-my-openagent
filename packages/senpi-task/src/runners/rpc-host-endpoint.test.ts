@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { chmodSync, readFileSync, writeFileSync } from "node:fs"
-import { join, resolve } from "node:path"
+import { chmodSync, readFileSync, symlinkSync, writeFileSync } from "node:fs"
+import { basename, join, resolve } from "node:path"
 
 import { RunnerError } from "./in-process/runner-error"
 import { isHostSessionHandle } from "./rpc-host"
@@ -308,9 +308,57 @@ describe("transport recovery reattaches ONLY on the recorded socket", () => {
     expect(handle.exitOutcome()).toBeUndefined()
     expect(notices).toEqual([`host_unavailable:host_incompatible ${recorded.socket}`])
   })
+
+  test("#given a child whose store index turns unreadable #when its transport is lost #then the reattach parks store_index_unavailable before any ensure or reopen", async () => {
+    // given
+    const host = await fakeHost()
+    const agentDir = tempDir("dh-t7-agent-")
+    const recorded = shardEndpoint(host, "00000000000000c6")
+    const ensure = ensureRecorder()
+    const runner = runnerOver(host, {
+      ...NO_WAIT,
+      agentDir,
+      storeDir: "/p1/.omo/senpi-task",
+      ensureDaemon: ensure.ensure,
+      shardResolver: () => recorded.resolution(),
+    })
+    const handle = await runner.start(childSpec())
+    writeFileSync(taskStoreIndexPath(agentDir), "{not json")
+    const parked = parkedOnce(handle)
+
+    // when
+    host.cutConnections()
+
+    // then
+    expect(await parked).toMatchObject({ reason: "store_index_unavailable" })
+    expect(ensure.inputs.map((input) => input.socket)).toEqual([recorded.socket])
+    expect(openCount(host.commands)).toBe(1)
+  })
 })
 
 describe("the session's OWN endpoint is never ensured from inside it", () => {
+  test("#given the session's own socket spelled through a symlinked directory #when a child starts there #then it is recognised as the own endpoint and never ensured", async () => {
+    // given
+    const host = await fakeHost()
+    const own = shardEndpoint(host, "00000000000000d3")
+    const alias = join(tempDir("dh-t7-alias-"), "shards")
+    symlinkSync(own.dir, alias)
+    const ensure = ensureRecorder()
+    const runner = runnerOver(host, {
+      ensureDaemon: ensure.ensure,
+      shardResolver: () => own.resolution(),
+      ownHostSocket: () => join(alias, basename(own.socket)),
+    })
+
+    // when
+    const handle = await runner.start(childSpec())
+
+    // then
+    expect(ensure.inputs).toEqual([])
+    expect(openCount(host.commands)).toBe(1)
+    await handle.terminate()
+  })
+
   test("#given a child session spawning on its own shard #when it starts and its host restarts #then it opens and reopens there with zero ensures", async () => {
     // given
     const host = await fakeHost()
