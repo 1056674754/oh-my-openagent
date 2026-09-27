@@ -1,3 +1,13 @@
+## One revival selector: `selectRevivalBatch`
+
+`lifecycle/revival-selection.ts` (new, exported as `selectRevivalBatch` / `RevivalSelection`) is the ONE
+definition of which suspended children a resumed session revives and in what order: parent match,
+`persisted_only` / `rpc_detached`, `pending` / `running` / `interrupted`, not killed; non-terminal first,
+then most recently updated, tie-break task id; `residency_max_children` minus current residents
+("unlimited" / 0 unbounded). `admitSuspendedBatch` (`residency.ts`) and the scoped revival
+(`reconcile-revival.ts`) now use it instead of their own copies, and omo's host pre-warm asks it which
+hosts the reconcile will actually need. No behavior change in the lifecycle.
+
 ## Every task child opens on its parent session's own host; the shared-host route is gone
 
 `runners/rpc-host.ts` + `rpc-host/child-endpoint.ts`: `RpcHostRunnerOptions.shardResolver`, `storeDir`,

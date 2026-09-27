@@ -14,6 +14,10 @@ chain; POSIX `task.process_runner: host` only, fire-and-forget, at most once per
   does nothing beyond the revival pre-warm. The gate's memoization is unchanged, and a failed ensure
   surfaces as the gate's `host_unavailable:*` notice, never as a turn error.
 
+The revival pre-warm warms only the hosts of the children the reconcile's admission batch will revive
+(senpi-task `selectRevivalBatch`, `residency_max_children` included): with a cap of 1 and three suspended
+children on three shards it boots one host, not three.
+
 `engine-host-wiring.ts` (new, pure move): the host runtime, the lifecycle and the runner context
 that reach a task host are composed there instead of in `engine.ts`.
 

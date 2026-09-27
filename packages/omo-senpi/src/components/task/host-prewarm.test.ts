@@ -33,6 +33,7 @@ function world(input: {
   // The shard basename this session itself runs behind (a child opened inside that host).
   readonly ownShard?: string
   readonly resumeChildren?: boolean
+  readonly residencyMaxChildren?: number
   readonly ensure?: "answer" | "reject"
 }) {
   const root = mkdtempSync("/tmp/omo-t9-")
@@ -45,6 +46,7 @@ function world(input: {
     process_runner: input.processRunner ?? "host",
     host_shard_prewarm: input.prewarm,
     ...(input.resumeChildren === undefined ? {} : { resume_children: input.resumeChildren }),
+    ...(input.residencyMaxChildren === undefined ? {} : { residency_max_children: input.residencyMaxChildren }),
   })
   const runtime = new TaskRuntimeContext(root)
   const ensures: EnsureTaskDaemonInput[] = []
@@ -271,6 +273,40 @@ describe("revival pre-warm ensures the recorded hosts of suspended host-session 
 
     // then
     expect(sockets(w.ensures)).toEqual([pA, w.legacy])
+  })
+
+  test("#given residency_max_children 1 and three suspended children on three shards #when session_start fires #then only the host the reconcile will revive is warmed", async () => {
+    // given
+    const w = world({ prewarm: "off", residencyMaxChildren: 1 })
+    const [pA, pB, pC] = ["p-aaaaaaaaaaaaaaaa", "p-bbbbbbbbbbbbbbbb", "p-cccccccccccccccc"].map(w.shard)
+    w.records.push(
+      suspendedChild("root-1", pA, { updated_at: "2026-09-27T10:00:00.000Z" }),
+      suspendedChild("root-1", pB, { updated_at: "2026-09-27T12:00:00.000Z" }),
+      suspendedChild("root-1", pC, { updated_at: "2026-09-27T11:00:00.000Z" }),
+    )
+
+    // when
+    await w.sessionStart("root-1")
+
+    // then
+    expect(sockets(w.ensures)).toEqual([pB])
+  })
+
+  test("#given residency_max_children 2 with one child already resident #when session_start fires #then only one more host is warmed", async () => {
+    // given
+    const w = world({ prewarm: "off", residencyMaxChildren: 2 })
+    const [pA, pB, pC] = ["p-aaaaaaaaaaaaaaaa", "p-bbbbbbbbbbbbbbbb", "p-cccccccccccccccc"].map(w.shard)
+    w.records.push(
+      suspendedChild("root-1", pA, { residency_state: "resident" }),
+      suspendedChild("root-1", pB, { status: "interrupted", updated_at: "2026-09-27T12:00:00.000Z" }),
+      suspendedChild("root-1", pC, { status: "pending", updated_at: "2026-09-27T09:00:00.000Z" }),
+    )
+
+    // when
+    await w.sessionStart("root-1")
+
+    // then: a non-terminal child outranks a more recent terminal one, as in the reconcile
+    expect(sockets(w.ensures)).toEqual([pC])
   })
 
   test("#given resume_children off #when session_start fires #then no recorded host is warmed", async () => {

@@ -1,4 +1,6 @@
 export { createTaskLifecycle } from "./create"
+export { selectRevivalBatch } from "./revival-selection"
+export type { RevivalSelection } from "./revival-selection"
 export { AgentLimitReached } from "./errors"
 export type { ResidentSummary } from "./errors"
 export { createHostSessionProbe, DEFAULT_HOST_SESSION_RETRY_POLICY, isHostSessionRecord, NO_HOST_ENDPOINT } from "./host-session"
