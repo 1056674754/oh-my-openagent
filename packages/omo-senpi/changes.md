@@ -119,25 +119,14 @@ is registered). Live proof: `scripts/qa/kibitzer-sidecar-e2e.mjs --scenario cate
 drives the real senpi binary with only `omo-mock` connected and the recall category on its builtin chain:
 3 refusals, 1 unavailable notice naming the chain's providers, 0 gate entries, 0 child turns, lease released. omo#8811.
 
-||||||| 60cfa1a41
-
 ## model-profile: GLM rungs pick engine `zai` / `zai-coding-cn` (#8827)
 
 `components/model-profile/builtin-profiles.ts`: `GLM_PROVIDERS` is `zai`, `zai-coding-cn`, `opencode-go` instead of OpenCode's `zai-coding-plan`, so Recommended (ranked providers only) and Daily · Normal select an imported `zai` key for `glm-5.3`. `kimi-for-coding` stays next to engine `kimi-coding` because the senpi-task category chains keep that leftover OpenCode id. `model-vocabulary.ts` adds `zai` / `zai-coding-cn` so shipped rungs still export; `zai-coding-plan` remains for older sessions. New `chain-provider-ids.test.ts` loads the pinned engine `builtinProviders()` the same way `packages/omo-native/test/provider-map-registry.test.ts` does and asserts every builtin-profile and senpi-task category-chain provider id is an engine id or an allow-listed alias. omo#8824.
-
-||||||| cb5ea3272
-
-||||||| e1693d8b4
-
-||||||| f9843a842
 
 ## extension: component info logs are silent unless OMO_DEBUG is set
 
 `src/extension/compose.ts` `defaultLogger.info` no longer writes to stderr unless `OMO_DEBUG` is set. `warn`/`error` unchanged; stdout still unused (#8564). Call sites such as ulw-loop skip and model-profile selection stay as `logger.info`; the model-profile user sentence already goes through `pi.sendMessage`. `compose.test.ts` covers silent-by-default, printed-with-switch, warn-always, nothing on stdout. omo#8819.
 
-||||||| cb5ea3272
-
-||||||| e1693d8b4
 ## memory: the system prompt keeps its memory block for the whole session (#8470)
 
 The memory block is compiled once per session at the memory HEAD of its first turn and persisted as an `omo-memory:projection-pin` entry; later memory commits reach the model as a `<memory_notice>` line instead of rewriting the system prompt, so they no longer invalidate the prompt cache. Compaction, `/recompile`, and a vanished pinned commit repin; new and forked sessions pin fresh.
@@ -147,7 +136,6 @@ The memory block is compiled once per session at the memory HEAD of its first tu
 
 Written because the old wording produced the bug it was meant to prevent: the lane moved a GLOBAL server into the PROJECT `.mcp.json`, and the next session outside that project saw nothing. Implementation detail lives in `packages/omo-native/changes.md`.
 
-||||||| da3ba4f48
 ## skills: the hyperplan restart hint names the brand command
 
 `skills/hyperplan/SKILL.md` told the user to "Restart senpi without `--no-omo-task`". On OmO
@@ -174,7 +162,6 @@ environment carries the `OMO_NATIVE=1` / `OMO_BIN` markers the skill tells the a
 `senpi --list-tips` under a plain senpi install, with `"$OMO_BIN" --list-tips` as the fallback
 when `omo` itself is not on PATH (bunx/npx launches).
 
-||||||| 530692bc0
 ## model-profile: Geeky · Normal runs gpt-5.6-sol medium (#8807)
 
 `src/components/model-profile/builtin-profiles.ts`: `geeky-normal` is one rung, `gpt-5.6-sol` at `medium` on `chatgpt-subscription`, `openai`, `github-copilot`, `opencode` (the shared `GPT_PROVIDERS` ranking), replacing `gpt-6-sol-fast` then `gpt-6-sol`. There is no GPT-6 fallback rung, so a registry serving only GPT-6 Sol reports the lane unavailable.

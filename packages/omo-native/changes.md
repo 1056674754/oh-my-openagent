@@ -68,10 +68,6 @@ After #8799 and #8803, custom providers were the one hand-configured OpenCode as
 
 `bin/lib/setup-import.js` `runSetup` (every setup stage lands there), `bin/lib/setup-models.js` (the report rewrite lane).
 
-||||||| 0009632c6
-
-||||||| 2a04ce61b
-
 ## 2026-09-24 - omo doctor reports the OpenCode-edition migration leftovers (#8831)
 
 `omo doctor` said nothing about the machine it had just been migrated from: an `omo` earlier on PATH than omo-ai's, the legacy `oh-my-openagent` / `oh-my-opencode` package still installed globally (the one whose `npm uninstall -g` can take omo-ai's `omo` with it, #8793), and the OpenCode plugin still registered in the OpenCode config. `packages/omo-native/bin/lib/doctor-migration.js` is new and adds three report-only checks, printed right after the `INFO Update:` line; `doctor.js` only imports and calls it.
@@ -82,7 +78,6 @@ After #8799 and #8803, custom providers were the one hand-configured OpenCode as
 
 Nothing is deleted or rewritten. `runDoctor` options gain `env` / `homeDir` / `platform`, following the existing `env` injection, so `test/doctor-migration.test.ts` runs every check against fixture trees and never reads the real PATH or home.
 
-||||||| 07452eda9
 ## 2026-09-24 - omo update runs the detected package-manager command (#8830)
 
 ### What changed
