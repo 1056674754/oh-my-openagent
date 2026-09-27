@@ -6,20 +6,26 @@ the `model_unavailable` walk (`#advanceStartFallback`, whose epoch advance is no
 runtime-fallback launch. A cancel, interrupt or another owner that landed during the start used to let the late child
 subscribe and stay resident on the stopped task (an interrupted primary launch, a runtime-fallback launch), or let the
 walk rewrite a cancelled record onto the next model. A stale child is discarded instead: this run's own cancel still
-tears it down through the destruction port, any other stale child is discarded directly, and neither is ever made
-resident. `manager/manager-reattach.ts` likewise refuses a respawned child whose running task ended while it respawned.
+tears it down through the destruction port, any other stale child is discarded directly, and neither is attached to
+the task (only a child whose cleanup rejects is kept, as below). `manager/manager-reattach.ts` likewise refuses a respawned child whose running task ended while it respawned.
 
-A child whose cleanup rejects may still be alive, so it is not forgotten: its pid or daemon session is written back
-onto its terminal record (epoch-fenced) and the destruction port is asked to end it as an orphan (`reconcile_lost`,
-added to `steering/types.ts` `DestructionCause`), which signals the pid or closes the session now and again at TTL.
+A child whose cleanup rejects may still be alive, so it keeps a cleanup owner on the record its run ended (epoch-fenced;
+a newer run's record is never touched, a `child_cleanup_failed` event is appended instead). A child reachable from
+outside this process has its pid or daemon session written back and is ended by the destruction port's orphan path
+(`reconcile_lost`, added to `steering/types.ts` `DestructionCause`). An in-process child has neither, so it stays
+resident on that record (`mark_resident` when a cancel had already disposed it), where LRU eviction, idle reclaim and
+session shutdown retry its teardown.
+
+`lifecycle/destroy.ts` `terminateOrphan`: a pid the orphan path has handled - signalled, or already dead - is now
+cleared from the record (fenced on the same pid). It used to stay on the disposed record, so after the OS reused the
+number the TTL sweep could signal an unrelated process. Test: `lifecycle/orphan-pid-consumed.test.ts`.
 
 `#tryRuntimeFallback`: a rejected `destroyResidentTask(..., "fallback_handoff")` (any rejection value, `undefined`
 included) no longer escapes before cleanup or strands the task `running` behind this owner's pid fence. One fenced
-write restores the failed rung's identity and clears the handoff marker while this owner still holds that handoff, the
-task then fails ("Runtime fallback could not close the failed model's child (...); <next> was not started.", event
-`task_fallback_teardown_failed`) only from `running`, so a cancel that landed first stands, and the next rung is not
-started beside a child that may still be alive. The live mapping and slot are released after that write, waiters
-settle, and the failed child goes to the orphan path. Tests: `runtime-fallback-launch-races.test.ts`,
+write clears the handoff marker while this owner still holds that handoff; the task then fails ("Runtime fallback
+could not close the failed model's child (...); <next> was not started.", event `task_fallback_teardown_failed`) only
+from `running`, so a cancel that landed first stands, and the next rung is not started beside a child that may still
+be alive. The failed child gets its cleanup owner (above) before its slot is released and waiters settle. Tests: `runtime-fallback-launch-races.test.ts`,
 `launch-ownership-races.test.ts`.
 
 ## Runtime fallback forgets the closed rung's daemon session before the next one opens
