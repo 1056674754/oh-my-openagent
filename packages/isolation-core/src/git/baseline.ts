@@ -3,6 +3,7 @@ import { join, relative, sep } from "node:path"
 import { exists, runGit } from "./command"
 
 export const ISOLATION_BASELINE_MAX_CONTENT_BYTES = 1024 * 1024 * 1024
+const BASELINE_GIT_TIMEOUT_MS = 20_000
 export class IsolationBaselineTooLargeError extends Error {
   constructor(readonly repoRoot: string, readonly contentBytes: number | undefined, readonly budgetBytes = ISOLATION_BASELINE_MAX_CONTENT_BYTES) {
     super(`Working tree at ${repoRoot} exceeds the ${budgetBytes}-byte isolation snapshot budget. Commit or gitignore bulk content before isolation.`)
@@ -23,7 +24,7 @@ export interface WorktreeBaseline {
 }
 
 export async function discoverNestedRepos(repoRoot: string): Promise<string[]> {
-  const status = (await runGit(["submodule", "status"], { cwd: repoRoot })).stdout.toString()
+  const status = (await runGit(["submodule", "status"], { cwd: repoRoot, timeoutMs: BASELINE_GIT_TIMEOUT_MS })).stdout.toString()
   const submodules = new Set(status.split("\n").filter(Boolean).map(line => line.slice(42).replace(/ \([^\n]*\)$/, "")))
   const result: string[] = []
   const walk = async (dir: string): Promise<void> => {
@@ -45,12 +46,15 @@ export async function captureRepoBaseline(repoRoot: string, budgetBytes = ISOLAT
   const capture = async (args: string[], allowedExitCodes?: number[]): Promise<string> => {
     const { stdout } = await runGit(args, {
       cwd: repoRoot, allowedExitCodes, maxOutputBytes: remaining,
+      timeoutMs: BASELINE_GIT_TIMEOUT_MS,
       outputLimitError: () => new IsolationBaselineTooLargeError(repoRoot, undefined, budgetBytes),
     })
     remaining -= stdout.byteLength
     return stdout.toString()
   }
-  const head = await runGit(["rev-parse", "--verify", "--quiet", "HEAD"], { cwd: repoRoot, allowedExitCodes: [0, 1] })
+  const head = await runGit(["rev-parse", "--verify", "--quiet", "HEAD"], {
+    cwd: repoRoot, allowedExitCodes: [0, 1], timeoutMs: BASELINE_GIT_TIMEOUT_MS,
+  })
   const headCommit = head.stdout.toString().trim()
   const diffArgs = ["diff", "--binary", "--no-ext-diff", "--no-textconv", "--ignore-submodules=all"]
   const staged = await capture([...diffArgs, "--cached"])
