@@ -25,12 +25,24 @@ export function ownsRun(run: LaunchRun, fresh: TaskRecord | null | undefined): f
  * cancel, an interrupt or another owner that moved the task meanwhile keeps its own outcome, and a
  * stale attempt never terminalizes a newer run. Returns whether the failure was applied.
  */
-export function failOwnedRun(store: TaskRecordStore, run: LaunchRun, timestamp: string, errorMessage: string): boolean {
+export type OwnedRunFailure = {
+  readonly errorMessage: string
+  readonly failureKind?: TaskRecord["failure_kind"]
+  readonly failureReason?: TaskRecord["failure_reason"]
+}
+
+export function failOwnedRun(store: TaskRecordStore, run: LaunchRun, timestamp: string, failure: OwnedRunFailure): boolean {
   let audit: TaskTransitionAudit | undefined
   let applied = false
   store.mutate(run.taskId, (fresh) => {
     if (!isSameRun(run, fresh) || isTerminalRecord(fresh)) return fresh
-    const result = transitionTaskRecord(fresh, { type: "fail", timestamp, error_message: errorMessage })
+    const result = transitionTaskRecord(fresh, {
+      type: "fail",
+      timestamp,
+      error_message: failure.errorMessage,
+      ...(failure.failureKind === undefined ? {} : { failure_kind: failure.failureKind }),
+      ...(failure.failureReason === undefined ? {} : { failure_reason: failure.failureReason }),
+    })
     audit = result.audit
     applied = result.applied
     return result.applied ? result.record : fresh

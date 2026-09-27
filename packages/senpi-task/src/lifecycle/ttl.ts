@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto"
 
+import { log } from "@oh-my-opencode/utils"
+
 import type { TaskRecord } from "../state"
 import type { ExpungeOwner } from "../store"
 import { TERMINAL_STATUSES, type LifecycleContext } from "./context"
@@ -53,8 +55,11 @@ export async function cleanupExpiredRecords(context: LifecycleContext): Promise<
     if (previous !== undefined && isLiveAttempt(context, previous)) continue
     if (!context.store.takeOverExpunging(taskId, previous, owner)) continue
     handled.add(taskId)
-    const pending = context.store.loadExpunging(taskId)
-    await finishExpunge(context, taskId, pending === null ? true : await endOwnedChild(context, taskId, pending, owner), owner, { deleted, retained })
+    // Only a daemon session is safely identifiable after a crash: a process pid in an arbitrarily old
+    // tombstone may have been reused, and the sweep that wrote it already ended its process.
+    const pending = loadTombstone(context, taskId)
+    const ended = pending !== null && isHostSessionRecord(pending) ? await endOwnedChild(context, taskId, pending, owner) : true
+    await finishExpunge(context, taskId, ended, owner, { deleted, retained })
   }
 
   const cutoff = context.now() - context.config.ttl_ms
@@ -129,6 +134,19 @@ async function endOwnedChild(context: LifecycleContext, taskId: string, record: 
   } catch (error) {
     context.store.restoreExpunging(taskId, owner)
     throw error
+  }
+}
+
+// An unreadable tombstone names no child anyone could still end, so phase 2 still runs for it.
+function loadTombstone(context: LifecycleContext, taskId: string): TaskRecord | null {
+  try {
+    return context.store.loadExpunging(taskId)
+  } catch (error) {
+    log("senpi-task ignored an unreadable TTL tombstone during expunge recovery", {
+      taskId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return null
   }
 }
 

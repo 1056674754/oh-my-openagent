@@ -8,7 +8,6 @@ import type { DagTaskOwner, DagTaskOwnerKey, OwnedStartResult } from "../dag/own
 import { endFallbackHandoff, forgetClosedChild, handOffToNextRung, isFallbackHandoff } from "../lifecycle/fallback-handoff"
 import { registerLifecycleReattachPorts, type ReattachResult, type RespawnResult } from "../lifecycle/port"
 import { RunnerError } from "../runners/in-process/runner-error"
-import type { RunnerFailureReason } from "../runners/in-process/child-handle"
 import { RpcProcessRunner } from "../runners/rpc-process"
 import type { RpcChildHandle, RpcRunnerSpec } from "../runners/types"
 import { createTaskRecord, isSpawnSpecV1, parseTaskId, syncTaskIdFloor } from "../state"
@@ -70,6 +69,7 @@ import type {
   TaskManager,
   TaskManagerOptions,
 } from "./types"
+import { describeStartFailure } from "./start-failure"
 
 type PreparedIsolation = Extract<IsolationPreparation, { readonly ok: true }>
 
@@ -108,6 +108,7 @@ type LaunchOutcome =
     readonly ok: false
     readonly error: string
     readonly failure_kind?: Extract<StartResult, { kind: "start_failed" }>["failure_kind"]
+    readonly failure_reason?: Extract<StartResult, { kind: "start_failed" }>["failure_reason"]
   }
 
 type ReattachingTaskManager = TaskManager & {
@@ -119,27 +120,6 @@ type ReattachingTaskManager = TaskManager & {
 }
 
 const NOOP_DESTRUCTION: DestructionPort = { destroyResidentTask: () => Promise.resolve() }
-const GENERIC_START_FAILURE_MESSAGE = "Task runner failed to start."
-const MODEL_UNAVAILABLE_MESSAGE = "The task child cannot serve this model."
-
-// Parent-authored sentences keyed by the closed `RunnerFailureReason`. The reason is only ever used
-// as a lookup key here, so an off-enum value degrades to the classification sentence and can never
-// be echoed - which is what keeps this actionable without reopening the free-text leak the
-// collapsing above exists to prevent.
-const MODEL_UNAVAILABLE_MESSAGES: Readonly<Record<RunnerFailureReason, string>> = {
-  model_not_in_child_profile:
-    "The task child cannot serve this model: its provider is not present in the child profile.",
-  catalog_probe_timed_out:
-    "The task child could not confirm this model in time: its model catalog probe timed out.",
-  catalog_probe_failed: "The task child cannot serve this model: its model catalog probe failed.",
-}
-
-function knownFailureReason(reason: unknown): RunnerFailureReason | undefined {
-  return typeof reason === "string" && Object.hasOwn(MODEL_UNAVAILABLE_MESSAGES, reason)
-    ? (reason as RunnerFailureReason)
-    : undefined
-}
-
 function ownerLockPath(stateDir: string, owner: DagTaskOwnerKey): string {
   const ownerKey = `${owner.kind}\0${owner.runId}\0${owner.nodeId}`
   const digest = createHash("sha256").update(ownerKey).digest("hex")
@@ -148,57 +128,6 @@ function ownerLockPath(stateDir: string, owner: DagTaskOwnerKey): string {
   return join(ownerDir, digest)
 }
 
-/**
- * The safe, structured slice of a start failure for the internal event log.
- *
- * `publicStartFailureMessage` reduces every failure to one fixed sentence, pinned by
- * start-failure-security.test.ts, because `RunnerFailure.message` is stderr-derived untrusted child
- * output and `store/redaction.ts` only redacts by KEY name - a free-text value carrying a credential
- * would be persisted verbatim. So the message stays collapsed, and only these closed enums and
- * numbers are recorded. `rejected_while` is captured by RpcProcessRunner BEFORE cleanup: `alive`
- * means the command rejected while the child was live, while `exited` means the child had already
- * supplied the real exit outcome. That ordering prevents cleanup's kill from being misreported as
- * the rejection cause.
- */
-function startFailureFacts(error: unknown): Record<string, unknown> | undefined {
-  if (!RunnerError.is(error)) return undefined
-  const { kind, rejected_while: rejectedWhile, exit } = error.failure
-  const reason = knownFailureReason(error.failure.reason)
-  return {
-    failure_kind: kind,
-    ...(reason === undefined ? {} : { failure_reason: reason }),
-    ...(rejectedWhile === undefined ? {} : { rejected_while: rejectedWhile }),
-    ...(exit === undefined
-      ? {}
-      : { exit_kind: exit.kind, exit_code: exit.code, exit_signal: exit.signal }),
-  }
-}
-
-function publicStartFailureMessage(error: unknown): string {
-  try {
-    if (!RunnerError.is(error)) return GENERIC_START_FAILURE_MESSAGE
-    switch (error.failure.kind) {
-      case "depth-exceeded":
-        return "In-process child depth limit exceeded."
-      case "session-create-failed":
-        return "In-process child session creation failed."
-      case "child-prompt-failed":
-        return "Child prompt failed to start."
-      case "tools_unavailable":
-        // Sanitized but typed: the caller must be able to tell a refused parent kernel-tool grant
-        // from a generic runner failure without reading private spec details.
-        return "Parent kernel tools are unavailable for this child."
-      case "model_unavailable": {
-        const reason = knownFailureReason(error.failure.reason)
-        return reason === undefined ? MODEL_UNAVAILABLE_MESSAGE : MODEL_UNAVAILABLE_MESSAGES[reason]
-      }
-      default:
-        return GENERIC_START_FAILURE_MESSAGE
-    }
-  } catch {
-    return GENERIC_START_FAILURE_MESSAGE
-  }
-}
 
 // allow: SIZE_OK - one stateful manager keeps concurrency, queue, live-handle, and waiter invariants in one closure-backed implementation.
 class TaskManagerImpl implements TaskManager {
@@ -538,6 +467,7 @@ class TaskManagerImpl implements TaskManager {
           run_in_background: spec.run_in_background === true,
           error_message: launched.error,
           ...(launched.failure_kind === undefined ? {} : { failure_kind: launched.failure_kind }),
+          ...(launched.failure_reason === undefined ? {} : { failure_reason: launched.failure_reason }),
         }
       }
       return {
@@ -658,6 +588,9 @@ class TaskManagerImpl implements TaskManager {
     if (this.#tryLoad(taskId)?.status === "cancelled") this.#releaseSlotForTask(taskId)
     // Eviction, suspension, and destruction all land here; each frees (or is about to free) a slot.
     this.#residency.notify(this.#tryLoad(taskId)?.parent_session_id)
+    // The outcome tracker stops settling a handle once it is forgotten, so a run suspended here
+    // never reaches its own release: free its lane now or every suspension leaks a slot (#8973).
+    this.#releaseSlotForTask(taskId)
     this.#live.get(taskId)?.unsubscribe()
     this.#live.delete(taskId)
     const subscribers = this.#childSubscribers.get(taskId)
@@ -844,17 +777,22 @@ class TaskManagerImpl implements TaskManager {
           context = advanced.context
           continue
         }
-        const message = publicStartFailureMessage(error)
+        const failure = describeStartFailure(error)
         this.#releaseSlot(record.task_id, model, record.notification.run_epoch)
-        if (failOwnedRun(this.#options.store, launchRunOf(record), nowIso(this.#now), message)) {
+        if (failOwnedRun(this.#options.store, launchRunOf(record), nowIso(this.#now), failure)) {
           this.#options.store.appendEvent(record.task_id, {
             type: "task_start_failed",
-            payload: { error_message: message, ...startFailureFacts(error) },
+            payload: { error_message: failure.errorMessage, ...failure.eventFacts },
           })
           this.#steering.dropPending(record.task_id)
         }
         this.#settleWaiters(record.task_id)
-        return { ok: false, error: message, ...(RunnerError.is(error) ? { failure_kind: error.failure.kind } : {}) }
+        return {
+          ok: false,
+          error: failure.errorMessage,
+          ...(failure.failureKind === undefined ? {} : { failure_kind: failure.failureKind }),
+          ...(failure.failureReason === undefined ? {} : { failure_reason: failure.failureReason }),
+        }
       }
     }
 
@@ -932,13 +870,14 @@ class TaskManagerImpl implements TaskManager {
       return nextRecord
     })
     if (!advanced) return { kind: "stale" }
+    const failure = describeStartFailure(error)
     this.#options.store.appendEvent(record.task_id, {
       type: "task_model_fallback",
       payload: {
         from_model: record.model,
         to_model: nextModel.display,
-        error_message: publicStartFailureMessage(error),
-        ...startFailureFacts(error),
+        error_message: failure.errorMessage,
+        ...failure.eventFacts,
       },
     })
 
@@ -1349,7 +1288,7 @@ class TaskManagerImpl implements TaskManager {
     // this launch waited (for the old rung's close, or for capacity) must not get a child started.
     if (!this.#ownsLaunch(context, this.#tryLoad(context.record.task_id))) {
       this.#releaseSlot(context.record.task_id, context.model, context.record.notification.run_epoch)
-      failOwnedRun(this.#options.store, launchRunOf(context.record), nowIso(this.#now), "Runtime fallback launch aborted before the child could start.")
+      failOwnedRun(this.#options.store, launchRunOf(context.record), nowIso(this.#now), { errorMessage: "Runtime fallback launch aborted before the child could start." })
       this.#settleWaiters(context.record.task_id)
       return
     }
@@ -1367,7 +1306,7 @@ class TaskManagerImpl implements TaskManager {
         }
         return
       }
-      const message = publicStartFailureMessage(error)
+      const failure = describeStartFailure(error)
       this.#releaseSlot(
         context.record.task_id,
         context.model,
@@ -1375,10 +1314,10 @@ class TaskManagerImpl implements TaskManager {
       )
       // The primary launch path records this breadcrumb; a fallback launch that dies must not be the
       // one failure that leaves the event log with no cause at all. A stale attempt records nothing.
-      if (failOwnedRun(this.#options.store, launchRunOf(context.record), nowIso(this.#now), message)) {
+      if (failOwnedRun(this.#options.store, launchRunOf(context.record), nowIso(this.#now), failure)) {
         this.#options.store.appendEvent(context.record.task_id, {
           type: "task_start_failed",
-          payload: { error_message: message, ...startFailureFacts(error) },
+          payload: { error_message: failure.errorMessage, ...failure.eventFacts },
         })
       }
       this.#settleWaiters(context.record.task_id)
