@@ -1098,14 +1098,26 @@ class TaskManagerImpl implements TaskManager {
     // Committed BEFORE the failed rung's teardown can yield: while the daemon closes that session, a
     // reconciler must already see a handoff owned by this live pid, never a vanished session it could
     // reclaim as an orphan (the 2026-09-26 `omo -p` hang). Fenced on this outcome's epoch and owner.
-    const handoff: { record?: TaskRecord; closed?: ChildIdentity } = {}
+    const handoff: { record?: TaskRecord; closed?: ChildIdentity; stopped?: boolean } = {}
     this.#options.store.mutate(input.taskId, (fresh) => {
       if (fresh.notification.run_epoch !== input.epoch || fresh.host_pid !== record.host_pid) return fresh
+      // A cancel or interrupt that landed first stands: its own teardown ends the failed rung.
+      if (fresh.status !== "running") {
+        handoff.stopped = true
+        return fresh
+      }
       handoff.closed = childIdentityOf(fresh)
       handoff.record = handOffToNextRung(fresh, { model: nextModel, remaining: candidates.remaining.slice(1), timestamp: input.timestamp })
       return handoff.record
     })
     const nextRecord = handoff.record
+    if (handoff.stopped === true) {
+      // The stop is this run's terminal and its own teardown ends the child; the stop may already have
+      // forgotten the live entry, so this run's lease and waiters are settled here, not by the caller.
+      this.#releaseSlot(input.taskId, input.model, input.epoch)
+      this.#settleWaiters(input.taskId)
+      return true
+    }
     if (nextRecord === undefined) {
       this.#retireLostRun(input.taskId, live, input.epoch)
       return false
