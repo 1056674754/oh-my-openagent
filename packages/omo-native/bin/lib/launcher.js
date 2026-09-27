@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process"
-import { existsSync } from "node:fs"
-import { delimiter, join } from "node:path"
+import { existsSync, realpathSync } from "node:fs"
+import { delimiter, isAbsolute, join, relative, sep } from "node:path"
 import { spawnNode } from "./child-process.js"
 import { doctorCoverageLines } from "./category-coverage.js"
 import { runDaemonCommand } from "./daemon.js"
@@ -78,10 +78,35 @@ function engineVersion() {
   }
 }
 
+function canonicalPath(path) {
+  try {
+    return realpathSync.native(path)
+  } catch {
+    return path
+  }
+}
+
+function containsPath(root, target) {
+  const rel = relative(canonicalPath(root), canonicalPath(target))
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
+}
+
+// A compiled omo session exports its own payload as the brand-scoped package dir, and every shell it
+// spawns inherits that. The engine reads these names before the legacy PI_PACKAGE_DIR, so a release
+// omo started from such a shell would run on the foreign payload. A deliberate relocation names this
+// install's engine and survives; a root that does not contain the engine belongs to another install.
+function dropForeignPackageDirs(env, senpiRoot) {
+  for (const name of ["OMO_PACKAGE_DIR", "SENPI_PACKAGE_DIR"]) {
+    const root = env[name]
+    if (root && !containsPath(root, senpiRoot)) delete env[name]
+  }
+}
+
 function senpiEnvironment(senpiRoot) {
   const env = { ...process.env }
   delete env.OMO_BIN
   delete env.SENPI_BIN
+  dropForeignPackageDirs(env, senpiRoot)
   // One directory for every surface. The legacy name travels too, so a bare senpi spawned by a
   // tool inherits the same state instead of falling back to its own home.
   const agentDir = canonicalAgentDir(env)
