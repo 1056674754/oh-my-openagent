@@ -64,6 +64,11 @@ export function parsePlanChecklist(markdown: string): PlanChecklist {
   return structuredPlan.checklist
 }
 
+/** Whether `line` is a top-level task row the structured parser counts inside `section`. */
+export function isStructuredTaskRow(line: string, section: "todo" | "final-wave"): boolean {
+  return parseStructuredTopLevelCheckbox(line, section) !== null
+}
+
 export function parseCurrentTopLevelTask(markdown: string): TopLevelTaskRef | null {
   const lines = markdown.split(/\r?\n/)
   if (!hasStructuredSection(lines)) {
