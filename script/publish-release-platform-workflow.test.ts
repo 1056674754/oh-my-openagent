@@ -12,28 +12,10 @@ import { z } from "zod"
 import { DESKTOP_ENGINE_RELEASE_HOSTS, desktopEngineReleaseAssetName } from "../packages/senpi-desktop-engine/src/release-assets"
 import { PLATFORMS } from "./build-binaries"
 import { DESKTOP_ENGINE_TARGETS } from "./release-desktop-engine-target"
+import { runBlock, sliceWorkflowSection } from "./release-workflow-test-steps"
 
 const publishWorkflowPath = new URL("../.github/workflows/publish.yml", import.meta.url)
 const publishPlatformWorkflowPath = new URL("../.github/workflows/publish-platform.yml", import.meta.url)
-
-function sliceWorkflowSection(workflow: string, startMarker: string, endMarker: string): string {
-  const start = workflow.indexOf(startMarker)
-  const end = workflow.indexOf(endMarker, start)
-  if (start < 0 || end < 0 || end <= start) {
-    throw new Error(`missing workflow section between ${startMarker} and ${endMarker}`)
-  }
-  return workflow.slice(start, end)
-}
-
-function runBlock(workflow: string, startMarker: string, endMarker: string): string {
-  const section = sliceWorkflowSection(workflow, startMarker, endMarker)
-  const run = section.indexOf("        run: |\n")
-  if (run < 0) throw new Error(`missing run block in ${startMarker}`)
-  return section.slice(run + "        run: |\n".length)
-    .split("\n")
-    .map((line) => line.startsWith("          ") ? line.slice(10) : line)
-    .join("\n")
-}
 
 describe("release and platform publish workflows", () => {
   test("enumerates windows-arm64 consistently across every platform-list surface", () => {
