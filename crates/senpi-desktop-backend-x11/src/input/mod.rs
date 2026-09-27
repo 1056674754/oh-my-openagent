@@ -5,6 +5,7 @@
 //! `BackgroundUnavailable`, never retried in the foreground.
 
 mod connection;
+mod connection_events;
 mod focus;
 mod held;
 mod keys;
@@ -85,9 +86,10 @@ impl<S: InputServer> X11Input<S> {
     /// As [`Self::pointer`], plus `InvalidKey` for a character the keymap
     /// cannot type (checked before any key is sent).
     pub fn type_text(&mut self, target: &Target, text: &str, mode: DeliveryMode) -> CoreResult<()> {
+        let keymap = self.server.keymap()?;
         let strokes = text
             .chars()
-            .map(|ch| self.server.keymap().strokes(KeyName::Char(ch)))
+            .map(|ch| keymap.strokes(KeyName::Char(ch)))
             .collect::<CoreResult<Vec<_>>>()?;
         self.deliver_keys(target, mode, "text", |this, route| {
             strokes.iter().try_for_each(|chord| this.chord(route, chord))
@@ -97,9 +99,10 @@ impl<S: InputServer> X11Input<S> {
     /// # Errors
     /// As [`Self::type_text`].
     pub fn key_chord(&mut self, target: &Target, keys: &[KeyName], mode: DeliveryMode) -> CoreResult<()> {
+        let keymap = self.server.keymap()?;
         let mut strokes = Vec::with_capacity(keys.len());
         for &key in keys {
-            strokes.extend(self.server.keymap().strokes(key)?);
+            strokes.extend(keymap.strokes(key)?);
         }
         self.deliver_keys(target, mode, "key", |this, route| this.chord(route, &strokes))
     }

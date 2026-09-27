@@ -95,9 +95,10 @@ impl<S: InputServer> X11Input<S> {
         modifiers: Modifiers,
         body: impl FnOnce(&mut Self) -> CoreResult<()>,
     ) -> CoreResult<()> {
+        let keymap = self.server.keymap()?;
         let strokes = modifier_keys(modifiers)
             .into_iter()
-            .map(|key| self.server.keymap().stroke(key))
+            .map(|key| keymap.stroke(key))
             .collect::<CoreResult<Vec<Stroke>>>()?;
         let mut pressed = Vec::with_capacity(strokes.len());
         let mut result = Ok(());

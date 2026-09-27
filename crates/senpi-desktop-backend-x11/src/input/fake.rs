@@ -52,18 +52,23 @@ pub enum Call {
     Fake(FakeInput),
     Send(Window, SentEvent),
     Activate(Window),
+    Focus(Window),
     Warp(i16, i16),
 }
 
 pub struct FakeInputServer {
     pub calls: RefCell<Vec<Call>>,
     pub active: Cell<Option<Window>>,
+    pub focus: Cell<Window>,
     pub pointer: Cell<(i16, i16)>,
+    pub focus_after_input: Cell<Option<Window>>,
+    activate_updates_active: Cell<bool>,
     classes: HashMap<Window, Vec<u8>>,
     origins: HashMap<Window, (i16, i16)>,
     /// A child window covering the whole of its parent (the widget a toolkit
     /// dispatches to), keyed by parent.
     children: HashMap<Window, Window>,
+    parents: HashMap<Window, Window>,
     keymap: Keymap,
     /// The 0-based index of the input request (fake/send) that fails.
     pub fail_at: Cell<Option<usize>>,
@@ -76,10 +81,14 @@ impl FakeInputServer {
         Self {
             calls: RefCell::default(),
             active: Cell::new(active),
+            focus: Cell::new(active.unwrap_or(ROOT)),
             pointer: Cell::new((0, 0)),
+            focus_after_input: Cell::new(None),
+            activate_updates_active: Cell::new(true),
             classes: HashMap::new(),
             origins: HashMap::new(),
             children: HashMap::new(),
+            parents: HashMap::new(),
             keymap: keymap(),
             fail_at: Cell::new(None),
             inputs: Cell::new(0),
@@ -98,6 +107,7 @@ impl FakeInputServer {
         let origin = self.origins.get(&parent).copied().unwrap_or((0, 0));
         self.origins.insert(child, origin);
         self.children.insert(parent, child);
+        self.parents.insert(child, parent);
         self
     }
 
@@ -105,11 +115,23 @@ impl FakeInputServer {
         self.calls.borrow().clone()
     }
 
+    pub fn without_ewmh_activation(self) -> Self {
+        self.activate_updates_active.set(false);
+        self
+    }
+
     fn input(&self, call: Call) -> CoreResult<()> {
         let index = self.inputs.get();
         self.inputs.set(index + 1);
         if self.fail_at.get() == Some(index) {
             return Err(DesktopError::input_failed("injected failure"));
+        }
+        if let Call::Fake(FakeInput::Motion { x, y }) = call {
+            self.pointer.set((x, y));
+        }
+        if let Some(window) = self.focus_after_input.get() {
+            self.active.set(Some(window));
+            self.focus.set(window);
         }
         self.calls.borrow_mut().push(call);
         Ok(())
@@ -121,8 +143,8 @@ impl InputServer for FakeInputServer {
         ROOT
     }
 
-    fn keymap(&self) -> &Keymap {
-        &self.keymap
+    fn keymap(&self) -> CoreResult<Keymap> {
+        Ok(self.keymap.clone())
     }
 
     fn fake(&self, input: FakeInput) -> CoreResult<()> {
@@ -162,8 +184,25 @@ impl InputServer for FakeInputServer {
 
     fn activate(&self, window: Window) -> CoreResult<()> {
         self.calls.borrow_mut().push(Call::Activate(window));
-        self.active.set(Some(window));
+        if self.activate_updates_active.get() {
+            self.active.set(Some(window));
+            self.focus.set(window);
+        }
         Ok(())
+    }
+
+    fn focus_window(&self) -> CoreResult<Window> {
+        Ok(self.focus.get())
+    }
+
+    fn set_focus(&self, window: Window) -> CoreResult<()> {
+        self.calls.borrow_mut().push(Call::Focus(window));
+        self.focus.set(window);
+        Ok(())
+    }
+
+    fn parent(&self, window: Window) -> CoreResult<Option<Window>> {
+        Ok(self.parents.get(&window).copied())
     }
 
     fn wm_class(&self, window: Window) -> Option<Vec<u8>> {
