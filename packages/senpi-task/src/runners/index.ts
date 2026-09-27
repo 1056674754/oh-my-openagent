@@ -35,8 +35,8 @@ export {
   TASK_HOST_SOCKET_ENV_NAMES,
 } from "./rpc-host/daemon"
 export type { EnsuredTaskDaemon, EnsureTaskDaemonInput, HostUnavailableReason } from "./rpc-host/daemon"
-export { readMemberSessionIdentity, readSessionContext, readSessionRole, SESSION_ROLES } from "./rpc-host/session-role"
-export type { MemberSessionIdentity, SessionRole } from "./rpc-host/session-role"
+export { readMemberSessionIdentity, readSessionAncestry, readSessionContext, readSessionRole, SESSION_ROLES } from "./rpc-host/session-role"
+export type { MemberSessionIdentity, SessionAncestry, SessionRole } from "./rpc-host/session-role"
 export type {
   CreateHostSessionChannel,
   EnsureTaskDaemonPort,
