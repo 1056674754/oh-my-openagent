@@ -78,6 +78,7 @@ export function parseTaskRecord(value: unknown, path: string, warnings?: string[
   validateHostSessionConsistency(runnerKind, hostSession)
   const fallbackHandoffEpoch = readOptionalNumber(value, "fallback_handoff_epoch")
   const closingChild = parseOptionalClosingChild(value)
+  const residencyClaim = readOptionalString(value, "residency_claim")
 
   return {
     task_id: parseTaskId(readString(value, "task_id")),
@@ -131,6 +132,7 @@ export function parseTaskRecord(value: unknown, path: string, warnings?: string[
     ...(hostSession === undefined ? {} : { host_session: hostSession }),
     ...(fallbackHandoffEpoch === undefined ? {} : { fallback_handoff_epoch: fallbackHandoffEpoch }),
     ...(closingChild === undefined ? {} : { fallback_closing_child: closingChild }),
+    ...(residencyClaim === undefined ? {} : { residency_claim: residencyClaim }),
   }
 }
 

@@ -307,6 +307,10 @@ export type TaskRecord = TaskRecordInput & {
   // The failed rung's child while that handoff closes it, kept apart from the task's own pid/session so
   // no reconciler reads it as the live child; a revival of a handoff whose owner died ends it first.
   readonly fallback_closing_child?: { readonly pid?: number; readonly host_session?: HostSessionIdentity }
+  // Identity of the residency claim that made this record resident, written by every claim. A revival
+  // that fails rolls back only its own claim: two revivals of an interrupted or terminal task share one
+  // run_epoch, so the epoch alone cannot tell the loser's claim from the winner's.
+  readonly residency_claim?: string
 }
 
 export type TaskTransition =
