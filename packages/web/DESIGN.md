@@ -165,11 +165,11 @@ All primitives live in `components/ui/*` (existing shadcn shells re-tokened) or 
 
 ### MorphStage (`components/landing/crafted/morph-stage.tsx`)
 
-- The crafted section's demonstration: one `--ink-1` cell with the dot grid. Inside it, one shape never cuts. Four 1px `--line-strong` edges and an `--ink-2` fill morph between the seven crafted states. Content swaps in the shape's center.
+- The crafted section's demonstration: one `--ink-1` cell with the dot grid. Inside it, one shape never cuts. Four 1px `--line-strong` edges and an `--ink-2` fill morph between the eight crafted states. Content swaps in the shape's center.
 - Geometry is a pure function of a virtual clock (`lib/morph-spring.ts`). Every edge is a sum of closed-form spring steps, one per target change, so a retarget mid-flight never snaps. The edge that grows in the direction of travel rides `--spring-lead` and the edge that follows rides `--spring-trail`, so the shape stretches before it settles.
 - Only transforms change per frame (translate + scaleX/scaleY on the edges and fill, translate on content and cursor). There is no `will-change`; text is never scaled.
 - Content swap: the outgoing scene leaves in `--dur-swap-out` with no blur, and the incoming one enters after 60ms over `--dur-swap-in` from `blur(--swap-blur) scale(.94)`. Separate enter and exit timing keeps text from overlapping.
-- Live moment: `monitor` (build finished) and `reload` (config applied) turn the fill `--accent-8` and the edges `--accent-32`. Cyan appears only when something woke or was applied.
+- Live moment: `monitor` (build finished), `reload` (config applied) and `computer` (a click landed in a native app while the reader's focus stayed put) turn the fill `--accent-8` and the edges `--accent-32`. Cyan appears only when something woke, was applied, or was done.
 - A scripted cursor (`--text-hi` arrow, `--ink-0` stroke) travels to the next state on a softer spring (ω 7.5, ζ .92), presses (scale .86 for 140ms), and the stage advances. Each state holds 2.8s.
 - The list beside it (`crafted-list`) is the control. Hover (mouse only), focus, or click on an item moves the stage there, hides the scripted cursor, and holds for 6s before autoplay resumes. The active item gets `aria-current`, an `--accent-4` wash and an `--accent` dot that springs to full size.
 - The clock advances only while the stage is ≥20% on screen and the tab is visible. Reduced motion: no frame loop and no cursor; the stage jumps to the selected state and shows its live moment statically.
