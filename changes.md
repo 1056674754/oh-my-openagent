@@ -1,3 +1,7 @@
+## 2026-09-28 - macOS foreground input lands in the target window (#9008)
+
+`delivery: "foreground"` clicks and keys on macOS used to report success while the target app ignored them. The engine fronted the process through SkyLight (`_SLPSSetFrontProcessWithOptions`), which makes it front to WindowServer and AX but leaves the app inactive in AppKit, so every click was consumed as an activation click. Foreground delivery now activates the app through accessibility (`AXFrontmost`) and AppKit, waits for `NSRunningApplication.isActive`, and waits until the target window is the app's focused main window. Only then does it post input. If the app never becomes active, nothing is posted and the call fails with `InputFailed`. The previous front app is still restored through SkyLight and AppKit.
+
 ## 2026-09-28 - macOS QA checks both canary policies (#8893)
 
 The live macOS harness (`script/qa/desktop/macos.ts`) gains a `canary-off` scenario next to `canary`. Both drive the packaged OmO component through a real Senpi session and make two background inputs to TextEdit. `canary` runs `computer.macos_canary: "session"` and expects exactly one canary dialog; `canary-off` runs `"off"` and expects none. Both inputs must succeed in each case. The dialog count comes from the harness's independent System Events observer, not from the engine, so the pair would fail if the observer missed a dialog or if the policy were ignored.
