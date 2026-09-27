@@ -50,6 +50,7 @@ rebuilding the plugin, not by hand.
 | --- | --- | --- |
 | `task.host_engine_policy` | `upgrade` (default) · `fallback` · `never` | what `run` may do when a host from another build already serves the socket |
 | `task.host_idle_exit_ms` | milliseconds | the daemon exits after this long with no sessions |
+| `task.host_shard_prewarm` | `off` (default) · `first-turn` · `session-start` | when to warm this session's derived task host; resumed sessions with suspended host children always warm their recorded hosts |
 | `task.default_execution_mode` | `auto` · `in-process` · `process` | see *Execution mode* below |
 | `task.process_runner` | `host` · `child-process` | which runner a `process` child gets |
 

@@ -915,6 +915,15 @@
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
         },
+        "host_shard_prewarm": {
+          "default": "off",
+          "type": "string",
+          "enum": [
+            "off",
+            "first-turn",
+            "session-start"
+          ]
+        },
         "default_concurrency": {
           "default": 5,
           "type": "integer",
@@ -1145,6 +1154,7 @@
         "default_execution_mode",
         "process_runner",
         "host_engine_policy",
+        "host_shard_prewarm",
         "default_concurrency",
         "global_concurrency",
         "max_depth",
@@ -13092,6 +13102,14 @@
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
             },
+            "host_shard_prewarm": {
+              "type": "string",
+              "enum": [
+                "off",
+                "first-turn",
+                "session-start"
+              ]
+            },
             "default_concurrency": {
               "type": "integer",
               "minimum": 0,
@@ -15101,6 +15119,14 @@
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
             },
+            "host_shard_prewarm": {
+              "type": "string",
+              "enum": [
+                "off",
+                "first-turn",
+                "session-start"
+              ]
+            },
             "default_concurrency": {
               "type": "integer",
               "minimum": 0,
@@ -17109,6 +17135,14 @@
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
+            },
+            "host_shard_prewarm": {
+              "type": "string",
+              "enum": [
+                "off",
+                "first-turn",
+                "session-start"
+              ]
             },
             "default_concurrency": {
               "type": "integer",
@@ -19124,6 +19158,14 @@
                 "type": "integer",
                 "exclusiveMinimum": 0,
                 "maximum": 9007199254740991
+              },
+              "host_shard_prewarm": {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "first-turn",
+                  "session-start"
+                ]
               },
               "default_concurrency": {
                 "type": "integer",
@@ -31035,6 +31077,14 @@
                     "exclusiveMinimum": 0,
                     "maximum": 9007199254740991
                   },
+                  "host_shard_prewarm": {
+                    "type": "string",
+                    "enum": [
+                      "off",
+                      "first-turn",
+                      "session-start"
+                    ]
+                  },
                   "default_concurrency": {
                     "type": "integer",
                     "minimum": 0,
@@ -33044,6 +33094,14 @@
                     "exclusiveMinimum": 0,
                     "maximum": 9007199254740991
                   },
+                  "host_shard_prewarm": {
+                    "type": "string",
+                    "enum": [
+                      "off",
+                      "first-turn",
+                      "session-start"
+                    ]
+                  },
                   "default_concurrency": {
                     "type": "integer",
                     "minimum": 0,
@@ -35052,6 +35110,14 @@
                     "type": "integer",
                     "exclusiveMinimum": 0,
                     "maximum": 9007199254740991
+                  },
+                  "host_shard_prewarm": {
+                    "type": "string",
+                    "enum": [
+                      "off",
+                      "first-turn",
+                      "session-start"
+                    ]
                   },
                   "default_concurrency": {
                     "type": "integer",
