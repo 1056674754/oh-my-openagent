@@ -119,7 +119,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
       case "exit":
         return settleExit(classified.outcome)
       case "parked":
-        return park({ sessionId: session.routingId, sessionPath: session.sessionPath })
+        return park({ sessionId: session.routingId, sessionPath: session.sessionPath, reason: classified.cause })
       default:
         return unreachable(classified)
     }

@@ -43,13 +43,19 @@ export type HostSessionCommand =
   | { readonly type: "followUp"; readonly message: string }
   | { readonly type: "abort" }
 
-/** Why a child parked itself instead of reattaching; absent when the HOST parked the session. */
+/** Why a child parked itself instead of reattaching. */
 export type HostParkReason = "host_incompatible" | "own_host_unreachable" | "store_index_unavailable"
+
+/**
+ * Why the HOST parked a session it holds: its idle sweep (`idle_evicted`; a retained session announces
+ * that park as `session_parked`) or a generation handoff that put the session back on disk.
+ */
+export type HostParkCause = "handoff_parked" | "idle_evicted"
 
 export interface HostSessionParked {
   readonly sessionId: string
   readonly sessionPath: string
-  readonly reason?: HostParkReason
+  readonly reason: HostParkReason | HostParkCause
 }
 
 export interface HostSessionClosed {
@@ -240,7 +246,7 @@ export class HostSessionClient {
       case "session_parked": {
         const sessionId = this.routingId ?? control.sessionId
         this.routingId = undefined
-        for (const listener of this.parkedListeners) listener({ sessionId, sessionPath: control.sessionPath })
+        for (const listener of this.parkedListeners) listener({ sessionId, sessionPath: control.sessionPath, reason: "idle_evicted" })
         return
       }
       case "session_closed": {
