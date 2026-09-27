@@ -12,8 +12,8 @@ import { createRpcManagedRunner } from "../../../manager/runner"
 import type { StartResult } from "../../../manager/types"
 import type { TaskRecord } from "../../../state"
 import { createTaskRecordStore, type TaskRecordStore } from "../../../store"
-import { isHostSessionHandle, RpcHostRunner } from "../../rpc-host"
-import type { RpcChildHandle, RpcRunnerSpec } from "../../types"
+import { RpcHostRunner } from "../../rpc-host"
+import type { RpcRunnerSpec } from "../../types"
 import { closeHostSession } from "../close"
 import { HostSessionClient } from "../session-client"
 import { startFakeHost, type FakeHost, type FakeHostOptions } from "./fake-host"
@@ -158,27 +158,8 @@ function connectParent(input: ConnectParentInput): ParentSession {
     },
     ...(input.options.useFallback === true ? { fallback } : {}),
   })
-  // The record fields a started child leaves behind. Production stamps them when the omo-senpi
-  // component owns the runner (plan todo 34); until then the suite writes exactly what that wiring
-  // will, so the lifecycle branches under test see a real host-session record.
-  const launch = {
-    start: async (spec: RpcRunnerSpec): Promise<RpcChildHandle> => {
-      const handle = await runner.start(spec)
-      if (isHostSessionHandle(handle)) {
-        store.mutate(spec.task_id, (fresh) => ({
-          ...fresh,
-          runner_kind: "host-session",
-          host_session: {
-            socket: handle.hostSession.socket,
-            routing_id: handle.hostSession.routingId,
-            session_path: handle.hostSession.sessionPath,
-            instance_id: handle.hostSession.instanceId,
-          },
-        }))
-      }
-      return handle
-    },
-  }
+  // The manager stamps a started or reattached child's host session itself, exactly as production.
+  const launch = runner
   const manager = createTaskManager({
     store,
     config,

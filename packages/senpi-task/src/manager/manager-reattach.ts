@@ -4,7 +4,7 @@ import type { ReattachResult } from "../lifecycle/port"
 import type { TaskRecord } from "../state"
 import type { TaskRecordStore } from "../store"
 import { discardManagedHandle, releaseSupersededHandle, type ManagedChildHandle } from "./child-handle"
-import { isTerminalRecord, nowIso, recordSpawnedRunner } from "./manager-helpers"
+import { childIdentityOf, hasChildIdentity, isTerminalRecord, nowIso, recordSpawnedRunner } from "./manager-helpers"
 
 /**
  * A handle rejected because someone else owns the task now. A revived daemon child reattaches to the
@@ -62,14 +62,13 @@ export async function reattachManagedTask(input: {
     unsubscribe = input.attachLive(fresh, input.handle)
     attached = true
     if (isTerminalRecord(fresh)) {
-      const pid = input.handle.pid
+      // The result stays, but the child now lives behind THIS handle: a daemon session reopened on a
+      // newer generation answers under a new instance and routing id, so its identity is restamped.
+      const identity = childIdentityOf(input.handle)
       const sessionId = input.handle.sessionId
-      if (pid !== undefined || (sessionId !== undefined && sessionId.length > 0)) {
-        input.store.mutate(fresh.task_id, (current) => ({
-          ...current,
-          ...(pid === undefined ? {} : { pid }),
-          ...(sessionId === undefined || sessionId.length === 0 ? {} : { child_session_id: sessionId }),
-        }))
+      const childSession = sessionId === undefined || sessionId.length === 0 ? {} : { child_session_id: sessionId }
+      if (hasChildIdentity(identity) || childSession.child_session_id !== undefined) {
+        input.store.mutate(fresh.task_id, (current) => ({ ...current, ...identity, ...childSession }))
       }
       return { ok: true }
     }

@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test"
 
 import type { SuspensionReason, TaskRecord, TaskStatus } from "../state"
+import { runTaskSend } from "../tools/control/send"
 import { runTaskOutput } from "../tools/output/output"
+import type { FakeHostOptions } from "./rpc-host/__fixtures__/fake-host"
 import { HOST_CHILD_MODEL, startHostWorld, type HostWorld, type ParentSession } from "./rpc-host/__fixtures__/host-world"
 
 /**
@@ -24,8 +26,8 @@ function concurrencyOf(parent: ParentSession) {
   return concurrency
 }
 
-async function oneChild(): Promise<Child> {
-  const world = await startHostWorld({ drainRetryAfterMs: 250 })
+async function oneChild(options: FakeHostOptions = {}): Promise<Child> {
+  const world = await startHostWorld({ drainRetryAfterMs: 250, ...options })
   worlds.push(world)
   const parent = world.connect("parent-a", { maxDrainAttempts: 1 })
   await parent.startChildren(1)
@@ -139,5 +141,31 @@ describe("a session the host parks parks its task record", () => {
     // then - never turned into a failure: the result stays, only the residency moves
     await expectParked(child, "idle_evicted", "completed")
     expect(child.parent.store.load(child.record.task_id)?.final_response).toBe("DONE_SENTINEL")
+  })
+
+  test("#given a completed child a handoff parked #when task_send revives it on the new generation #then the record names the session the new generation serves", async () => {
+    // given
+    const child = await oneChild({ transcripts: true })
+    const paths = child.parent.sessionPaths()
+    child.world.host.completeTurn(child.routingId, "DONE_SENTINEL")
+    await child.parent.manager.waitFor(child.record.task_id, { signal: AbortSignal.timeout(10_000) })
+    const seen = parkSeen(child)
+    child.world.host.handoff()
+    await seen
+    await expectParked(child, "handoff_parked", "completed")
+    for (const path of paths) child.world.host.releasePath(path)
+    const previousInstance = child.record.host_session?.instance_id
+
+    // when
+    const sent = await runTaskSend(child.parent.manager, { to: child.record.task_id, message: "AGAIN_SENTINEL" }, child.parent.sessionId)
+
+    // then
+    expect(sent.details).toMatchObject({ kind: "revived" })
+    const live = child.world.host.sessions().find((session) => session.sessionPath === child.record.host_session?.session_path)
+    const revived = child.parent.store.load(child.record.task_id)
+    expect(child.world.host.instanceId).not.toBe(previousInstance)
+    expect(revived?.host_session?.instance_id).toBe(child.world.host.instanceId)
+    expect(revived?.host_session?.routing_id).toBe(live?.routingId)
+    expect(revived?.suspension_reason).toBeUndefined()
   })
 })

@@ -16,6 +16,12 @@ the child-side `HostParkReason`s; `classifySessionExit` returns `{ disposition: 
 New suspension reasons `idle_evicted`, `handoff_parked` (`task_output` explains both). What a revived
 or resumed child does is unchanged.
 
+`manager/manager-reattach.ts`: reattaching a TERMINAL child (a `task_send` revival of a completed child)
+now restamps its identity from the reattached handle (`childIdentityOf`: `runner_kind`, `host_session`,
+`pid`), so a child a handoff parked and a newer generation reopened names that generation's
+`instance_id` and routing id instead of the old one. The host-world test fixture no longer stamps
+`host_session` itself on every start; the manager does, as in production.
+
 Tests: `runners/rpc-host-host-park.test.ts` (new: a fake host parks an attached child by idle sweep,
 by `idle_evicted` close and by handoff; a completed resident child parked by the idle sweep; revival
 after the park), `manager/host-session-park.test.ts` (host causes park the record; `release` and
