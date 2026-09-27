@@ -13,6 +13,8 @@ const scriptDir = dirname(fileURLToPath(import.meta.url))
 const providerEntry = join(scriptDir, "task-runtime-fallback-mock-provider.ts")
 const finalText = "omo e2e fallback child final text"
 const realAgentDir = join(homedir(), ".senpi", "agent")
+// The mock provider is loaded only into the parent with `-e`; a process child would not inherit it.
+const IN_PROCESS_TASK_CONFIG = { task: { default_execution_mode: "in-process" } }
 
 // Scenario fixtures. The mock provider (task-runtime-fallback-mock-provider.ts) reads
 // OMO_FALLBACK_SCENARIO to decide which category the parent spawns and which child models die.
@@ -26,6 +28,7 @@ const scenarios = [
   {
     name: "user-fallback",
     omoConfig: {
+      ...IN_PROCESS_TASK_CONFIG,
       categories: {
         fallbackcat: {
           model: "omo-fallback-mock/dead-primary",
@@ -47,25 +50,25 @@ const scenarios = [
   },
   {
     name: "builtin-chain-fallback",
-    omoConfig: {},
+    omoConfig: IN_PROCESS_TASK_CONFIG,
     checks: (artifacts, stdoutText) => ({
       final_text: stdoutText.includes(finalText) ? "PASS" : "FAIL",
       fallback_event: artifacts.log.includes("retry_fallback_applied") ? "PASS" : "FAIL",
-      final_model: artifacts.task?.model === "openai-codex/gpt-6-luna-fast" ? "PASS" : "FAIL",
-      requested_model: artifacts.task?.requested_model?.display === "kimi-coding/kimi-for-coding-highspeed"
+      final_model: artifacts.task?.model === "deepseek/deepseek-flash" ? "PASS" : "FAIL",
+      requested_model: artifacts.task?.requested_model?.display === "chatgpt-subscription/gpt-6-luna-fast"
         ? "PASS"
         : "FAIL",
       fallback_attempts: JSON.stringify(
         artifacts.task?.fallback_attempts?.map((model) => `${model.provider}/${model.model_id}`),
       ) === JSON.stringify([
-        "kimi-coding/kimi-for-coding-highspeed",
-        "openai-codex/gpt-6-luna-fast",
+        "chatgpt-subscription/gpt-6-luna-fast",
+        "deepseek/deepseek-flash",
       ]) ? "PASS" : "FAIL",
     }),
   },
   {
     name: "chain-exhausted",
-    omoConfig: {},
+    omoConfig: IN_PROCESS_TASK_CONFIG,
     checks: (artifacts) => ({
       exhausted_event: artifacts.log.includes("retry_fallback_exhausted") ? "PASS" : "FAIL",
       task_failed: artifacts.task?.status === "error" ? "PASS" : "FAIL",
