@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync } from "node:fs"
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, dirname, join } from "node:path"
 import { afterEach, describe, expect, test } from "bun:test"
@@ -60,6 +60,12 @@ function inheritedIdentity(): ShardIdentity {
   return { kind: "p", key: OWNER_KEY, ownerSessionId: "child-session-0002", inherited: true }
 }
 
+function currentUid(): number {
+  return process.getuid?.() ?? -1
+}
+
+const actualFs: AltRootFs = { mkdirSync, lstatSync, realpathSync, getuid: currentUid }
+
 // senpi `daemonDirectoryName` on POSIX: the endpoint directory is keyed by the socket string.
 function daemonDirectoryName(socket: string): string {
   return createHash("sha256").update(socket, "utf8").digest("hex").slice(0, 16)
@@ -75,7 +81,6 @@ describe("shard naming", () => {
       expect(key).toBe(vector.key)
       expect(key).toMatch(/^[0-9a-f]{16}$/)
       expect(shardSocketPath("/r", vector.kind, vector.owner)).toBe(vector.socket)
-      expect(shardSocketPath("/r", vector.kind, vector.owner)).toBe(shardSocketPath("/r", vector.kind, vector.owner))
       expect(shardSocketPathForKey("/r", vector.kind, key)).toBe(vector.socket)
     }
   })
@@ -194,14 +199,41 @@ describe("resolveShardSocket", () => {
     )
   })
 
+  for (const shape of ["file", "dangling symlink"] as const) {
+    test(`#given a ${shape} at the alternate root path #when resolving #then it throws shard_alt_root_unsafe`, () => {
+      const agentDir = freshAgentDir()
+      const root = altRoot(agentDir)
+      if (shape === "file") writeFileSync(root, "occupied")
+      else symlinkSync(join(agentDir, "absent"), root)
+
+      expect(() => resolveShardSocket({ agentDir, env: { [SHARD_ROOT_ENV]: LONG_ROOT }, identity: rootIdentity() })).toThrow(
+        "shard_alt_root_unsafe",
+      )
+    })
+  }
+
+  test("#given the created alternate root is replaced by a symlink before validation #when resolving #then it refuses the replacement", () => {
+    const agentDir = freshAgentDir()
+    const root = altRoot(agentDir)
+    const fs: AltRootFs = {
+      ...actualFs,
+      lstatSync(path) {
+        const stat = actualFs.lstatSync(path)
+        if (path === root) {
+          rmSync(root, { recursive: true })
+          symlinkSync(agentDir, root)
+        }
+        return stat
+      },
+    }
+
+    expect(() => resolveShardSocket({ agentDir, env: { [SHARD_ROOT_ENV]: LONG_ROOT }, identity: rootIdentity(), fs })).toThrow(
+      "shard_alt_root_unsafe",
+    )
+  })
+
   test("#given an alternate root owned by another uid through the injected port #when resolving #then it throws shard_alt_root_unsafe", () => {
     const agentDir = freshAgentDir()
-    const actualFs: AltRootFs = {
-      mkdirSync: (path, options) => mkdirSync(path, options),
-      lstatSync: (path) => lstatSync(path),
-      realpathSync: (path) => realpathSync(path),
-      getuid: () => process.getuid?.() ?? -1,
-    }
     const fs: AltRootFs = {
       ...actualFs,
       lstatSync(path) {

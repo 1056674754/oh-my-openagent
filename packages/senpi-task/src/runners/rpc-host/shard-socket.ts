@@ -32,7 +32,7 @@ export type ShardNotice = keyof typeof NOTICE_TOKENS
 type Env = Readonly<Record<string, string | undefined>>
 
 export interface AltRootFs {
-  readonly mkdirSync: (path: string, options: { readonly recursive: true; readonly mode: number }) => unknown
+  readonly mkdirSync: (path: string, options: { readonly mode: number }) => unknown
   readonly lstatSync: (path: string) => { readonly uid: number; readonly mode: number; isDirectory(): boolean; isSymbolicLink(): boolean }
   readonly realpathSync: (path: string) => string
   readonly getuid: () => number
@@ -136,35 +136,50 @@ export function resolveShardSocket(input: ResolveShardSocketInput): ShardResolut
   return { socket: alternate, shard: identity, root: "alt", notice: "shard_alt_root" }
 }
 
-// Created 0700 on first use, then resolved through the `/tmp -> /private/tmp` symlink so every
-// spelling of the root names one endpoint (senpi keys a daemon directory by the socket string).
+// Created 0700 on first use, validated without following the final component, then normalized only
+// through the root-owned `/tmp -> /private/tmp` parent so every spelling names one endpoint.
 function ensureAltRoot(agentDir: string, fs: AltRootFs | undefined): string {
   const root = altRoot(agentDir)
   const ports = fs ?? {
-    mkdirSync: (path: string, options: { readonly recursive: true; readonly mode: number }) => mkdirSync(path, options),
+    mkdirSync: (path: string, options: { readonly mode: number }) => mkdirSync(path, options),
     lstatSync: (path: string) => lstatSync(path),
     realpathSync: (path: string) => realpathSync(path),
     getuid: () => process.getuid?.() ?? -1,
   }
-  ports.mkdirSync(root, { recursive: true, mode: ALT_ROOT_MODE })
-  const rootStat = ports.lstatSync(root)
-  const resolved = ports.realpathSync(root)
-  const resolvedStat = ports.lstatSync(resolved)
-  if (
-    rootStat.isSymbolicLink() ||
-    !rootStat.isDirectory() ||
-    resolvedStat.isSymbolicLink() ||
-    !resolvedStat.isDirectory() ||
-    resolvedStat.uid !== ports.getuid() ||
-    (resolvedStat.mode & 0o077) !== 0
-  ) {
-    throw new RunnerError({
-      kind: "host_unavailable",
-      reason: "shard_alt_root_unsafe",
-      message: `shard_alt_root_unsafe: refusing unsafe alternate shard root ${root}`,
-    })
+  try {
+    ports.mkdirSync(root, { mode: ALT_ROOT_MODE })
+  } catch (error) {
+    if (!isErrno(error, "EEXIST") && !isErrno(error, "ENOTDIR") && !isErrno(error, "ELOOP")) throw error
   }
-  return resolved
+  assertSafeAltRoot(root, ports)
+  const canonicalRoot = join(ports.realpathSync(ALT_ROOT_PARENT), basename(root))
+  assertSafeAltRoot(root, ports)
+  return canonicalRoot
+}
+
+function assertSafeAltRoot(root: string, fs: AltRootFs): void {
+  let stat: ReturnType<AltRootFs["lstatSync"]>
+  try {
+    stat = fs.lstatSync(root)
+  } catch (error) {
+    if (isErrno(error, "ENOENT") || isErrno(error, "ENOTDIR") || isErrno(error, "ELOOP")) throwAltRootUnsafe(root)
+    throw error
+  }
+  if (stat.isSymbolicLink() || !stat.isDirectory() || stat.uid !== fs.getuid() || (stat.mode & 0o077) !== 0) {
+    throwAltRootUnsafe(root)
+  }
+}
+
+function throwAltRootUnsafe(root: string): never {
+  throw new RunnerError({
+    kind: "host_unavailable",
+    reason: "shard_alt_root_unsafe",
+    message: `shard_alt_root_unsafe: refusing unsafe alternate shard root ${root}`,
+  })
+}
+
+function isErrno(error: unknown, code: string): boolean {
+  return error instanceof Error && "code" in error && error.code === code
 }
 
 function sha256Hex(value: string): string {
