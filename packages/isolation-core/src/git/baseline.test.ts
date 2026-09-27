@@ -11,7 +11,7 @@ import {
 } from "./baseline"
 import { captureDeltaPatch } from "./delta"
 import { parseDiffGitLinePaths } from "./synthetic-tree"
-import { GitCommandError, runGit } from "./command"
+import { GitCommandError, GitCommandTimeoutError, runGit } from "./command"
 
 async function setup() {
   const f = await repo()
@@ -119,9 +119,9 @@ test("a timed-out baseline read retries once with a fresh process and completes"
   const executeGit: typeof runGit = async (args, options) => {
     if (args.includes("ls-files")) {
       untrackedReadAttempts++
-      if (untrackedReadAttempts === 1) {
-        return runGit(["-c", "alias.wait=!sleep 7", "wait"], { ...options, timeoutMs: 50 })
-      }
+      // The deadline and tree teardown of a real stalled process are covered in command.test.ts; a real
+      // stand-in here leaves a Windows grandchild holding the fixture directory past teardown.
+      if (untrackedReadAttempts === 1) throw new GitCommandTimeoutError(args, options.cwd, 50)
       successfulArgs = args
       successfulOptionalLocks = options.env?.["GIT_OPTIONAL_LOCKS"]
     }
