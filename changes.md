@@ -6,6 +6,17 @@ Merge resolutions had left twelve `||||||| <base>` diff3 lines as content: one i
 
 `registerSkillsUsage` and `registerMemoryUsage` (`packages/omo-senpi/src/components/memory/{skills,memory}-usage-wiring.ts`) passed the `tool_call` event to `resolveContext`. Senpi hands a handler the event first and the session-bound extension context second, and only the context carries `sessionManager`, so `sessionIdFrom` returned `undefined`, no tracker was ever created, and `runtime/skills-usage.json` / `runtime/memory-usage.json` never existed: every dream run received `{}` for both. Both recorders now resolve from the second argument, like every other `tool_call` / `tool_result` handler in the package. `usage-ledgers-wiring.test.ts` registers the real memory component and asserts both ledger files after a quitting shutdown; it fails on the previous code. Fix by @MoerAI.
 
+## 2026-09-27 - The desktop computer-use TypeScript packages move into omo (#8893)
+
+The five packages that sit between a harness and the `senpi-desktop-engine` binary move from senpi as private `@oh-my-opencode/senpi-desktop-*` workspaces:
+- `-protocol`: the JSON-RPC wire types, generated from the engine schema.
+- `-engine`: the locator, the ABI handshake and the bunshin descriptor.
+- `-prelude`: the `computer` eval global.
+- `-service`: the engine child client and the `computer.run` runtime.
+- `-tool`: the `computer` tool, its permission tiers and the `/computer` command.
+
+None of them imports senpi. They export their sources directly like the other omo core packages, and senpi's vendored macOS engine prebuild is not carried over, because the locator falls back to the workspace's `target/release` build and platform packages will ship the binary. Each package keeps its vitest suite, excluded from the root `bun test` and run as `bun run test:desktop`: protocol 16, engine 67, prelude 27, service 24 and tool 57. The tool suite's three rule-evaluation cases moved to the upcoming omo-senpi component, where they run through senpi's public permission hook instead of senpi's internals. `desktop-engine.yml` now also runs `test:desktop` against the engine it builds on macOS, Ubuntu and Windows.
+
 ## 2026-09-27 - The desktop computer-use engine moves into omo as a Rust workspace (#8893)
 
 Computer use ships from omo, not as separate senpi packages. This step brings over the engine: the ten `crates/senpi-desktop-*` crates, the fake, macOS, X11, AT-SPI, Wayland and Win32 backends, the safety gate, sessions, and the `senpi-desktop-engine` JSON-RPC binary with its `--serve`, `--oneshot`, `--resume` and `--mcp` modes. They come from senpi unchanged (the file trees match byte for byte). The root `Cargo.toml` holds the desktop-only subset of senpi's exact dependency pins, and `Cargo.lock` is pruned to it. `.github/workflows/desktop-engine.yml` runs clippy (`-D warnings`), the tests and a release build on macOS, Ubuntu and Windows, plus the Linux X11 and AT-SPI display tests, whenever `crates/**` or the Rust manifests change. The TypeScript packages, the omo-senpi component and binary delivery follow in later PRs.
