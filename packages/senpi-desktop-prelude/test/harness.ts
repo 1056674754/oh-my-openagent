@@ -1,6 +1,29 @@
 import { spawnSync } from "node:child_process";
 import { computerPreludeAssets } from "../src/index";
 
+const PYTHON_COMMAND = "python3";
+const PYTHON_DIAGNOSTICS = process.env.OMO_DESKTOP_PRELUDE_PYTHON_DIAGNOSTICS === "1";
+
+if (PYTHON_DIAGNOSTICS) {
+	const lookupCommand = process.platform === "win32" ? "where.exe" : "which";
+	const startedAt = performance.now();
+	const lookup = spawnSync(lookupCommand, [PYTHON_COMMAND], { encoding: "utf8" });
+	console.error(
+		`PYTHON_FACADE_DIAG ${JSON.stringify({
+			phase: "command-lookup",
+			platform: process.platform,
+			processId: process.pid,
+			command: PYTHON_COMMAND,
+			elapsedMs: performance.now() - startedAt,
+			status: lookup.status,
+			signal: lookup.signal,
+			stdout: lookup.stdout.trim().split(/\r?\n/),
+			stderr: lookup.stderr.trim(),
+			errorName: lookup.error?.name ?? null,
+		})}`,
+	);
+}
+
 /** What a kernel's `tool.<name>()` resolves to (codemode `marshalToolResult`). */
 export interface ToolResult {
 	readonly text: string;
@@ -119,7 +142,26 @@ export function runPythonFacade(script: string): PythonRun {
 		element: JSON.stringify(ELEMENT_SNAPSHOT),
 		image: JSON.stringify(IMAGE),
 	});
-	const result = spawnSync("python3", ["-c", PYTHON_HARNESS], { input, encoding: "utf8", timeout: 30_000 });
+	const startedAt = performance.now();
+	const result = spawnSync(PYTHON_COMMAND, ["-c", PYTHON_HARNESS], { input, encoding: "utf8", timeout: 30_000 });
+	if (PYTHON_DIAGNOSTICS) {
+		console.error(
+			`PYTHON_FACADE_DIAG ${JSON.stringify({
+				phase: "facade-run",
+				platform: process.platform,
+				processId: process.pid,
+				childProcessId: result.pid,
+				command: PYTHON_COMMAND,
+				elapsedMs: performance.now() - startedAt,
+				status: result.status,
+				signal: result.signal,
+				errorName: result.error?.name ?? null,
+				stdoutBytes: result.stdout.length,
+				stderrBytes: result.stderr.length,
+				inputBytes: input.length,
+			})}`,
+		);
+	}
 	if (result.status !== 0) throw new Error(`python3 exited ${result.status}: ${result.stderr}`);
 	return JSON.parse(result.stdout);
 }
