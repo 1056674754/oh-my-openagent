@@ -1,3 +1,7 @@
+## An exhausted runtime fallback chain is recorded in the task transcript (#8301)
+
+`manager/manager.ts` `#tryRuntimeFallback`: when the live child fails with no candidate left and its record shows at least one hop (`fallback_attempts` longer than one), the manager appends `retry_fallback_exhausted` (`chain_key` = the requested model, `last_error` = the failure message) before the terminal transition. Senpi's own retry emits that event only while its chain key is still armed, so a final rung reached through a native hop failed with no exhaustion record. A handle whose child already emitted the event (`#nativeFallbackExhaustions`) is not recorded twice. `src/manager/manager-fallback.test.ts` covers the native-hop case (RED on the old manager). The live driver `packages/omo-senpi/scripts/qa/task-runtime-fallback-e2e.mjs` now runs every scenario on the in-process, child-process and host-session runners and checks the record names the runner it expected; the host-session runs use a sandbox copy of the plugin whose daemon launch spec lists the mock provider, and stop that daemon before the sandbox is removed.
+
 ## A TTL tombstone belongs to the sweep that wrote it until that sweep's close settles
 
 `lifecycle/ttl.ts`, `store/expunge-owner.ts` (new): every tombstone now names the sweep attempt that
