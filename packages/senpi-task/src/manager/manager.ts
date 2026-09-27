@@ -567,6 +567,9 @@ class TaskManagerImpl implements TaskManager {
   forget(taskId: string): void {
     // Eviction, suspension, and destruction all land here; each frees (or is about to free) a slot.
     this.#residency.notify(this.#tryLoad(taskId)?.parent_session_id)
+    // The outcome tracker stops settling a handle once it is forgotten, so a run suspended here
+    // never reaches its own release: free its lane now or every suspension leaks a slot (#8973).
+    this.#releaseSlotForTask(taskId)
     this.#live.get(taskId)?.unsubscribe()
     this.#live.delete(taskId)
     const subscribers = this.#childSubscribers.get(taskId)
