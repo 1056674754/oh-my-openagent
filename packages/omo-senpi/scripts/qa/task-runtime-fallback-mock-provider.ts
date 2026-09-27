@@ -172,7 +172,14 @@ function mockModel(id: string, name: string) {
   }
 }
 
+// The identity line is written by the in-process subagent prompt only. A per-child process and a
+// task daemon session both run senpi in `--mode rpc` while the driver's parent runs `-p`, so the rpc
+// argv is the structural child signal there (the same selector task-e2e-mock-provider.ts uses).
 function isChild(context: Context): boolean {
+  return messagesContainChild(context) || process.argv.includes("rpc")
+}
+
+function messagesContainChild(context: Context): boolean {
   return (context.messages ?? []).some((message) => {
     if (typeof message.content === "string") return message.content.includes(CHILD_IDENTITY)
     return message.content.some((part) => part.text?.includes(CHILD_IDENTITY) === true)
