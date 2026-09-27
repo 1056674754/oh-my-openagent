@@ -2,6 +2,12 @@
 
 The compiled OmO binaries stage `senpi-desktop-engine` inside their extracted runtime on supported macOS, glibc Linux x64 and Windows x64 hosts. The locator checks that runtime before the executable directory, while targets without an engine still report `native-unavailable`. The release workflow builds and uploads the engine binaries with checksums. An independent asynchronous API can acquire and verify the corresponding asset into a versioned cache for npm installs; hooking that API into the computer-use component follows the separate component PR.
 
+## 2026-09-27 - Computer-use QA harnesses and OmO documentation (#8893)
+
+The desktop engine's Windows, Linux and macOS QA drivers now live in OmO under `script/qa/desktop/`, alongside the executable Windows PR workflow. Windows runs seven scenarios plus a deliberate sabotage check. Linux covers the source harness's four X11 and three Wayland scenarios, with isolated provisioning and teardown. The macOS driver exercises the real Senpi binary with OmO's computer-use component and supplies a non-live self-test for hosts without an unlocked graphical console.
+
+The root Cargo pin guard now runs with the desktop package tests, and the bunshin desktop capability installer discovers OmO's engine location. The Native computer-use guide and tool reference describe `omo.jsonc`, permission tiers, the eval global, `/computer`, engine lookup and `--mcp` without the unpublished senpi desktop packages.
+
 ## 2026-09-27 - omo adopts senpi 2026.9.27-2 (#8893)
 
 Every `@code-yeongyu/senpi` pin moves from 2026.9.27 to 2026.9.27-2: the root devDependency, the `omo-native` dependency, the `omo-senpi` and `senpi-task` peer and dev pins, their pin tests, and `bun.lock`. The release carries the generic extension hooks that the computer-use component relies on:
