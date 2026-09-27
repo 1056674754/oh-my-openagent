@@ -184,7 +184,7 @@ function joinedLiveHostSession(handle: RpcChildHandle): boolean {
 }
 
 async function continueInterruptedTurn(record: TaskRecord, sessionPath: string, handle: ManagedChildHandle): Promise<void> {
-  if (!isTerminalRecord(record) && await sessionTailNeedsContinuation(sessionPath)) {
+  if (!isTerminalRecord(record) && await sessionTailNeedsContinuation(sessionPath, CONTINUATION_MESSAGE)) {
     await handle.followUp(CONTINUATION_MESSAGE)
   }
 }

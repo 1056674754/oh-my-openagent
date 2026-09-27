@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs"
+import { appendFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { afterEach, describe, expect, test } from "bun:test"
 
@@ -69,7 +69,11 @@ const TURN_ANSWERED = [
   { type: "message", message: { role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" } },
 ]
 
-function hostRunner(calls: HostRespawnCalls, openDisposition: "attached" | "reopened") {
+function hostRunner(
+  calls: HostRespawnCalls,
+  openDisposition: "attached" | "reopened",
+  onFollowUp?: (text: string) => void,
+) {
   return {
     start: (spec: RpcRunnerSpec): Promise<RpcChildHandle> => {
       calls.specs.push(spec)
@@ -89,6 +93,7 @@ function hostRunner(calls: HostRespawnCalls, openDisposition: "attached" | "reop
         lastSeen: () => undefined,
         followUp: (text: string) => {
           calls.followUps.push(text)
+          onFollowUp?.(text)
           return Promise.resolve()
         },
         switchSession: (path: string) => {
@@ -177,6 +182,114 @@ describe("respawn of a daemon-hosted child", () => {
     // then
     expect(result.ok).toBe(true)
     expect(calls.specs.map((spec) => spec.resumeSessionPath)).toEqual([transcript])
+    expect(calls.followUps).toHaveLength(1)
+  })
+
+  test("#given a reopened session whose first continuation is still unanswered #when the same record respawns again #then only one continuation is sent in total", async () => {
+    // given
+    const project = tempProject()
+    const transcript = interruptedTranscript(project)
+    const identity: HostSessionIdentity = {
+      socket: "/tmp/dh-fake/rpc.sock",
+      routing_id: "routing-repeat-before-answer",
+      session_path: transcript,
+      instance_id: "instance-1",
+    }
+    const calls: HostRespawnCalls = { specs: [], switched: [], followUps: [] }
+    const runner = hostRunner(calls, "reopened", (text) => {
+      appendFileSync(transcript, `${JSON.stringify({ type: "message", message: { role: "user", content: text } })}\n`)
+    })
+    const input = {
+      beforeLaunch: () => undefined,
+      record: hostRecord(project, identity),
+      sessionPath: transcript,
+      stateDir: project,
+      runners: unusedManagedRunners(),
+      rpcRunner: runner,
+    }
+
+    // when
+    const first = await respawnManagedTask(input)
+    const second = await respawnManagedTask(input)
+
+    // then
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    expect(calls.followUps).toHaveLength(1)
+  })
+
+  test("#given a reopened session whose first continuation was aborted by another host stop #when the same record respawns again #then only one continuation is sent in total", async () => {
+    // given - a forced host stop can append an aborted assistant row after our continuation prompt
+    const project = tempProject()
+    const transcript = interruptedTranscript(project)
+    const identity: HostSessionIdentity = {
+      socket: "/tmp/dh-fake/rpc.sock",
+      routing_id: "routing-repeat-after-abort",
+      session_path: transcript,
+      instance_id: "instance-1",
+    }
+    const calls: HostRespawnCalls = { specs: [], switched: [], followUps: [] }
+    const runner = hostRunner(calls, "reopened", (text) => {
+      const entries = [
+        { type: "message", message: { role: "user", content: text } },
+        { type: "message", message: { role: "assistant", content: [{ type: "text", text: "" }], stopReason: "aborted" } },
+        { type: "custom", customType: "senpi.hooks.stop-state", data: {} },
+      ]
+      appendFileSync(transcript, entries.map((entry) => `${JSON.stringify(entry)}\n`).join(""))
+    })
+    const input = {
+      beforeLaunch: () => undefined,
+      record: hostRecord(project, identity),
+      sessionPath: transcript,
+      stateDir: project,
+      runners: unusedManagedRunners(),
+      rpcRunner: runner,
+    }
+
+    // when
+    const first = await respawnManagedTask(input)
+    const second = await respawnManagedTask(input)
+
+    // then
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    expect(calls.followUps).toHaveLength(1)
+  })
+
+  test("#given a reopened session whose first continuation was answered #when the same record respawns again #then only one continuation is sent in total", async () => {
+    // given
+    const project = tempProject()
+    const transcript = interruptedTranscript(project)
+    const identity: HostSessionIdentity = {
+      socket: "/tmp/dh-fake/rpc.sock",
+      routing_id: "routing-repeat-after-answer",
+      session_path: transcript,
+      instance_id: "instance-1",
+    }
+    const calls: HostRespawnCalls = { specs: [], switched: [], followUps: [] }
+    const runner = hostRunner(calls, "reopened", (text) => {
+      const entries = [
+        { type: "message", message: { role: "user", content: text } },
+        { type: "message", message: { role: "assistant", content: [{ type: "text", text: "finished" }], stopReason: "stop" } },
+      ]
+      appendFileSync(transcript, entries.map((entry) => `${JSON.stringify(entry)}\n`).join(""))
+    })
+    const input = {
+      beforeLaunch: () => undefined,
+      record: hostRecord(project, identity),
+      sessionPath: transcript,
+      stateDir: project,
+      runners: unusedManagedRunners(),
+      rpcRunner: runner,
+    }
+
+    // when
+    const first = await respawnManagedTask(input)
+    const second = await respawnManagedTask(input)
+
+    // then
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
     expect(calls.followUps).toHaveLength(1)
   })
 
@@ -275,6 +388,123 @@ describe("respawn of a daemon-hosted child", () => {
     // then
     expect(result.ok).toBe(true)
     expect(prompts(host)).toEqual([{ streamingBehavior: "followUp" }])
+  })
+
+  test("#given an interrupted tool result whose turn contains an older custom_message #when the host reopens the session #then exactly one continuation reaches the host", async () => {
+    // given - the live first-turn transcript writes this context row before the tool call/result
+    const project = tempProject()
+    const transcript = transcriptOf(project, "in-turn-custom-message.jsonl", [
+      { type: "message", message: { role: "user", content: "do the work" } },
+      { type: "custom_message", customType: "senpi.todo-first-turn", content: "todo context", display: false },
+      ...TOOL_TURN_IN_FLIGHT.slice(1),
+      ...BOOKKEEPING_ROWS,
+    ])
+    const calls: HostRespawnCalls = { specs: [], switched: [], followUps: [] }
+
+    // when
+    const result = await respawnManagedTask({
+      beforeLaunch: () => undefined,
+      record: hostRecord(project, {
+        socket: "/tmp/dh-fake/rpc.sock",
+        routing_id: "routing-in-turn-custom-message",
+        session_path: transcript,
+        instance_id: "instance-1",
+      }),
+      sessionPath: transcript,
+      stateDir: project,
+      runners: unusedManagedRunners(),
+      rpcRunner: hostRunner(calls, "reopened"),
+    })
+
+    // then
+    expect(result.ok).toBe(true)
+    expect(calls.followUps).toHaveLength(1)
+  })
+
+  for (const bookkeeping of BOOKKEEPING_ROWS) {
+    test(`#given an interrupted turn followed by ${bookkeeping.customType} #when the host reopens the session #then exactly one continuation reaches the host`, async () => {
+      // given
+      const project = tempProject()
+      const transcript = transcriptOf(project, `${bookkeeping.customType}.jsonl`, [...TOOL_TURN_IN_FLIGHT, bookkeeping])
+      const calls: HostRespawnCalls = { specs: [], switched: [], followUps: [] }
+
+      // when
+      const result = await respawnManagedTask({
+        beforeLaunch: () => undefined,
+        record: hostRecord(project, {
+          socket: "/tmp/dh-fake/rpc.sock",
+          routing_id: `routing-${bookkeeping.customType}`,
+          session_path: transcript,
+          instance_id: "instance-1",
+        }),
+        sessionPath: transcript,
+        stateDir: project,
+        runners: unusedManagedRunners(),
+        rpcRunner: hostRunner(calls, "reopened"),
+      })
+
+      // then
+      expect(result.ok).toBe(true)
+      expect(calls.followUps).toHaveLength(1)
+    })
+  }
+
+  test("#given an unanswered prompt followed by an unknown custom row #when the host reopens the session #then no continuation is guessed", async () => {
+    // given
+    const project = tempProject()
+    const transcript = transcriptOf(project, "unknown-custom.jsonl", [
+      { type: "message", message: { role: "user", content: "do the work" } },
+      { type: "custom", customType: "unknown.extension-state", data: {} },
+    ])
+    const calls: HostRespawnCalls = { specs: [], switched: [], followUps: [] }
+
+    // when
+    const result = await respawnManagedTask({
+      beforeLaunch: () => undefined,
+      record: hostRecord(project, {
+        socket: "/tmp/dh-fake/rpc.sock",
+        routing_id: "routing-unknown-custom",
+        session_path: transcript,
+        instance_id: "instance-1",
+      }),
+      sessionPath: transcript,
+      stateDir: project,
+      runners: unusedManagedRunners(),
+      rpcRunner: hostRunner(calls, "reopened"),
+    })
+
+    // then
+    expect(result.ok).toBe(true)
+    expect(calls.followUps).toEqual([])
+  })
+
+  test("#given an unanswered prompt followed by a custom_message row #when the host reopens the session #then no continuation is guessed", async () => {
+    // given
+    const project = tempProject()
+    const transcript = transcriptOf(project, "custom-message.jsonl", [
+      { type: "message", message: { role: "user", content: "do the work" } },
+      { type: "custom_message", customType: "environment-context", content: "context", display: false },
+    ])
+    const calls: HostRespawnCalls = { specs: [], switched: [], followUps: [] }
+
+    // when
+    const result = await respawnManagedTask({
+      beforeLaunch: () => undefined,
+      record: hostRecord(project, {
+        socket: "/tmp/dh-fake/rpc.sock",
+        routing_id: "routing-custom-message",
+        session_path: transcript,
+        instance_id: "instance-1",
+      }),
+      sessionPath: transcript,
+      stateDir: project,
+      runners: unusedManagedRunners(),
+      rpcRunner: hostRunner(calls, "reopened"),
+    })
+
+    // then
+    expect(result.ok).toBe(true)
+    expect(calls.followUps).toEqual([])
   })
 
   test("#given an answered turn followed by extension bookkeeping rows #when the host reopens the session #then no continuation is sent", async () => {
