@@ -47,6 +47,9 @@ jobs:
         with:
           bun-version: "1.4.2"
 
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
       - name: Install X11 and headless Wayland tools
         run: |
           sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
