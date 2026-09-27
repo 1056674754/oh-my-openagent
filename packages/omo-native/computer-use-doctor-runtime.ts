@@ -13,6 +13,7 @@ import { isSupportedHost } from "@oh-my-opencode/senpi-desktop-tool"
 import { resolveOmoComputerSettings } from "../omo-senpi/src/components/computer-use/settings"
 import {
   COMPUTER_USE_DOCTOR_TIMEOUT_MS,
+  type EngineLauncher,
   probeComputerUseEngine,
 } from "./computer-use-engine-probe"
 
@@ -62,6 +63,8 @@ export type ComputerUseDoctorInput = {
   readonly platform?: string
   readonly arch?: string
   readonly timeoutMs?: number
+  /** How the selected engine is started; defaults to executing it as a native binary. */
+  readonly launchEngine?: EngineLauncher
 }
 
 function unavailable(
@@ -165,6 +168,7 @@ export async function computerUseDoctorReport(input: ComputerUseDoctorInput): Pr
     resolved.path,
     input.env,
     input.timeoutMs ?? COMPUTER_USE_DOCTOR_TIMEOUT_MS,
+    input.launchEngine,
   )
   if (!probed.ok) {
     return { ...base, kind: "failed", enginePath: resolved.path, code: probed.code, message: probed.message }

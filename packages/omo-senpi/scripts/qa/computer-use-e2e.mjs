@@ -12,6 +12,7 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { createSandbox, seedSandbox } from "./drive.mjs"
+import { isolatedChildEnv } from "./sandbox-child-env.mjs"
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, "..", "..", "..", "..")
@@ -90,7 +91,7 @@ function runScenario({ name, permission, steps }) {
     const run = spawnSync(senpiBin, args, {
       cwd: sandbox.cwd,
       env: {
-        ...scrubbedEnv(),
+        ...isolatedChildEnv(scrubbedEnv(), sandbox.agentDir),
         OMO_CODING_AGENT_DIR: sandbox.agentDir,
         SENPI_CODING_AGENT_DIR: sandbox.agentDir,
         PI_CODING_AGENT_DIR: sandbox.agentDir,

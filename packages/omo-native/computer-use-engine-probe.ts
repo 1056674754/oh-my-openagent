@@ -26,6 +26,13 @@ export type EngineProbeResult =
       readonly message: string
     }
 
+/** Starts the engine at `enginePath` with `args`; the default executes it as a native binary. */
+export type EngineLauncher = (
+  enginePath: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+) => ChildProcessWithoutNullStreams
+
 export const COMPUTER_USE_DOCTOR_TIMEOUT_MS = 5_000
 const STDERR_TAIL_CHARS = 4_096
 const HelloSchema = z.object({
@@ -79,20 +86,16 @@ function validateProbe(hello: unknown, capabilities: unknown, enginePath: string
   return { ok: true, value: { hello: parsedHello.data, capabilities: parsedCapabilities.data } }
 }
 
-function spawnEngine(enginePath: string, env: OmoConfigEnv): ChildProcessWithoutNullStreams {
-  return spawn(enginePath, ["--stdio"], {
-    stdio: "pipe",
-    windowsHide: true,
-    env: { ...process.env, ...env },
-  })
-}
+export const launchEngineBinary: EngineLauncher = (enginePath, args, env) =>
+  spawn(enginePath, [...args], { stdio: "pipe", windowsHide: true, env })
 
 export function probeComputerUseEngine(
   enginePath: string,
   env: OmoConfigEnv,
   timeoutMs: number,
+  launch: EngineLauncher = launchEngineBinary,
 ): Promise<EngineProbeResult> {
-  const child = spawnEngine(enginePath, env)
+  const child = launch(enginePath, ["--stdio"], { ...process.env, ...env })
   return new Promise((resolveProbe) => {
     const replies = new Map<number, unknown>()
     let stderrTail = ""

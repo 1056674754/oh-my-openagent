@@ -2,8 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { DesktopEngineUnavailableError } from "@oh-my-opencode/senpi-desktop-service"
 
-import { omoReleaseVersion } from "./engine-source"
+import { defaultEngineChild, omoReleaseVersion } from "./engine-source"
 
 const roots: string[] = []
 
@@ -37,5 +38,20 @@ describe("omo release version for engine acquisition", () => {
 
   test("#given no omo launch #when resolved #then no release is named", () => {
     expect(omoReleaseVersion({})).toBeUndefined()
+  })
+
+  test("#given an explicit missing engine path #when the child factory starts #then it fails as native-unavailable before spawning", () => {
+    const missing = join(tmpdir(), `missing-senpi-desktop-engine-${process.pid}`)
+    const createChild = defaultEngineChild({})(missing)
+
+    try {
+      createChild()
+      throw new Error("expected the explicit missing engine to fail")
+    } catch (error) {
+      expect(error).toBeInstanceOf(DesktopEngineUnavailableError)
+      if (!(error instanceof DesktopEngineUnavailableError)) throw error
+      expect(error.diagnostic.code).toBe("native-unavailable")
+      expect(error.diagnostic.attemptedPaths).toEqual([missing])
+    }
   })
 })

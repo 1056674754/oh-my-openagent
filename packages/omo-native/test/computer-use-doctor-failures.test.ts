@@ -1,12 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { spawn } from "node:child_process"
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { formatComputerUseDoctorLines } from "../bin/lib/computer-use-doctor.js"
 import { computerUseDoctorReport } from "../computer-use-doctor-runtime"
+import type { EngineLauncher } from "../computer-use-engine-probe"
 
 const roots: string[] = []
+
+// A fixture engine is a script, and Windows cannot execute a script as a binary (EFTYPE), so the tests start
+// it through the running runtime; the production launcher executes the located binary directly.
+const runEngineScript: EngineLauncher = (enginePath, args, env) =>
+  spawn(process.execPath, [enginePath, ...args], { stdio: "pipe", windowsHide: true, env })
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
@@ -68,7 +75,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     writeConfig(root, enginePath)
 
     // when
-    const report = await computerUseDoctorReport({ ...input(root), timeoutMs: 1_000 })
+    const report = await computerUseDoctorReport({ ...input(root), launchEngine: runEngineScript, timeoutMs: 1_000 })
 
     // then
     expect(report.kind).toBe("failed")
@@ -89,7 +96,7 @@ createInterface({ input: process.stdin }).on("line", () => {});
     writeConfig(root, enginePath)
 
     // when
-    const report = await computerUseDoctorReport({ ...input(root), timeoutMs: 25 })
+    const report = await computerUseDoctorReport({ ...input(root), launchEngine: runEngineScript, timeoutMs: 25 })
 
     // then
     expect(report.kind).toBe("failed")
