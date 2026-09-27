@@ -126,6 +126,8 @@ export async function reviveClaimed(
   if (!(await endClosingFallbackChild(context, fresh))) {
     return rollbackOrDeferred(context, fresh.task_id, rollbackResidency, "session_unavailable")
   }
+  // Everything above awaited: a stop or another owner that landed meanwhile ends this revival here.
+  if (!isSameClaim(context, fresh)) return rollbackOrDeferred(context, fresh.task_id, rollbackResidency, "foreign_live_owner")
 
   if (isHostSessionRecord(fresh) && !(await context.hostSessionProbe.daemonAlive(fresh.host_session))) {
     const outcome = rollbackOrDeferred(context, fresh.task_id, rollbackResidency, "host_unreachable")
@@ -222,6 +224,14 @@ async function respawnThroughDrain(
     result = await respawn(record, sessionPath)
   }
   return result
+}
+
+function isSameClaim(context: LifecycleContext, claimed: TaskRecord): boolean {
+  const now = context.store.load(claimed.task_id)
+  return isClaimHeld(context, now, claimed.parent_session_id)
+    && now.killed !== true
+    && now.status === claimed.status
+    && now.notification.run_epoch === claimed.notification.run_epoch
 }
 
 export function isOrphan(context: LifecycleContext, record: TaskRecord): boolean {

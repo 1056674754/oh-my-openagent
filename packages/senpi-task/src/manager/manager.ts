@@ -720,11 +720,16 @@ class TaskManagerImpl implements TaskManager {
       rpcRunner: this.#rpcRespawnRunner,
       beforeLaunch: () => {
         // Respawn bypasses start's status transition; persist the same durable launch boundary
-        // without changing the status or epoch that lifecycle reattachment owns.
-        const stamped = this.#options.store.mutate(record.task_id, (fresh) =>
-          fresh.started_at === undefined ? { ...fresh, started_at: nowIso(this.#now) } : fresh,
-        )
+        // without changing the status or epoch that lifecycle reattachment owns. It is also the last
+        // point before the child runs: a stop, a kill or another owner that landed while the revival
+        // was preparing refuses the launch here instead of starting work nobody will keep.
+        let moved = false
+        const stamped = this.#options.store.mutate(record.task_id, (fresh) => {
+          moved = (isTerminalRecord(fresh) && !isTerminalRecord(record)) || fresh.killed === true || fresh.host_pid !== record.host_pid || fresh.notification.run_epoch !== record.notification.run_epoch
+          return moved || fresh.started_at !== undefined ? fresh : { ...fresh, started_at: nowIso(this.#now) }
+        })
         if (stamped === null) throw new Error(`Task record not found before respawn: ${record.task_id}`)
+        if (moved) throw new Error(`Task ${record.task_id} was stopped or moved before its respawn launched`)
       },
       ...(this.#options.trustedRespawnLaunch === undefined
         ? {}
@@ -1148,7 +1153,8 @@ class TaskManagerImpl implements TaskManager {
     if (teardown.failed) {
       this.#failStrandedHandoff({ taskId: input.taskId, epoch: nextEpoch, owner: record.host_pid, nextModel: nextModel.display, error: teardown.error })
       live.unsubscribe()
-      this.#live.delete(input.taskId)
+      // A lifecycle revival may already have attached a newer run while this close was pending.
+      if (this.#live.get(input.taskId) === live) this.#live.delete(input.taskId)
       const kept = this.#keepUnclosedChild({ taskId: input.taskId, epoch: nextEpoch, handle: input.handle, identity: handoff.closed ?? {}, error: teardown.error })
       this.#releaseSlot(input.taskId, input.model, input.epoch)
       this.#settleWaiters(input.taskId)
@@ -1275,6 +1281,13 @@ class TaskManagerImpl implements TaskManager {
     const { taskId, identity } = input
     log("senpi-task child cleanup rejected", { taskId, error: String(input.error), pid: identity.pid, session: identity.host_session?.session_path })
     const external = hasChildIdentity(identity)
+    // A newer run already owns the record, so it cannot carry this child; an in-process child, which
+    // nothing outside this process can reach, still keeps this process as its cleanup owner.
+    const current = this.#tryLoad(taskId)
+    if (!external && current != null && current.notification.run_epoch > input.epoch) {
+      if (!this.#cleanupOwners.has(taskId)) this.#holdForCleanup(taskId, input.handle)
+      return "resident"
+    }
     let owned = false
     this.#options.store.mutate(taskId, (fresh) => {
       if (!isTerminalRecord(fresh) || fresh.notification.run_epoch !== input.epoch) return fresh
@@ -1290,13 +1303,17 @@ class TaskManagerImpl implements TaskManager {
       return "unowned"
     }
     if (external) return "orphan"
-    this.#cleanupOwners.set(taskId, releaseOnDispose(input.handle, (owner) => {
-      if (this.#cleanupOwners.get(taskId) === owner) this.#cleanupOwners.delete(taskId)
-    }))
+    this.#holdForCleanup(taskId, input.handle)
     if (this.#tryLoad(taskId)?.residency_state !== "resident") {
       this.#options.store.transition(taskId, { type: "mark_resident", timestamp: nowIso(this.#now) })
     }
     return "resident"
+  }
+
+  #holdForCleanup(taskId: string, handle: ManagedChildHandle): void {
+    this.#cleanupOwners.set(taskId, releaseOnDispose(handle, (owner) => {
+      if (this.#cleanupOwners.get(taskId) === owner) this.#cleanupOwners.delete(taskId)
+    }))
   }
 
   /** The recorded child has no live handle here: the destruction port ends it by pid or session. */

@@ -38,6 +38,27 @@ from `running`, so a cancel that landed first stands, and the next rung is not s
 be alive. The failed child gets its cleanup owner (above) before its slot is released and waiters settle. Tests: `runtime-fallback-launch-races.test.ts`,
 `launch-ownership-races.test.ts`.
 
+## The closing rung's child is ended only on a confirmed close, by whoever owns the record next
+
+`lifecycle/host-session-default.ts`: `defaultHostSessionCloser` discarded `closeHostSession`'s
+`"unreachable"` answer (a refused attach or `close_session`), so every caller read a session that was
+still open as closed. It now rejects unless the daemon confirmed the close. `lifecycle/fallback-closing-child.ts`
+keeps `fallback_closing_child` on the record whenever the close is not confirmed (or the process
+outlived SIGKILL), and `reviveClaimed` defers instead of launching beside it. The child is now an
+obligation of every owner of the record, not only a revival: `destroy.ts` `terminateOrphan` ends it for
+a cancelled, lost or non-revivable record, and the TTL sweep keeps an expired record until its child is
+confirmed gone.
+
+`reviveClaimed` re-reads its claim after the awaited cleanup, and `manager.respawn`'s `beforeLaunch`
+refuses to launch when the task's status, owner, epoch or kill flag moved since the revival began: a
+cancel that lands while a dead owner's handoff is being recovered no longer gets the next rung's prompt
+sent. A rejected fallback close only drops the live entry that is still its own, so a reload that
+revived the task meanwhile keeps its handle, and an in-process child whose record has moved on stays a
+cleanup owner of this process. Tests: `fallback-closing-obligation.test.ts` (production closer and
+probe over a real socket: refused close keeps the identity, a cancelled handoff is closed by the global
+and the parent's reconcile, TTL retries), `runtime-fallback-revival-races.test.ts` (a reload during a
+resolving and a rejecting close; a cancel during the recovery close in both scopes).
+
 ## A closing rung is never revived, a stale launch never runs or fails a newer run, and a crash mid-close leaves an owner
 
 `manager/manager.ts`: while `#tryRuntimeFallback` closes the failed rung, steering's `liveHandle` no
@@ -57,7 +78,7 @@ start-rejection paths fail the task through `failOwnedRun`, so a stale rejection
 `fallback_closing_child` instead of dropping it, and the fallback path clears it once the close
 succeeds. `lifecycle/fallback-closing-child.ts` (new): `reviveClaimed` ends that child (session close
 while the daemon answers, or SIGTERM/SIGKILL) before it launches the next rung, and defers if the child
-may still be alive. A parent that died between the handoff commit and the close used to leave the old
+may still be alive (see the section above for which answers count as confirmed). A parent that died between the handoff commit and the close used to leave the old
 retained daemon session open beside the revived one.
 
 Tests: `runtime-fallback-handoff-races.test.ts` (interrupt + continue during a resolving and a
