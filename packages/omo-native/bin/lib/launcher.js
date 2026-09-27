@@ -3,6 +3,7 @@ import { existsSync, realpathSync } from "node:fs"
 import { delimiter, isAbsolute, join, relative, sep } from "node:path"
 import { spawnNode } from "./child-process.js"
 import { doctorCoverageLines } from "./category-coverage.js"
+import { doctorComputerUseLines } from "./computer-use-doctor.js"
 import { runDaemonCommand } from "./daemon.js"
 import { runDoctor } from "./doctor.js"
 import { ensureEnginePrepared } from "./engine-prepare.js"
@@ -245,8 +246,17 @@ export async function runLauncher(args = process.argv.slice(2)) {
     return
   }
   if (command === "doctor") {
-    const categoryCoverage = args[1] === "--reap" ? [] : await doctorCoverageLines({ agentDir: canonicalAgentDir() })
-    runDoctor(await detectHarnesses(), args.slice(1), { daemonEngine: { run: engineHostCall }, categoryCoverage })
+    const [categoryCoverage, computerUse] = args[1] === "--reap"
+      ? [[], []]
+      : await Promise.all([
+          doctorCoverageLines({ agentDir: canonicalAgentDir() }),
+          doctorComputerUseLines(),
+        ])
+    runDoctor(await detectHarnesses(), args.slice(1), {
+      daemonEngine: { run: engineHostCall },
+      categoryCoverage,
+      computerUse,
+    })
     return
   }
   if (command === "setup") {

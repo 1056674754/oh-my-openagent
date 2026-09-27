@@ -1,0 +1,200 @@
+import { afterEach, describe, expect, test } from "bun:test"
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { formatComputerUseDoctorLines } from "../bin/lib/computer-use-doctor.js"
+import {
+  computerUseDoctorReport,
+  type ComputerUseDoctorReport,
+} from "../computer-use-doctor-runtime"
+
+const roots: string[] = []
+
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+})
+
+function readyReport(overrides: Partial<Extract<ComputerUseDoctorReport, { kind: "ready" }>> = {}): Extract<ComputerUseDoctorReport, { kind: "ready" }> {
+  return {
+    kind: "ready",
+    enabled: true,
+    supported: true,
+    host: "darwin-arm64",
+    enginePath: "/tmp/senpi-desktop-engine",
+    hello: {
+      protocolVersion: "1",
+      engineVersion: "0.1.0",
+      buildSha: "abc123",
+      abi: "senpi-desktop/1",
+    },
+    capabilities: {
+      backend: "quartz",
+      displayServer: "Quartz WindowServer",
+      capture: true,
+      input: true,
+      ax: true,
+      backgroundWindowInput: true,
+      deliveryModes: ["background", "foreground"],
+      capturePermission: "granted",
+      inputPermission: "granted",
+      axPermission: "granted",
+      displayCount: 2,
+      focusGuard: true,
+      stopPath: "global",
+      screenLocked: false,
+    },
+    ...overrides,
+  }
+}
+
+function fakeEngine(root: string): { readonly path: string; readonly log: string } {
+  const path = join(root, "fake-engine.mjs")
+  const log = join(root, "requests.jsonl")
+  writeFileSync(path, `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+import { createInterface } from "node:readline";
+const replies = {
+  "engine.hello": { protocolVersion: "1", engineVersion: "0.1.0", buildSha: "fixture", abi: "senpi-desktop/1" },
+  capabilities: {
+    backend: "quartz", displayServer: "Quartz WindowServer", capture: true, input: true, ax: true,
+    backgroundWindowInput: true, deliveryModes: ["background", "foreground"],
+    capturePermission: "granted", inputPermission: "granted", axPermission: "granted",
+    displayCount: 2, focusGuard: true, stopPath: "global", screenLocked: false
+  }
+};
+createInterface({ input: process.stdin }).on("line", (line) => {
+  const request = JSON.parse(line);
+  appendFileSync(process.env.OMO_TEST_REQUEST_LOG, JSON.stringify(request) + "\\n");
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: replies[request.method] }) + "\\n");
+});
+`)
+  chmodSync(path, 0o755)
+  return { path, log }
+}
+
+describe("computer use doctor rendering", () => {
+  test("#given a ready engine #when rendered #then every requested health dimension passes", () => {
+    // given
+    const report = readyReport()
+
+    // when
+    const lines = formatComputerUseDoctorLines(report)
+
+    // then
+    expect(lines).toEqual([
+      "INFO computer use: enabled=true supported=true host=darwin-arm64",
+      "PASS computer use engine: /tmp/senpi-desktop-engine (version 0.1.0, ABI senpi-desktop/1, protocol 1)",
+      "PASS computer use backend: quartz (Quartz WindowServer)",
+      "PASS computer use permissions: capture=granted input=granted accessibility=granted",
+      "PASS computer use display: count=2 screenLocked=false",
+      "PASS computer use stop path: global",
+    ])
+  })
+
+  test("#given denied permissions, a locked empty display, and no stop path #when rendered #then each degraded dimension warns", () => {
+    // given
+    const report = readyReport({
+      capabilities: {
+        ...readyReport().capabilities,
+        capture: false,
+        input: false,
+        ax: false,
+        capturePermission: "denied",
+        inputPermission: "denied",
+        axPermission: "denied",
+        displayCount: 0,
+        screenLocked: true,
+        stopPath: "none",
+        stopReason: "no-global-listener",
+      },
+    })
+
+    // when
+    const lines = formatComputerUseDoctorLines(report)
+
+    // then
+    expect(lines).toContain("WARN computer use permissions: capture=denied input=denied accessibility=denied")
+    expect(lines).toContain("WARN computer use display: count=0 screenLocked=true")
+    expect(lines).toContain("WARN computer use stop path: none reason=no-global-listener")
+  })
+
+  test("#given a quarantined engine #when rendered #then the diagnostic and every tried path are visible", () => {
+    // given
+    const report: ComputerUseDoctorReport = {
+      kind: "unavailable",
+      enabled: true,
+      supported: true,
+      host: "darwin-arm64",
+      diagnostic: {
+        code: "quarantined",
+        message: "The engine is quarantined.",
+        cause: "com.apple.quarantine is present",
+        attemptedPaths: ["/one/engine", "/two/engine"],
+      },
+    }
+
+    // when
+    const lines = formatComputerUseDoctorLines(report)
+
+    // then
+    expect(lines).toContain("FAIL computer use engine: quarantined: The engine is quarantined. com.apple.quarantine is present")
+    expect(lines).toContain("INFO computer use engine paths tried: /one/engine, /two/engine")
+  })
+
+  test("#given computer use is disabled #when rendered #then the probe is explicitly skipped", () => {
+    // given
+    const report: ComputerUseDoctorReport = {
+      kind: "skipped",
+      enabled: false,
+      supported: true,
+      host: "darwin-arm64",
+      reason: "disabled",
+    }
+
+    // when
+    const lines = formatComputerUseDoctorLines(report)
+
+    // then
+    expect(lines).toEqual([
+      "INFO computer use: enabled=false supported=true host=darwin-arm64",
+      "INFO computer use probe: skipped because computer.enabled=false",
+    ])
+  })
+})
+
+describe("computer use doctor probe", () => {
+  test("#given an explicit engine path in the effective Native config #when probed #then only hello and capabilities run before EOF", async () => {
+    // given
+    const home = mkdtempSync(join(tmpdir(), "omo-computer-doctor-"))
+    roots.push(home)
+    const engine = fakeEngine(home)
+    const configDir = join(home, ".omo")
+    mkdirSync(configDir, { recursive: true })
+    writeFileSync(join(configDir, "omo.jsonc"), JSON.stringify({
+      "[native]": { computer: { enabled: true, engine_path: engine.path } },
+    }))
+
+    // when
+    const report = await computerUseDoctorReport({
+      cwd: home,
+      env: { HOME: home, OMO_TEST_REQUEST_LOG: engine.log },
+      version: "5.0.1",
+      packageRoot: join(home, "package"),
+      platform: "darwin",
+      arch: "arm64",
+      timeoutMs: 1_000,
+    })
+
+    // then
+    expect(report.kind).toBe("ready")
+    if (report.kind !== "ready") throw new Error(`expected ready report, got ${report.kind}`)
+    expect(report.enginePath).toBe(engine.path)
+    const methods = readFileSync(engine.log, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line).method)
+    expect(methods).toEqual(["engine.hello", "capabilities"])
+    expect(methods).not.toContain("session.open")
+  })
+})
