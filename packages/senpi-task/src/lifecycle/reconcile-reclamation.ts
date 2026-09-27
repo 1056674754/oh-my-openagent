@@ -2,6 +2,7 @@ import type { TaskRecord } from "../state"
 import { isSpawnSpecV1 } from "../state"
 import { nowIso, TERMINAL_STATUSES, type LifecycleContext } from "./context"
 import { destroyResidentTask } from "./destroy"
+import { endClosingFallbackChild } from "./fallback-closing-child"
 import { isFallbackHandoff } from "./fallback-handoff"
 import { hostSessionResumePath, isHostSessionRecord } from "./host-session"
 import { clearSuspensionReason, markSuspensionReason } from "./host-session-record"
@@ -120,6 +121,10 @@ export async function reviveClaimed(
     if (!terminated) {
       return rollbackOrDeferred(context, fresh.task_id, rollbackResidency, "session_unavailable")
     }
+  }
+
+  if (!(await endClosingFallbackChild(context, fresh))) {
+    return rollbackOrDeferred(context, fresh.task_id, rollbackResidency, "session_unavailable")
   }
 
   if (isHostSessionRecord(fresh) && !(await context.hostSessionProbe.daemonAlive(fresh.host_session))) {

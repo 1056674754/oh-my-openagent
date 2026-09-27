@@ -28,14 +28,20 @@ export type FallbackRung = {
 
 /**
  * The record of a task handed to its next rung: the next model selected, the epoch advanced past the
- * failed rung's outcome, and every identity of the closed child (pid, daemon session) dropped so no
- * reconciler can mistake the closed child for this task's live one.
+ * failed rung's outcome, and every identity of the closing child (pid, daemon session) moved off the
+ * task's own fields so no reconciler mistakes it for this task's live child. It stays durable in
+ * `fallback_closing_child` until the close ends it, so a parent that dies first leaves it an owner.
  */
 export function handOffToNextRung(record: TaskRecord, rung: FallbackRung): TaskRecord {
-  const { pid: _closedPid, runner_kind: _closedRunner, host_session: _closedSession, ...rest } = record
+  const { pid: closingPid, runner_kind: _closedRunner, host_session: closingSession, ...rest } = record
   const runEpoch = record.notification.run_epoch + 1
+  const closing = {
+    ...(closingPid === undefined ? {} : { pid: closingPid }),
+    ...(closingSession === undefined ? {} : { host_session: closingSession }),
+  }
   return {
     ...rest,
+    ...(closingPid === undefined && closingSession === undefined ? {} : { fallback_closing_child: closing }),
     model: rung.model.display,
     resolved_model: rung.model,
     fallback_models: rung.remaining,
@@ -50,7 +56,16 @@ export function handOffToNextRung(record: TaskRecord, rung: FallbackRung): TaskR
 }
 
 export function endFallbackHandoff(record: TaskRecord): TaskRecord {
-  if (record.fallback_handoff_epoch === undefined) return record
-  const { fallback_handoff_epoch: _ended, ...rest } = record
+  if (record.fallback_handoff_epoch === undefined && record.fallback_closing_child === undefined) return record
+  const { fallback_handoff_epoch: _ended, fallback_closing_child: _closed, ...rest } = record
+  return rest
+}
+
+/** The closing child named `closed` is gone: forget it, unless the record already names another. */
+export function forgetClosedChild(record: TaskRecord, closed: TaskRecord["fallback_closing_child"]): TaskRecord {
+  const current = record.fallback_closing_child
+  if (current === undefined || closed === undefined) return record
+  if (current.pid !== closed.pid || current.host_session?.session_path !== closed.host_session?.session_path) return record
+  const { fallback_closing_child: _closed, ...rest } = record
   return rest
 }

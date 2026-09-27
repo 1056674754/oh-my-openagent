@@ -38,6 +38,37 @@ from `running`, so a cancel that landed first stands, and the next rung is not s
 be alive. The failed child gets its cleanup owner (above) before its slot is released and waiters settle. Tests: `runtime-fallback-launch-races.test.ts`,
 `launch-ownership-races.test.ts`.
 
+## A closing rung is never revived, a stale launch never runs or fails a newer run, and a crash mid-close leaves an owner
+
+`manager/manager.ts`: while `#tryRuntimeFallback` closes the failed rung, steering's `liveHandle` no
+longer returns that rung's handle, so an interrupt followed by `task_send`/`continueTask` in that window
+cannot revive a child that is being torn down (it answered `continued` and the old close then deleted
+the new run's live entry and stranded its lease). The fallback path only drops the live entry that is
+still its own.
+
+`manager/launch-fence.ts` (new): `ownsRun` checks status, epoch and owner, and `failOwnedRun` applies a
+start failure in one locked write only while the launch's own run still holds the record.
+`#launchRuntimeFallback` now checks ownership before starting anything (it checked `status` alone, so
+another owner's epoch still got the obsolete next rung started), and both the primary and the fallback
+start-rejection paths fail the task through `failOwnedRun`, so a stale rejection no longer writes
+`error` onto a newer owner's run.
+
+`lifecycle/fallback-handoff.ts`: the handoff moves the closing child's pid/daemon session into
+`fallback_closing_child` instead of dropping it, and the fallback path clears it once the close
+succeeds. `lifecycle/fallback-closing-child.ts` (new): `reviveClaimed` ends that child (session close
+while the daemon answers, or SIGTERM/SIGKILL) before it launches the next rung, and defers if the child
+may still be alive. A parent that died between the handoff commit and the close used to leave the old
+retained daemon session open beside the revived one.
+
+Tests: `runtime-fallback-handoff-races.test.ts` (interrupt + continue during a resolving and a
+rejecting close; another owner during the close; a stale next-rung start rejection; a rejecting close
+interrupted or cancelled for a daemon and an in-process rung), `fallback-closing-child.test.ts`
+(retained session closed, live process signalled, refused close defers), and
+`runtime-fallback-crash-before-close.test.ts` (the crash on the real `RpcHostRunner` over the fake
+daemon socket: one session left, the old one closed). `runtime-fallback-launch-races.test.ts` was split
+into it plus `runtime-fallback-teardown-rejection.test.ts` and `runtime-fallback-cleanup-owner.test.ts`
+(fixtures in `__fixtures__/fallback-launch-fakes.ts`) to stay under the 250-line ceiling.
+
 ## The failed rung's lease survives a stop during the handoff, and a lost handoff lets go of its run
 
 The handoff record names the next epoch while the failed rung's child is still closing and still holds

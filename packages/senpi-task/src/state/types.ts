@@ -304,6 +304,9 @@ export type TaskRecord = TaskRecordInput & {
   // the task sits between rungs with no child of its own, and a revival must launch the selected next
   // model fresh instead of reopening the failed rung's transcript.
   readonly fallback_handoff_epoch?: number
+  // The failed rung's child while that handoff closes it, kept apart from the task's own pid/session so
+  // no reconciler reads it as the live child; a revival of a handoff whose owner died ends it first.
+  readonly fallback_closing_child?: { readonly pid?: number; readonly host_session?: HostSessionIdentity }
 }
 
 export type TaskTransition =
