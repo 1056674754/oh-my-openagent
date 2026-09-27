@@ -1,3 +1,7 @@
+## A suspended child frees its lane slot (#8973)
+
+`TaskManager.forget()` now releases the forgotten run's concurrency lease (`#releaseSlotForTask`). Suspension (session shutdown's `suspendHandle`, `parkHostSessionOnDaemonLoss`) forgets the handle first, and the outcome tracker's `ownedRecord` then refuses to settle a handle it no longer owns, so the lease of a suspended run was never released: every suspension leaked one lane slot until the parent's lane was full, new spawns queued behind it, and revival/`task_send` answered `lane_capacity`. The per-(task, epoch) release guard keeps a late settle of the stale handle from releasing a newer run's lease. `src/manager/suspended-lane-release.test.ts` covers both: a sibling starts in a one-slot lane after the suspension (RED: it queued), and a late settle of the suspended handle leaves the new holder's lease intact.
+
 ## Task start failures preserve their closed cause and daemon admission is single-flight (#8960)
 
 Task records and every `task` / `task_output` result now carry the closed `failure_kind` and
