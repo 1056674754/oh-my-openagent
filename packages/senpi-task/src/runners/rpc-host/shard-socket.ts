@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdirSync, realpathSync } from "node:fs"
+import { lstatSync, mkdirSync, realpathSync } from "node:fs"
 import { basename, join } from "node:path"
 
 import { RunnerError } from "../in-process/runner-error"
@@ -30,6 +30,13 @@ export type ShardKind = "p" | "i"
 export type ShardNotice = keyof typeof NOTICE_TOKENS
 
 type Env = Readonly<Record<string, string | undefined>>
+
+export interface AltRootFs {
+  readonly mkdirSync: (path: string, options: { readonly recursive: true; readonly mode: number }) => unknown
+  readonly lstatSync: (path: string) => { readonly uid: number; readonly mode: number; isDirectory(): boolean; isSymbolicLink(): boolean }
+  readonly realpathSync: (path: string) => string
+  readonly getuid: () => number
+}
 
 // A FIXED short prefix, never `os.tmpdir()`: on darwin that is a ~48-byte `/var/folders/.../T` path,
 // which pushes a shard's handoff sibling past the bind limit - the very case this root exists for.
@@ -63,6 +70,7 @@ export interface ResolveShardSocketInput {
   readonly agentDir: string
   readonly env: Env
   readonly identity: ShardIdentity
+  readonly fs?: AltRootFs
 }
 
 export function shardRoot(env: Env, agentDir: string): string {
@@ -116,7 +124,7 @@ export function resolveShardSocket(input: ResolveShardSocketInput): ShardResolut
   const primary = shardSocketPathForKey(shardRoot(input.env, input.agentDir), identity.kind, identity.key)
   if (validateBindPath(primary)) return { socket: primary, shard: identity, root: "primary" }
 
-  const alternate = shardSocketPathForKey(ensureAltRoot(input.agentDir), identity.kind, identity.key)
+  const alternate = shardSocketPathForKey(ensureAltRoot(input.agentDir, input.fs), identity.kind, identity.key)
   if (!validateBindPath(alternate)) {
     // Impossible for the fixed prefix; reaching it is a bug, and a bind would truncate silently.
     throw new RunnerError({
@@ -129,10 +137,33 @@ export function resolveShardSocket(input: ResolveShardSocketInput): ShardResolut
 
 // Created 0700 on first use, then resolved through the `/tmp -> /private/tmp` symlink so every
 // spelling of the root names one endpoint (senpi keys a daemon directory by the socket string).
-function ensureAltRoot(agentDir: string): string {
+function ensureAltRoot(agentDir: string, fs: AltRootFs | undefined): string {
   const root = altRoot(agentDir)
-  mkdirSync(root, { recursive: true, mode: ALT_ROOT_MODE })
-  return realpathSync(root)
+  const ports = fs ?? {
+    mkdirSync: (path: string, options: { readonly recursive: true; readonly mode: number }) => mkdirSync(path, options),
+    lstatSync: (path: string) => lstatSync(path),
+    realpathSync: (path: string) => realpathSync(path),
+    getuid: () => process.getuid?.() ?? -1,
+  }
+  ports.mkdirSync(root, { recursive: true, mode: ALT_ROOT_MODE })
+  const rootStat = ports.lstatSync(root)
+  const resolved = ports.realpathSync(root)
+  const resolvedStat = ports.lstatSync(resolved)
+  if (
+    rootStat.isSymbolicLink() ||
+    !rootStat.isDirectory() ||
+    resolvedStat.isSymbolicLink() ||
+    !resolvedStat.isDirectory() ||
+    resolvedStat.uid !== ports.getuid() ||
+    (resolvedStat.mode & 0o077) !== 0
+  ) {
+    throw new RunnerError({
+      kind: "host_unavailable",
+      reason: "host_unreachable",
+      message: `shard_alt_root_unsafe: refusing unsafe alternate shard root ${root}`,
+    })
+  }
+  return resolved
 }
 
 function sha256Hex(value: string): string {
