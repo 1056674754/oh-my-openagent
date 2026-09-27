@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { spawn } from "node:child_process"
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -8,8 +9,14 @@ import {
   computerUseDoctorReport,
   type ComputerUseDoctorReport,
 } from "../computer-use-doctor-runtime"
+import type { EngineLauncher } from "../computer-use-engine-probe"
 
 const roots: string[] = []
+
+// A fixture engine is a script, and Windows cannot execute a script as a binary (EFTYPE), so the tests start
+// it through the running runtime; the production launcher executes the located binary directly.
+const runEngineScript: EngineLauncher = (enginePath, args, env) =>
+  spawn(process.execPath, [enginePath, ...args], { stdio: "pipe", windowsHide: true, env })
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
@@ -197,6 +204,7 @@ describe("computer use doctor probe", () => {
       packageRoot: join(home, "package"),
       platform: "darwin",
       arch: "arm64",
+      launchEngine: runEngineScript,
       timeoutMs: 1_000,
     })
 
