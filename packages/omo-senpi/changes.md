@@ -40,6 +40,18 @@ The daemon launch spec is unchanged: no memory knob.
 Tests: `shard-routing.test.ts` (new), `host-runner-selection.test.ts`.
 
 ## computer use: forward the macOS canary policy (#8945)
+## 2026-09-27 - Persist mailbox operations without whole-queue rewrites
+
+The ordered-delivery mailbox now records one durable journal update per enqueue
+or removal instead of serializing and fsyncing the complete pending queue after
+every mutation. Enqueue and non-compacting removal updates append one event;
+bounded snapshots compact drained or long journals. Existing `mailbox.json`
+snapshots migrate on first open, preserving sequence numbers and queued
+messages. The cap-and-restart test keeps the same count, byte, overflow, and
+recovery contracts with injected limits, and the earlier 15-second timeout
+override is removed.
+
+## local launcher: `omo update` points at bun
 
 The shipped extension now passes `computer.macos_canary` through the desktop
 service to the native session. Explicit `off` reaches the macOS backend;
