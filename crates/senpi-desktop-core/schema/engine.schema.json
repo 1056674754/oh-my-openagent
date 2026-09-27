@@ -1728,6 +1728,15 @@
           "format": "uint32",
           "minimum": 0
         },
+        "textDelivered": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Fully delivered Unicode scalars; may be shorter than `text_length`\nwhen a stop or cancellation interrupts typing."
+        },
         "textSha256": {
           "type": [
             "string",
