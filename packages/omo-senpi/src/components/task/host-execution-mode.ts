@@ -1,25 +1,37 @@
 import type { OmoTaskSettings } from "@oh-my-opencode/omo-config-core"
 import {
+  attachOwnEndpoint,
   createExecutionModeGate,
-  ensureTaskDaemon,
+  createHostEndpointPort,
   HostUnavailableError,
+  isOwnEndpoint,
   resolveAutoExecutionMode,
+  RunnerError,
   type EnsureTaskDaemonPort,
   type ExecutionMode,
   type ExecutionModeGate,
+  type HostEndpointPort,
+  type HostProtocolProbe,
+  type ShardResolution,
 } from "@oh-my-opencode/senpi-task"
 
 import { log } from "@oh-my-opencode/utils"
 
 import { resolveAgentHome } from "../agent-home/resolve-agent-home"
+import {
+  createSessionShardRouting,
+  resolutionNoticeToken,
+  type SessionIdentitySource,
+  type SessionShardRouting,
+} from "./shard-routing"
 
 /**
  * How this parent session answers `task.default_execution_mode: "auto"`, and how it tells the
- * parent when the shared daemon could not take its children.
+ * parent when its own task host could not take its children.
  *
  * The answer is a SESSION fact: asked once, at the first spawn that needs it, and kept for the rest
- * of the session even if the daemon dies later - a child's mode must never depend on daemon health
- * at spawn time.
+ * of the session even if the host dies later - a child's mode must never depend on host health at
+ * spawn time.
  */
 
 /** One line per distinct reason. The token (`host_unavailable:<reason>`) is the dedup key. */
@@ -60,7 +72,7 @@ export interface HostExecutionModeDeps {
   readonly agentDir: string
   readonly env: Readonly<Record<string, string | undefined>>
   readonly notices: HostNotices
-  readonly ensureDaemon?: EnsureTaskDaemonPort
+  readonly routing: SessionShardRouting
 }
 
 export function createHostExecutionModeGate(deps: HostExecutionModeDeps): ExecutionModeGate {
@@ -77,31 +89,56 @@ async function resolveMode(deps: HostExecutionModeDeps): Promise<ExecutionMode> 
   })
   if (deps.settings.process_runner !== "host" || deps.platform === "win32") return withoutDaemon
 
-  const ensure = deps.ensureDaemon ?? ensureTaskDaemon
   try {
-    const daemon = await ensure({
-      agentDir: deps.agentDir,
-      env: deps.env,
-      policy: deps.settings.host_engine_policy,
-      ...(deps.settings.host_idle_exit_ms === undefined
-        ? {}
-        : { ports: { idleExitMs: deps.settings.host_idle_exit_ms } }),
-    })
+    const resolution = deps.routing.shardResolver()
+    const notice = resolutionNoticeToken(resolution)
+    if (notice !== undefined) deps.notices.add(`${notice} ${resolution.socket}`)
     const mode = resolveAutoExecutionMode({
       platform: deps.platform,
       processRunner: deps.settings.process_runner,
-      capabilities: daemon.capabilities,
+      capabilities: await sessionHostCapabilities(deps, resolution),
     })
     if (mode === "in-process") deps.notices.add(unavailableNotice("capability", "the daemon does not advertise generation_handoff"))
     return mode
   } catch (error) {
-    deps.notices.add(
-      error instanceof HostUnavailableError
-        ? unavailableNotice(error.reason, error.message)
-        : unavailableNotice("ensure_failed", error instanceof Error ? error.message : String(error)),
-    )
+    deps.notices.add(unavailableNotice(failureReason(error), error instanceof Error ? error.message : String(error)))
     return "in-process"
   }
+}
+
+/**
+ * What THIS session's own task host can do. The host the session itself runs behind (and the shard
+ * its tree inherited) is only probed - never ensured, started or handed off from inside; every other
+ * session ensures its own shard, never the machine-wide `rpc.sock`.
+ */
+async function sessionHostCapabilities(
+  deps: HostExecutionModeDeps,
+  resolution: ShardResolution,
+): Promise<readonly string[] | undefined> {
+  const { shard, socket } = resolution
+  if (shard.inherited || isOwnEndpoint(socket, deps.routing.ownHostSocket())) {
+    return (await attachOwnEndpoint(deps.routing.probeHost, socket)).capabilities
+  }
+  const daemon = await deps.routing.ensureDaemon({
+    agentDir: deps.agentDir,
+    env: deps.env,
+    policy: deps.settings.host_engine_policy,
+    socket,
+    owner: {
+      kind: shard.kind,
+      key: shard.key,
+      ownerSessionId: shard.ownerSessionId,
+      ...(shard.ownerSessionFile === undefined ? {} : { ownerSessionFile: shard.ownerSessionFile }),
+    },
+    ...(resolution.notice === undefined ? {} : { sidecarNotice: resolution.notice }),
+  })
+  return daemon.capabilities
+}
+
+function failureReason(error: unknown): string {
+  if (error instanceof HostUnavailableError) return error.reason
+  if (RunnerError.is(error)) return error.failure.reason ?? "ensure_failed"
+  return "ensure_failed"
 }
 
 /** The SAME token shape `RpcHostRunner` warns with, so both sources dedupe against each other. */
@@ -109,20 +146,60 @@ function unavailableNotice(reason: string, detail: string): string {
   return `host_unavailable:${reason} - task children run in this process: ${detail}`
 }
 
-/** What ONE parent session needs to route `process` children at the shared daemon. */
+/** What ONE session needs to route `process` children at its own task host. */
 export interface EngineHostRuntime {
   readonly agentDir: string
   readonly notices: HostNotices
   readonly executionModeGate: ExecutionModeGate
+  readonly routing: SessionShardRouting
+  // The lifecycle's way back to a recorded endpoint (revival, orphan reconcile): same ensure port,
+  // same own-endpoint guard, same notice list as the runner.
+  readonly hostEndpoint: HostEndpointPort
+  // The socket this session's NEW children would open on right now (status and notices).
+  shardSocket(): string
+}
+
+export interface EngineHostRuntimeOverrides {
+  readonly env?: Readonly<Record<string, string | undefined>>
+  readonly platform?: NodeJS.Platform
+  readonly agentDir?: string
+  readonly ensureDaemon?: EnsureTaskDaemonPort
+  readonly probeHost?: HostProtocolProbe
 }
 
 /**
- * The session's daemon wiring, assembled once: the notice list the runner and the gate share (so a
- * reason reaches `task_output` exactly once), and the gate that answers `auto`.
+ * The session's host wiring, assembled once: the notice list the runner, the gate and the lifecycle
+ * share (so a reason reaches `task_output` exactly once), the gate that answers `auto`, and the
+ * per-call shard routing. Nothing here captures the session id: it is read at every call.
  */
-export function createEngineHostRuntime(settings: OmoTaskSettings): EngineHostRuntime {
+export function createEngineHostRuntime(
+  settings: OmoTaskSettings,
+  runtime: SessionIdentitySource,
+  pi: unknown,
+  overrides: EngineHostRuntimeOverrides = {},
+): EngineHostRuntime {
   const notices = createHostNotices((message) => log("omo-senpi task daemon unavailable", { message }))
-  const agentDir = resolveAgentHome({ env: process.env })
-  const gate = createHostExecutionModeGate({ settings, platform: process.platform, agentDir, env: process.env, notices })
-  return { agentDir, notices, executionModeGate: gate }
+  const env = overrides.env ?? process.env
+  const agentDir = overrides.agentDir ?? resolveAgentHome({ env })
+  const routing = createSessionShardRouting({
+    settings,
+    runtime,
+    pi,
+    agentDir,
+    env,
+    notices,
+    ...(overrides.ensureDaemon === undefined ? {} : { ensureDaemon: overrides.ensureDaemon }),
+    ...(overrides.probeHost === undefined ? {} : { probeHost: overrides.probeHost }),
+  })
+  const platform = overrides.platform ?? process.platform
+  const gate = createHostExecutionModeGate({ settings, platform, agentDir, env, notices, routing })
+  const hostEndpoint = createHostEndpointPort({
+    agentDir,
+    env,
+    policy: settings.host_engine_policy,
+    ensureDaemon: routing.ensureDaemon,
+    ownHostSocket: routing.ownHostSocket,
+    onNotice: routing.onNotice,
+  })
+  return { agentDir, notices, executionModeGate: gate, routing, hostEndpoint, shardSocket: () => routing.shardResolver().socket }
 }

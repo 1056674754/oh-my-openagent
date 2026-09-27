@@ -35,7 +35,7 @@ export function createReattachPort<Port extends HostSessionPort>(input: Reattach
       await input.sleep(delayMs)
       try {
         await admitChildStore(endpoint)
-        const socket = await ensureChildEndpoint(endpoint, { socket: lost.socket, recorded: true })
+        const socket = await ensureChildEndpoint(endpoint, { socket: lost.socket, recorded: true, attachOnly: false })
         const client = input.createClient(socket)
         const opened = await input.open(client, lost.sessionPath)
         return {

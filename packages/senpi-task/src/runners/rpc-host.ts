@@ -20,6 +20,7 @@ import { createReattachPort } from "./rpc-host/reattach-port"
 import { createHostSessionHandle } from "./rpc-host/handle"
 import type { HostSessionChildHandle, HostSessionIdentity, HostSessionPort } from "./rpc-host/handle-port"
 import { HostSessionClient, type OpenedHostSession } from "./rpc-host/session-client"
+import { probeWithEngine, type HostProtocolProbe } from "./rpc-host/session-transport"
 import { openHostSessionWithAdmission } from "./rpc-host/admission"
 import { openTaskHostSession } from "./rpc-host/open-session"
 import { resolveChildSessionPath } from "./rpc-host/session-context"
@@ -68,14 +69,16 @@ export type RpcHostRunnerOptions = {
   readonly admissionWaitMs?: number
   readonly sleep?: (ms: number) => Promise<void>
   // WHERE a new child's host listens, asked at EVERY start (the owning session changes on /new).
-  // Absent: the machine-wide socket `ensureTaskDaemon` resolves.
-  readonly shardResolver?: ShardResolver
+  // Required: a task child has no machine-wide default endpoint.
+  readonly shardResolver: ShardResolver
   // The task store (`resolveStateDir`): registered in the agent-dir store index before every open.
-  readonly storeDir?: string
+  readonly storeDir: string
   // The public socket this session lives behind (`readOwnHostSocket(pi)`); never ensured from inside.
-  readonly ownHostSocket?: () => string | undefined
+  readonly ownHostSocket: () => string | undefined
   // `host_notice:*` / `host_unavailable:*` tokens, once per token and endpoint.
-  readonly onNotice?: HostNoticeSink
+  readonly onNotice: HostNoticeSink
+  // The attach-only probe for the session's own endpoint; defaults to the engine's `probeHost`.
+  readonly probeHost?: HostProtocolProbe
 }
 
 /** Whether a started child lives on the daemon (a session) or in its own process (the fallback). */
@@ -84,8 +87,9 @@ export function isHostSessionHandle(handle: RpcChildHandle): handle is HostSessi
 }
 
 /**
- * Runs a `process`-mode child as a SESSION of the machine-wide senpi daemon: it attaches to (or
- * creates) that daemon through the engine's own ensure, opens one retained worker session per
+ * Runs a `process`-mode child as a SESSION of its parent session's own task host (the shard the
+ * resolver names): it attaches to (or creates) that host through the engine's own ensure - never the
+ * host this session itself lives on, which is only attached - opens one retained worker session per
  * child, and returns the same steerable handle shape the per-child runner returns. It spawns
  * nothing itself and holds no pid - a session's death is a session record, never a signal.
  *
@@ -130,6 +134,7 @@ export class RpcHostRunner {
       storeDir: options.storeDir,
       shardResolver: options.shardResolver,
       ownHostSocket: options.ownHostSocket,
+      probeHost: options.probeHost ?? probeWithEngine,
       notice: onceNoticeSink(options.onNotice),
       now: this.now,
     }
@@ -142,6 +147,7 @@ export class RpcHostRunner {
         : specInput
     await this.modelAdmission(spec)
     const endpoint = resolveChildEndpoint(this.endpoint, spec)
+    const keyed = endpoint.shardKey === undefined ? spec : { ...spec, treeKey: endpoint.shardKey, shardKey: endpoint.shardKey }
     await admitChildStore(this.endpoint)
     let socket: string
     try {
@@ -153,7 +159,7 @@ export class RpcHostRunner {
     }
     await recordSidecarStore(this.endpoint, socket)
     try {
-      return await this.openChild(spec, socket)
+      return await this.openChild(keyed, socket)
     } catch (error) {
       if (RunnerError.is(error)) throw error
       // The host refusing the OPEN on a recorded endpoint (e.g. a missing capability - the only

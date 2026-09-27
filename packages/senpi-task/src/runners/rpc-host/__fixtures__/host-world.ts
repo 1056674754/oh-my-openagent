@@ -127,6 +127,15 @@ function connectParent(input: ConnectParentInput): ParentSession {
   const runner = new RpcHostRunner({
     policy: "upgrade",
     agentDir: join(projectDir, "agent"),
+    storeDir: store.stateDir,
+    shardResolver: () => ({
+      socket: socketPath,
+      shard: { kind: "p", key: "0000000000000000", ownerSessionId: sessionId, inherited: false },
+      root: "primary",
+    }),
+    ownHostSocket: () => undefined,
+    onNotice: () => undefined,
+    probeHost: () => probeFakeHost(socketPath),
     env: {},
     ensureDaemon: () =>
       Promise.resolve({

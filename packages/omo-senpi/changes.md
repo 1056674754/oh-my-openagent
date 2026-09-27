@@ -1,3 +1,23 @@
+## task: every session's process children run on its own host (rpc-host-sharding todo 8)
+
+`components/task/shard-routing.ts` (new): the session's shard identity is read at every call, never at
+construction - a session opened inside a host with a 16-hex `shard_key` in its context reuses its tree's
+host (attach-only); every other session (a parent, a per-child-process child, a Desktop thread) is the
+root of its own tree, keyed by its OWN session id (`p-<shardKey("p", id)>.sock` under
+`OMO_RPC_SHARD_ROOT ?? <agentDir>/rpc/shards`). No session id at routing time is `shard_identity_missing`.
+`OMO_RPC_SOCKET_PATH` / `OMO_RPC_SOCKET` no longer route task children anywhere.
+
+`host-execution-mode.ts`: the `auto` gate ensures the session's shard (socket + owner + alt-root notice)
+or, for an inherited / own endpoint, only probes it. `EngineHostRuntime` carries the routing, the
+lifecycle's `hostEndpoint` port and `shardSocket()`. `engine.ts` wires `hostEndpoint` into the lifecycle
+(revival and orphan reconcile now re-ensure recorded sockets and guard the own endpoint) and passes
+`shardResolver`, `storeDir`, `ownHostSocket`, `onNotice` and `probeHost` to `RpcHostRunner` through
+`RunnerBuildContext.hostRouting`; `buildProcessChildRunner` refuses to build a host runner without it.
+The `task.host_idle_exit_ms` override now wraps the one ensure port the gate, runner and lifecycle share.
+The daemon launch spec is unchanged: no memory knob.
+
+Tests: `shard-routing.test.ts` (new), `host-runner-selection.test.ts`.
+
 ## computer use: forward the macOS canary policy (#8945)
 
 The shipped extension now passes `computer.macos_canary` through the desktop

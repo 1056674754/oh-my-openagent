@@ -32,6 +32,8 @@ export const HOST_START_FAILURE_REASONS = [
   "legacy_host",
   "host_incompatible",
   "store_index_unavailable",
+  "own_host_unreachable",
+  "shard_identity_missing",
 ] as const
 
 export const SESSION_START_FAILURE_REASONS = [

@@ -52,6 +52,11 @@ export type { HostNoticeSink, HostNoticeToken } from "./rpc-host/host-notice"
 export { isOwnEndpoint, readOwnHostSocket } from "./rpc-host/own-endpoint"
 export { readTaskStoreIndex, taskStoreIndexPath } from "./rpc-host/store-index"
 export type { ShardResolver } from "./rpc-host/child-endpoint"
+export { attachOwnEndpoint } from "./rpc-host/child-endpoint"
+export { resolveShardSocket, SHARD_KEY_CONTEXT, shardKey, shardSocketPathForKey } from "./rpc-host/shard-socket"
+export type { ShardIdentity, ShardResolution } from "./rpc-host/shard-socket"
+export { probeWithEngine } from "./rpc-host/session-transport"
+export type { HostProtocolProbe } from "./rpc-host/session-transport"
 export type {
   ChildEventListener,
   ChildExitFacts,

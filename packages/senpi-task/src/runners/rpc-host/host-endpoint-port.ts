@@ -10,8 +10,8 @@ export interface HostEndpointPortInput {
   readonly env: Readonly<Record<string, string | undefined>>
   readonly policy: HostEnginePolicy
   readonly ensureDaemon?: EnsureTaskDaemonPort
-  readonly ownHostSocket?: () => string | undefined
-  readonly onNotice?: HostNoticeSink
+  readonly ownHostSocket: () => string | undefined
+  readonly onNotice: HostNoticeSink
 }
 
 /** The lifecycle's way to a recorded endpoint (`LifecycleDeps.hostEndpoint`), built from the runner's ports. */
@@ -19,7 +19,7 @@ export function createHostEndpointPort(input: HostEndpointPortInput): HostEndpoi
   const ensureDaemon = input.ensureDaemon ?? ensureTaskDaemon
   const notice = onceNoticeSink(input.onNotice)
   return {
-    isOwn: (socket) => isOwnEndpoint(socket, input.ownHostSocket?.()),
+    isOwn: (socket) => isOwnEndpoint(socket, input.ownHostSocket()),
     ensure: async (socket) => {
       try {
         await ensureDaemon({ agentDir: input.agentDir, env: input.env, policy: input.policy, socket })

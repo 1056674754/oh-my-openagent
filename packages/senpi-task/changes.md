@@ -1,3 +1,31 @@
+## Every task child opens on its parent session's own host; the shared-host route is gone
+
+`runners/rpc-host.ts` + `rpc-host/child-endpoint.ts`: `RpcHostRunnerOptions.shardResolver`, `storeDir`,
+`ownHostSocket` and `onNotice` are REQUIRED. A new child always opens on the socket the resolver names;
+the branch that let a runner without a resolver ensure the machine-wide `rpc.sock` (or whatever
+`OMO_RPC_SOCKET*` named) is deleted - a JavaScript caller that still omits the resolver fails
+`shard_identity_missing` before anything is ensured. `ensureTaskDaemon` without a `socket` remains for
+the operator commands only. Each open stamps `tree_key` / `shard_key` (the shard key; parsed back from a
+recorded `p-*` socket on revival) into the child's session context, so the child's own children reuse
+the host it lives on.
+
+A resolution marked `inherited` (a child inside its tree's host) or naming the session's own endpoint is
+ATTACH-ONLY: `attachOwnEndpoint` sends one `get_protocol_info` (`probeHost`, injectable) and accepts any
+generation that speaks this build's protocol - H1, or H2 after a handoff moved the public path - then opens
+there. A silent endpoint or a protocol mismatch is `own_host_unreachable`; no ensure, no start, no
+handoff, no per-child fallback. `createHostEndpointPort` now requires `ownHostSocket` and `onNotice`.
+New start-failure reasons: `own_host_unreachable`, `shard_identity_missing`.
+
+`tools/task/execute-spec.ts`: `ensureAutoExecutionMode(deps, targets)` skips the `auto` check when every
+target of the call already runs in-process without it (an agent configured in-process, e.g. `explore`),
+so such a call never ensures the session's host (IS-9). The kernel-tool grant path shares the skip; an
+unsettled `auto` still reads as in-process, so no grant widens. A call with any unsettled or `process`
+target settles the check once, before any spec, as before.
+
+Tests: `rpc-host-own-endpoint.test.ts` (new: inherited attach on H1/H2, silent and mismatched probes,
+foreign `host_socket`, tree/shard keys on the wire, missing resolver), `tools/task/execute-auto-mode-gate.test.ts`
+(new), runner fixtures carry the required routing.
+
 ## The task record lock never deletes a lock another process holds
 
 `store/record-lock.ts`: a waiter that found the lock file gone (released between its failed create and its

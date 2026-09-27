@@ -23,6 +23,10 @@ export type RpcRunnerSpec = {
   // The endpoint a daemon-hosted child's record names. A revival opens there and nowhere else; the
   // per-child process runner ignores it.
   readonly hostSocket?: string
+  // The tree and shard key a daemon-hosted child carries in its session context (`tree_key` /
+  // `shard_key`), so ITS children reuse the same host. Stamped by `RpcHostRunner`, never by callers.
+  readonly treeKey?: string
+  readonly shardKey?: string
   // The provider/modelId the child must resolve. A separate OS process cannot share the parent's
   // in-memory registry, so the model is threaded onto the child command line (`--model`).
   readonly model?: string

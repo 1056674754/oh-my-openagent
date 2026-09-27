@@ -65,8 +65,8 @@ export interface TaskEngine {
   readonly agents: Readonly<Record<string, AgentDefinition>>
   readonly omoConfig: OmoConfig
   readonly settings: OmoTaskSettings
-  // This parent session's shared-daemon wiring: the ONE answer to `task.default_execution_mode:
-  // "auto"`, and the deduped reasons the daemon could not take its children.
+  // This session's task-host wiring: the ONE answer to `task.default_execution_mode: "auto"`, the
+  // per-call shard routing, and the deduped reasons its host could not take its children.
   readonly host: EngineHostRuntime
   readonly stateDir: string
   readonly loadSkills: SkillLoader
@@ -187,7 +187,9 @@ export function composeTaskEngine(deps: ComposeTaskEngineDeps): TaskEngine {
   // with it, and the lifecycle salvages and sweeps a crashed host's clones through the same object.
   // Without it every `isolated: true` spawn is refused as `isolation_unavailable`.
   const isolation = createIsolationRuntime()
+  const host = deps.host ?? createEngineHostRuntime(settings, runtime, deps.pi)
   const lifecycle = createTaskLifecycle({ store: storeChain.store, registry, config: settings, kernelToolBindings, isolation,
+    hostEndpoint: host.hostEndpoint,
     revivePolicy: {
       currentGeneration: () => {
         const modelRegistry = runtime.modelRegistry()
@@ -202,8 +204,8 @@ export function composeTaskEngine(deps: ComposeTaskEngineDeps): TaskEngine {
   })
 
   const factories = deps.runnerFactories ?? DEFAULT_RUNNER_FACTORIES
-  const host = deps.host ?? createEngineHostRuntime(settings)
-  const baseRunnerContext: RunnerBuildContext = { runtime, sharedParentTools: deps.sharedParentTools, settings, kernelToolBindings, agentDir: host.agentDir, onHostWarning: host.notices.add }
+  const hostRouting = { ...host.routing, storeDir: baseStore.stateDir }
+  const baseRunnerContext: RunnerBuildContext = { runtime, sharedParentTools: deps.sharedParentTools, settings, kernelToolBindings, agentDir: host.agentDir, onHostWarning: host.notices.add, hostRouting }
   // One resolver for the whole session, so an ordinary spawn, a revival, a team member and a
   // workpool worker all inherit the SAME package-aware extension list (#8492).
   const resolveInheritedExtensions = createInheritedExtensionsResolver(baseRunnerContext)

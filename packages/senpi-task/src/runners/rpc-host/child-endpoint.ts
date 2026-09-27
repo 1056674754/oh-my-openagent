@@ -1,13 +1,14 @@
 import { log } from "@oh-my-opencode/utils"
 
-import type { HostEnginePolicy } from "../../lazy/senpi-barrel"
+import type { HostEnginePolicy, SenpiHostProtocolInfo } from "../../lazy/senpi-barrel"
 import { RunnerError } from "../in-process/runner-error"
 import type { RpcRunnerSpec } from "../types"
-import type { EnsureTaskDaemonInput, EnsuredTaskDaemon } from "./daemon"
+import { TASK_DAEMON_PROTOCOL_VERSION, type EnsureTaskDaemonInput, type EnsuredTaskDaemon } from "./daemon"
 import type { HostNoticeKind } from "./host-notice"
 import { isOwnEndpoint } from "./own-endpoint"
 import { registerSidecarStore, type ShardOwner } from "./shard-sidecar"
-import type { ShardNotice, ShardResolution } from "./shard-socket"
+import { parseShardBasename, type ShardNotice, type ShardResolution } from "./shard-socket"
+import type { HostProtocolProbe } from "./session-transport"
 import { registerStoreIndex, taskStoreIndexPath } from "./store-index"
 
 export type EnsureTaskDaemonPort = (input: EnsureTaskDaemonInput) => Promise<EnsuredTaskDaemon>
@@ -18,37 +19,64 @@ export interface ChildEndpointPorts {
   readonly env: Readonly<Record<string, string | undefined>>
   readonly policy: HostEnginePolicy
   readonly ensureDaemon: EnsureTaskDaemonPort
-  readonly storeDir: string | undefined
-  readonly shardResolver: ShardResolver | undefined
-  readonly ownHostSocket: (() => string | undefined) | undefined
+  readonly storeDir: string
+  readonly shardResolver: ShardResolver
+  readonly ownHostSocket: () => string | undefined
+  readonly probeHost: HostProtocolProbe
   readonly notice: (kind: HostNoticeKind, detail?: string) => void
   readonly now: () => number
 }
 
 /**
  * WHERE a child opens. A revived or reattached child names its RECORDED socket and opens there and
- * only there; a new child asks the resolver (per start - the owning session changes on /new); a
- * runner built without a resolver keeps the machine-wide socket `ensureTaskDaemon` resolves.
+ * only there; a new child asks the resolver (per start - the owning session changes on /new). There
+ * is no third answer: a task child is never routed to the machine-wide `rpc.sock`.
+ *
+ * `attachOnly` marks an endpoint this session must never ensure: its tree's shard inherited from the
+ * session context (a child inside a host reuses the host it lives on).
  */
 export interface ChildEndpoint {
-  readonly socket: string | undefined
+  readonly socket: string
   readonly recorded: boolean
+  readonly attachOnly: boolean
   readonly owner?: ShardOwner
   readonly sidecarNotice?: ShardNotice
+  // The `tree_key` / `shard_key` the child's session context carries, so its own children stay here.
+  readonly shardKey?: string
 }
 
 export function resolveChildEndpoint(ports: ChildEndpointPorts, spec: RpcRunnerSpec): ChildEndpoint {
-  if (spec.hostSocket !== undefined) return { socket: spec.hostSocket, recorded: true }
-  if (ports.shardResolver === undefined) return { socket: undefined, recorded: false }
+  if (spec.hostSocket !== undefined) {
+    const parsed = parseShardBasename(spec.hostSocket)
+    return {
+      socket: spec.hostSocket,
+      recorded: true,
+      attachOnly: false,
+      ...(parsed?.kind === "p" ? { shardKey: parsed.key } : {}),
+    }
+  }
+  // A JavaScript caller can still construct a runner without a resolver; that is a wiring bug, and
+  // it fails LOUDLY here instead of reaching the operator daemon on `rpc.sock`.
+  if (typeof ports.shardResolver !== "function") throw shardIdentityMissing("the task host runner was built without a shard resolver")
   const resolution = ports.shardResolver(spec)
   if (resolution.notice !== undefined) ports.notice(resolution.notice, resolution.socket)
-  const { kind, key, ownerSessionId, ownerSessionFile } = resolution.shard
+  const { kind, key, ownerSessionId, ownerSessionFile, inherited } = resolution.shard
   return {
     socket: resolution.socket,
     recorded: false,
+    attachOnly: inherited,
     owner: { kind, key, ownerSessionId, ...(ownerSessionFile === undefined ? {} : { ownerSessionFile }) },
     ...(resolution.notice === undefined ? {} : { sidecarNotice: resolution.notice }),
+    shardKey: key,
   }
+}
+
+export function shardIdentityMissing(detail: string): RunnerError {
+  return new RunnerError({
+    kind: "host_unavailable",
+    reason: "shard_identity_missing",
+    message: `shard_identity_missing: ${detail}`,
+  })
 }
 
 /**
@@ -57,7 +85,6 @@ export function resolveChildEndpoint(ports: ChildEndpointPorts, spec: RpcRunnerS
  * does not list. Failure is a typed `store_index_unavailable`, never a silent open.
  */
 export async function admitChildStore(ports: ChildEndpointPorts): Promise<void> {
-  if (ports.storeDir === undefined) return
   try {
     await registerStoreIndex({ indexPath: taskStoreIndexPath(ports.agentDir), storeDir: ports.storeDir, now: ports.now })
   } catch (error) {
@@ -76,17 +103,49 @@ export function isStoreIndexUnavailable(error: unknown): boolean {
 }
 
 /**
- * THE one place an ensure result is consumed. The session's OWN endpoint is never ensured from
- * inside it. When the engine's ensure starts handing its readiness connection to the caller as an
- * attach hold (senpi #2242), that hold is released here, after the open it guards.
+ * The session's OWN endpoint (or its tree's inherited shard) is only ever ATTACHED: one
+ * `get_protocol_info` round trip that spawns nothing. Any generation may answer - after a handoff the
+ * public path belongs to the successor while this session keeps running in its predecessor - but it
+ * must speak this build's protocol. A silent endpoint is never started, handed off or replaced.
+ */
+export async function attachOwnEndpoint(probeHost: HostProtocolProbe, socket: string): Promise<SenpiHostProtocolInfo> {
+  let info: SenpiHostProtocolInfo | undefined
+  try {
+    info = await probeHost(socket)
+  } catch (error) {
+    throw ownHostUnreachable(socket, error instanceof Error ? error.message : String(error), error)
+  }
+  if (info === undefined) throw ownHostUnreachable(socket, "the endpoint did not answer get_protocol_info")
+  if (info.protocolVersion !== TASK_DAEMON_PROTOCOL_VERSION) {
+    throw ownHostUnreachable(socket, `the endpoint speaks protocol ${info.protocolVersion}`)
+  }
+  return info
+}
+
+function ownHostUnreachable(socket: string, detail: string, cause?: unknown): RunnerError {
+  return new RunnerError({
+    kind: "host_unavailable",
+    reason: "own_host_unreachable",
+    message: `own_host_unreachable: ${socket}: ${detail}`,
+    ...(cause === undefined ? {} : { cause }),
+  })
+}
+
+/**
+ * THE one place an ensure result is consumed. When the engine's ensure starts handing its readiness
+ * connection to the caller as an attach hold (senpi #2242), that hold is released here, after the
+ * open it guards.
  */
 export async function ensureChildEndpoint(ports: ChildEndpointPorts, endpoint: ChildEndpoint): Promise<string> {
-  if (endpoint.socket !== undefined && isOwnEndpoint(endpoint.socket, ports.ownHostSocket?.())) return endpoint.socket
+  if (endpoint.attachOnly || isOwnEndpoint(endpoint.socket, ports.ownHostSocket())) {
+    await attachOwnEndpoint(ports.probeHost, endpoint.socket)
+    return endpoint.socket
+  }
   const daemon = await ports.ensureDaemon({
     agentDir: ports.agentDir,
     env: ports.env,
     policy: ports.policy,
-    ...(endpoint.socket === undefined ? {} : { socket: endpoint.socket }),
+    socket: endpoint.socket,
     ...(endpoint.owner === undefined ? {} : { owner: endpoint.owner }),
     ...(endpoint.sidecarNotice === undefined ? {} : { sidecarNotice: endpoint.sidecarNotice }),
   })
@@ -95,7 +154,6 @@ export async function ensureChildEndpoint(ports: ChildEndpointPorts, endpoint: C
 
 /** The sidecar's copy of the store list is informational: a failure is logged and noticed once. */
 export async function recordSidecarStore(ports: ChildEndpointPorts, socket: string): Promise<void> {
-  if (ports.storeDir === undefined) return
   try {
     await registerSidecarStore({ socket, storeDir: ports.storeDir })
   } catch (error) {

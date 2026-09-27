@@ -4,11 +4,35 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { OmoTaskSettingsSchema, type OmoTaskSettings } from "@oh-my-opencode/omo-config-core"
-import { HostUnavailableError, RpcHostRunner, RpcProcessRunner } from "@oh-my-opencode/senpi-task"
+import { HostUnavailableError, RpcHostRunner, RpcProcessRunner, type EnsureTaskDaemonPort } from "@oh-my-opencode/senpi-task"
 
 import { buildProcessChildRunner, type RunnerBuildContext } from "./engine-runners"
 import { createHostExecutionModeGate, createHostNotices } from "./host-execution-mode"
 import { TaskRuntimeContext } from "./runtime-context"
+import { createSessionShardRouting } from "./shard-routing"
+
+function attachedRuntime(cwd: string, sessionId = "01a0e4ae-parent"): TaskRuntimeContext {
+  const runtime = new TaskRuntimeContext(cwd)
+  runtime.captureFrom({ sessionManager: { getSessionId: () => sessionId } })
+  return runtime
+}
+
+function routingFor(input: {
+  readonly settings: OmoTaskSettings
+  readonly notices: ReturnType<typeof createHostNotices>
+  readonly ensureDaemon: EnsureTaskDaemonPort
+}) {
+  return createSessionShardRouting({
+    settings: input.settings,
+    runtime: attachedRuntime("/tmp/dh-project"),
+    pi: {},
+    agentDir: "/tmp/dh-agent",
+    env: {},
+    notices: input.notices,
+    ensureDaemon: input.ensureDaemon,
+    probeHost: () => Promise.resolve(undefined),
+  })
+}
 
 const tempDirs: string[] = []
 
@@ -24,6 +48,7 @@ function tempProject(): string {
 
 function buildContext(settings: OmoTaskSettings, platform: NodeJS.Platform): RunnerBuildContext {
   const cwd = tempProject()
+  const notices = createHostNotices(() => {})
   return {
     runtime: new TaskRuntimeContext(cwd),
     sharedParentTools: () => [],
@@ -31,6 +56,10 @@ function buildContext(settings: OmoTaskSettings, platform: NodeJS.Platform): Run
     platform,
     agentDir: join(cwd, "agent"),
     env: {},
+    hostRouting: {
+      ...routingFor({ settings, notices, ensureDaemon: () => Promise.reject(new Error("never ensured here")) }),
+      storeDir: join(cwd, ".omo", "senpi-task"),
+    },
   }
 }
 
@@ -77,18 +106,22 @@ describe("host execution mode gate", () => {
       agentDir: "/tmp/dh-agent",
       env: {},
       notices: input.notices,
-      ensureDaemon: async () => {
-        const ensured = await input.ensure()
-        return {
-          action: "reuse",
-          reason: "compatible",
-          socket: ensured.socket,
-          pid: 1234,
-          reused: true,
-          upgradeable: true,
-          ...(ensured.capabilities === undefined ? {} : { capabilities: ensured.capabilities }),
-        }
-      },
+      routing: routingFor({
+        settings: input.settings,
+        notices: input.notices,
+        ensureDaemon: async () => {
+          const ensured = await input.ensure()
+          return {
+            action: "reuse",
+            reason: "compatible",
+            socket: ensured.socket,
+            pid: 1234,
+            reused: true,
+            upgradeable: true,
+            ...(ensured.capabilities === undefined ? {} : { capabilities: ensured.capabilities }),
+          }
+        },
+      }),
     })
   }
 
@@ -139,8 +172,12 @@ describe("host execution mode gate", () => {
       agentDir: "/tmp/dh-agent",
       env: {},
       notices,
-      ensureDaemon: () =>
-        Promise.reject(new HostUnavailableError("capability", { fallbackAllowed: true, detail: "missing session_context" })),
+      routing: routingFor({
+        settings: settingsOf(),
+        notices,
+        ensureDaemon: () =>
+          Promise.reject(new HostUnavailableError("capability", { fallbackAllowed: true, detail: "missing session_context" })),
+      }),
     })
 
     // when
