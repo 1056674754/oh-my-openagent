@@ -7,7 +7,7 @@ import type { HostSessionParked } from "./rpc-host/session-client"
 import type { RpcChildHandle } from "./types"
 import { SHARD_KEY_CONTEXT, TREE_KEY_CONTEXT, type ShardResolution } from "./rpc-host/shard-socket"
 import { childSpec, fakeFallbackRunner, hostRunnerHarness } from "./rpc-host.test-support"
-import { cleanupTempDirs, ensureRecorder, shardEndpoint, tempDir, type ShardEndpoint } from "./rpc-host-endpoint.test-support"
+import { cleanupTempDirs, ensureRecorder, posixShardTest, shardEndpoint, tempDir, type ShardEndpoint } from "./rpc-host-endpoint.test-support"
 
 const harness = hostRunnerHarness()
 const { fakeHost, runnerOver } = harness
@@ -52,7 +52,7 @@ function openContexts(commands: readonly { readonly type: string; readonly paylo
 
 describe("a child inside a host attaches to its tree's shard and never ensures it", () => {
   for (const instance of ["H1", "H2"] as const) {
-    test(`#given an inherited shard whose probe answers ${instance} #when a grandchild starts #then it opens there with zero ensures`, async () => {
+    posixShardTest(`#given an inherited shard whose probe answers ${instance} #when a grandchild starts #then it opens there with zero ensures`, async () => {
       // given - H2 is the successor that took the public path in a handoff; this session runs in H1
       const host = await fakeHost()
       const shard = shardEndpoint(host, TREE_KEY)
@@ -133,7 +133,7 @@ describe("a child inside a host attaches to its tree's shard and never ensures i
     expect(ensure.inputs).toEqual([])
   })
 
-  test("#given a child inside a host on an engine that does not stamp host_socket #when its shard dies under it #then it parks own_host_unreachable and never ensures (spawns) a supervisor", async () => {
+  posixShardTest("#given a child inside a host on an engine that does not stamp host_socket #when its shard dies under it #then it parks own_host_unreachable and never ensures (spawns) a supervisor", async () => {
     // given - senpi 2026.9.27: ownHostSocket is unknown, the inherited shard_key is the only inside-host fact
     const host = await fakeHost()
     const shard = shardEndpoint(host, TREE_KEY)
@@ -163,7 +163,7 @@ describe("a child inside a host attaches to its tree's shard and never ensures i
 })
 
 describe("a root session's child carries its tree key and there is no machine-wide default", () => {
-  test("#given a root resolution #when a child starts #then the ensure names the shard and the open carries tree_key and shard_key", async () => {
+  posixShardTest("#given a root resolution #when a child starts #then the ensure names the shard and the open carries tree_key and shard_key", async () => {
     // given
     const host = await fakeHost()
     const shard = shardEndpoint(host, "00000000000000e2")

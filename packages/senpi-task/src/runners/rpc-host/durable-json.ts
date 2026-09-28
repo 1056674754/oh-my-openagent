@@ -17,6 +17,12 @@ export interface DurableJsonFs {
 
 export const DURABLE_JSON_FS: DurableJsonFs = { read: readTextIfPresent, write: writeTextDurably }
 
+// A holder of one of these files' locks rewrites and fsyncs the whole file, which a loaded host - a busy
+// Windows runner with a real-time scanner inspecting the staged file - stretches past a second while the
+// holder is alive and progressing. The record lock's default budget is sized for a sub-10ms record
+// read-modify-write; a waiter here must outlast a slow durable write and give up only on a stalled one.
+export const DURABLE_JSON_LOCK_OPTIONS = { holderWaitMs: 10_000 } as const
+
 export function readTextIfPresent(path: string): string | undefined {
   try {
     return readFileSync(path, "utf8")

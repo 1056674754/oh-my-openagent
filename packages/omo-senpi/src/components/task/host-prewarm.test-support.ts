@@ -1,5 +1,6 @@
 /** Test worlds shared by the host pre-warm suites. */
 import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { OmoTaskSettingsSchema } from "@oh-my-opencode/omo-config-core"
@@ -44,7 +45,8 @@ export function world(input: {
   readonly ensure?: "answer" | "reject" | "reject-once"
   readonly warmSession?: "answer" | "reject"
 }) {
-  const root = mkdtempSync("/tmp/omo-t9-")
+  // a short POSIX root keeps shard socket paths under the sun_path limit; win32 has no /tmp
+  const root = mkdtempSync(process.platform === "win32" ? join(tmpdir(), "omo-t9-") : "/tmp/omo-t9-")
   dirs.push(root)
   const agentDir = join(root, "agent")
   const shard = (name: string): string => join(agentDir, "rpc", "shards", `${name}.sock`)

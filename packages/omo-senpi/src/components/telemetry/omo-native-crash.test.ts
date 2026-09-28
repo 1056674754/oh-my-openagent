@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "bun:test"
@@ -19,6 +18,8 @@ import {
 
 // oh-my-openagent#8931: a crash can only be reported by a LATER process, and exactly once.
 const HOST_ENDPOINT = "0123456789abcdef"
+// The main Senpi entry stays type-only in omo-senpi source; values load through the lazy barrel.
+const { daemonDirectoryName } = await loadSenpiBarrel()
 const RECENT = new Date(FIXED_NOW.getTime() - 60_000).toISOString()
 
 function writeRecords(agentDir: string, host: readonly string[], process: readonly string[]): void {
@@ -31,14 +32,14 @@ function writeRecords(agentDir: string, host: readonly string[], process: readon
 
 const LEGACY_HOST_RECORD = JSON.stringify({ at: RECENT, signal: "SIGSEGV", uptimeMs: 3_061_000 })
 
-/** An endpoint directory exactly as senpi names it: `sha256(socket)[:16]` under `rpc-host-daemon/`. */
+/** An endpoint directory exactly as the engine names it (`daemonDirectoryName`, case-folded on win32) under `rpc-host-daemon/`. */
 function writeEndpoint(
   agentDir: string,
   socket: string,
   lines: readonly string[],
   identity: "endpoint.json" | "settings.json" = "endpoint.json",
 ): string {
-  const name = createHash("sha256").update(socket, "utf8").digest("hex").slice(0, 16)
+  const name = daemonDirectoryName(socket)
   const dir = join(agentDir, "rpc-host-daemon", name)
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, identity), JSON.stringify({ layout: 2, socket, created_at: RECENT }))
