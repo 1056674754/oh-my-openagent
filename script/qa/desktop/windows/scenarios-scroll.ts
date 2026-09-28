@@ -2,6 +2,8 @@
 // toward the end of the content, negative toward the start) on a real Win32 EDIT, for background
 // (posted WM_MOUSEWHEEL) and foreground (SendInput) delivery. The EDIT's first visible line comes
 // from the independent observer (EM_GETFIRSTVISIBLELINE), never from the engine.
+import { readFileSync } from "node:fs"
+
 import { asObject, type Engine, errorCode, type Reply } from "./engine"
 import { SCROLL_DOCUMENT } from "./fixtures"
 import { firstVisibleLine, type Observation, observeUntil } from "./observer"
@@ -62,6 +64,8 @@ function scrollDirection(mode: DeliveryMode): Scenario {
             deliveryMode: mode,
             steps: SCROLL_STEPS,
             point: { x: at.x, y: at.y },
+            cursorAfterPositiveDy: middle.cursor,
+            hostEvents: readFileSync(document.eventLog, "utf8").split("\n").filter((line) => line !== ""),
             firstVisibleLine: { before: start, afterPositiveDy: afterPositive, afterNegativeDy: afterNegative },
             positiveDyError: errorCode(down) ?? null,
             negativeDyError: errorCode(up) ?? null,

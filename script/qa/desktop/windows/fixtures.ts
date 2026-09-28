@@ -29,6 +29,11 @@ export interface Notepad extends QaWindow {
   readonly content: string
 }
 
+export interface ScrollWindow extends QaWindow {
+  /** The host's wheel/focus/activation event log, one event per line. */
+  readonly eventLog: string
+}
+
 function parseWindow(value: Json): QaWindow {
   const window = asObject(value)
   return {
@@ -93,10 +98,12 @@ export class QaWorkspace {
   }
 
   /** A WinForms window whose multi-line EDIT shows `SCROLL_DOCUMENT` from its middle. */
-  async scrollWindow(engine: Engine, tag: string): Promise<QaWindow> {
-    const args = ["-Title", `omo-qa-scroll-${tag}`, "-Lines", String(SCROLL_DOCUMENT.lines)]
+  async scrollWindow(engine: Engine, tag: string): Promise<ScrollWindow> {
+    const eventLog = join(this.dir, `omo-qa-scroll-${tag}.log`)
+    writeFileSync(eventLog, "")
+    const args = ["-Title", `omo-qa-scroll-${tag}`, "-EventLog", eventLog, "-Lines", String(SCROLL_DOCUMENT.lines)]
     args.push("-FirstVisibleLine", String(SCROLL_DOCUMENT.firstVisibleLine))
-    return this.hostWindow(engine, SCROLL_HOST_SCRIPT, args, "scroll window")
+    return { ...(await this.hostWindow(engine, SCROLL_HOST_SCRIPT, args, "scroll window")), eventLog }
   }
 
   /** Runs a `-STA` PowerShell window host that prints `ready <hwnd>`, and waits for that window. */

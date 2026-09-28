@@ -1,8 +1,15 @@
 # Hosts a WinForms window whose multi-line TextBox (a Win32 EDIT underneath) holds a long document,
 # scrolled to its middle so a wheel step either way moves it, for the scroll-direction scenarios of
 # script/qa/desktop/windows.ts. Prints `ready <hwnd>` once the window is shown and runs until the
-# driver kills it. Run with `powershell.exe -STA`.
-param([Parameter(Mandatory = $true)][string]$Title, [int]$Lines = 200, [int]$FirstVisibleLine = 100)
+# driver kills it; every wheel, focus and activation event the window sees is appended to $EventLog,
+# so a scenario can tell a wheel that never arrived from one that arrived and did not scroll.
+# Run with `powershell.exe -STA`.
+param(
+	[Parameter(Mandatory = $true)][string]$Title,
+	[Parameter(Mandatory = $true)][string]$EventLog,
+	[int]$Lines = 200,
+	[int]$FirstVisibleLine = 100
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -24,6 +31,11 @@ $form = New-Object System.Windows.Forms.Form -Property @{
 	Text = $Title; Width = 420; Height = 320; StartPosition = 'CenterScreen'
 }
 $form.Controls.Add($box)
+function Write-HostEvent([string]$line) { [System.IO.File]::AppendAllText($EventLog, "$line`n") }
+$box.Add_MouseWheel({ param($source, $wheel) Write-HostEvent "textbox wheel $($wheel.Delta)" })
+$form.Add_MouseWheel({ param($source, $wheel) Write-HostEvent "form wheel $($wheel.Delta)" })
+$box.Add_GotFocus({ Write-HostEvent 'textbox focus' })
+$form.Add_Activated({ Write-HostEvent "form activated textboxFocused=$($box.Focused)" })
 $form.Add_Shown({
 	# EM_LINESCROLL down by FirstVisibleLine lines leaves that zero-based line at the top.
 	[void][QaScrollHost]::SendMessageW($box.Handle, 0x00B6, [IntPtr]::Zero, [IntPtr]$FirstVisibleLine)
