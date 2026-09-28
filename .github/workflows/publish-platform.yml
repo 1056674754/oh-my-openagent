@@ -49,8 +49,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { host: darwin-arm64, runner: macos-15-xlarge, rust_target: aarch64-apple-darwin, binary: senpi-desktop-engine }
-          - { host: darwin-x64, runner: macos-15-xlarge, rust_target: x86_64-apple-darwin, binary: senpi-desktop-engine }
+          - { host: darwin-arm64, runner: macos-15, rust_target: aarch64-apple-darwin, binary: senpi-desktop-engine }
+          - { host: darwin-x64, runner: macos-15, rust_target: x86_64-apple-darwin, binary: senpi-desktop-engine }
           - { host: linux-x64, runner: ubuntu-22.04, rust_target: x86_64-unknown-linux-gnu, binary: senpi-desktop-engine }
           - { host: win32-x64, runner: windows-latest, rust_target: x86_64-pc-windows-msvc, binary: senpi-desktop-engine.exe }
     steps:
@@ -68,6 +68,11 @@ jobs:
           rustup target add "${{ matrix.rust_target }}"
 
       - name: Build desktop engine
+        env:
+          # rustc defaults x86_64-apple-darwin to macOS 10.12, which links the Swift back-deploy
+          # libraries through @rpath with no LC_RPATH: the x64 engine then aborts in dyld at launch.
+          # 11.0 is the arm64 default and keeps both Darwin engines on the OS Swift runtime.
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
         run: cargo build --release -p senpi-desktop-engine --locked --target "${{ matrix.rust_target }}"
 
       - name: Stage desktop engine release asset
@@ -80,6 +85,12 @@ jobs:
       - name: Smoke native desktop engine
         if: matrix.host != 'darwin-x64'
         run: "target/${{ matrix.rust_target }}/release/${{ matrix.binary }} --selftest"
+
+      - name: Smoke x64 Darwin desktop engine under Rosetta
+        if: matrix.host == 'darwin-x64'
+        run: |
+          arch -x86_64 /usr/bin/true 2>/dev/null || sudo softwareupdate --install-rosetta --agree-to-license
+          arch -x86_64 "target/${{ matrix.rust_target }}/release/${{ matrix.binary }}" --selftest
 
       - name: Upload desktop engine artifact
         uses: actions/upload-artifact@v7
@@ -98,7 +109,7 @@ jobs:
           JOB_SUMMARY_DETAILS: |
             - Builds the Rust desktop engine for the declared host.
             - Stages the shared release asset name and signs Darwin binaries.
-            - Runs --selftest on native legs; the x64 Darwin cross-build is checked by cargo.
+            - Runs --selftest on every leg; the x64 Darwin cross-build runs it under Rosetta.
           JOB_SUMMARY_NEXT: Check the Rust target build or signed asset staging output.
         run: GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" bash .github/scripts/write-job-summary.sh
 

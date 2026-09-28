@@ -1,3 +1,9 @@
+## 2026-09-29 - Darwin desktop engines build on standard macOS runners, and the x64 engine launches
+
+The two macOS rows of the `publish-platform.yml` desktop-engine matrix ran on the paid `macos-15-xlarge` larger runner; with the Actions spending limit reached, GitHub never started them and the 5.1.0 publish failed before anything reached npm. Both rows now run on the standard `macos-15` (arm64) runner; the x64 engine stays a cross-build, as it already was on the arm64 xlarge runner.
+
+The x64 cross-build was also broken: rustc defaults `x86_64-apple-darwin` to macOS 10.12, so the engine linked the Swift back-deploy libraries through `@rpath` (`libswiftCoreMedia.dylib`) with no `LC_RPATH`, and it aborted in dyld at launch on every Intel Mac (reproduced from tag `v5.1.0` under Rosetta: exit 134). The release never ran its selftest, so nothing caught it. The engine build now sets `MACOSX_DEPLOYMENT_TARGET=11.0` (the arm64 default), which links no Swift dylib, and the x64 leg runs `--selftest` under Rosetta, installing Rosetta on the runner if it is missing.
+
 ## 2026-09-29 - `omo app-server` sessions get the OmO plugin (#9117)
 
 `omo app-server` launched the engine without the OmO plugin, so app-server threads had only the engine's builtin tools: no `task`/`task_send`/`task_cancel`/`task_output`, no `workpool`, `memory` or `lsp_*`, and clients never received `omo.task.updated`. The launcher (and the compiled binary) now passes the plugin to `app-server` and to every `app-server daemon` verb, after the subcommand where the engine reads it (senpi #2313); the daemon records it, so `restart` keeps it. Install, auth, config and the other early commands are unchanged.
