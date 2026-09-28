@@ -65,6 +65,7 @@ function scrollDirection(mode: DeliveryMode): Scenario {
             steps: SCROLL_STEPS,
             point: { x: at.x, y: at.y },
             cursorAfterPositiveDy: middle.cursor,
+            cursorWindowAfterPositiveDy: middle.raw.cursorWindow ?? null,
             hostEvents: readFileSync(document.eventLog, "utf8").split("\n").filter((line) => line !== ""),
             firstVisibleLine: { before: start, afterPositiveDy: afterPositive, afterNegativeDy: afterNegative },
             positiveDyError: errorCode(down) ?? null,
