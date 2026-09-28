@@ -20,7 +20,7 @@ import {
   R0_SOURCE_COMMIT,
   R0_SUSPENSION_REASONS,
   R0_TASK_START_FAILURE_REASONS,
-} from "./__fixtures__/r0-v5.0.1-reasons"
+} from "./__fixtures__/r0-ebd01f84e-reasons"
 
 const roots: string[] = []
 

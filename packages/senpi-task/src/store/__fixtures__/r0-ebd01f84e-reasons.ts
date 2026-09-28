@@ -1,4 +1,4 @@
-// Vendored persisted-reason contract from OmO v5.0.1, commit ebd01f84e:
+// Vendored persisted-reason contract from the rollback target R0 (the #9027 merge on dev, commit ebd01f84e):
 // - packages/senpi-task/src/state/types.ts
 // - packages/senpi-task/src/state/start-failure.ts
 
