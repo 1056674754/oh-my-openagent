@@ -2,7 +2,8 @@ import { log } from "@oh-my-opencode/utils"
 
 import type { RunnerOutcome } from "../in-process/child-handle"
 import { isBusyChildRejection, type RpcStreamingBehavior } from "../rpc/delivery-semantics"
-import { agentEndOutcome, exitTurnOutcome, extractAssistantText, promptFailureOutcome } from "../rpc/turn-outcome"
+import { exitTurnOutcome, extractAssistantText, promptFailureOutcome } from "../rpc/turn-outcome"
+import { createTurnSettlement } from "../rpc/turn-settlement"
 import type { ChildEventListener, ChildExitOutcome, RpcTerminalAssistantMessage } from "../types"
 import {
   classifySessionExit,
@@ -43,6 +44,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
   const exitWaiters: Array<(outcome: ChildExitOutcome) => void> = []
   const eventListeners = new Set<ChildEventListener>()
   const parkedListeners = new Set<(event: HostSessionParked) => void>()
+  const resumedListeners = new Set<() => void>()
   let reachedIdle = false
   let sessionId: string | undefined
   let finalText: string | undefined
@@ -64,7 +66,20 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     for (const waiter of outcomeWaiters.splice(0)) waiter(settled)
   }
 
+  const settlement = createTurnSettlement({
+    settle: settleTurn,
+    abortedByUser: () => abortedByUser,
+    baseline: () => turnBaseline,
+    finalText: () => finalText,
+  })
+
   const onSessionEvent = (event: Parameters<ChildEventListener>[0]): void => {
+    // A run the child starts on its own after its turn settled (a monitor or background job woke it)
+    // is a new turn: the next outcome is that run's, never the settled one again (omo#9069).
+    if (event.type === "agent_start" && turnOutcome !== undefined && outcome === undefined) {
+      beginTurn()
+      for (const listener of resumedListeners) listener()
+    }
     if (event.type === "message_end") {
       const terminal = extractTerminalAssistantMessage(event.message)
       if (terminal !== undefined) {
@@ -72,9 +87,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
         finalText = terminal.text ?? finalText
       }
     }
-    if (event.type === "agent_end" && event.willRetry === false) {
-      settleTurn(abortedByUser ? { status: "cancelled" } : agentEndOutcome(event, turnBaseline, finalText))
-    }
+    settlement.observe(event)
   }
 
   const heartbeat = setInterval(() => {
@@ -102,13 +115,16 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     eventListeners.clear()
     clearInterval(heartbeat)
     flush(idleWaiters)
-    if (turnOutcome === undefined) settleTurn(exitTurnOutcome(built, finalText))
+    if (turnOutcome === undefined) settleTurn(settlement.pending() ?? exitTurnOutcome(built, finalText))
     for (const waiter of exitWaiters.splice(0)) waiter(built)
   }
 
   // A parked session is NOT an exit: the child keeps its status and its transcript, and the manager
   // parks the record (`rpc_detached`) until a later turn reopens the session from its JSONL.
   const park = (event: HostSessionParked): void => {
+    // A parked session is idle on the host: an outcome held for `agent_idle` is final (omo#9069).
+    const held = settlement.pending()
+    if (turnOutcome === undefined && held !== undefined) settleTurn(held)
     parked = true
     clearInterval(heartbeat)
     for (const listener of parkedListeners) listener(event)
@@ -312,6 +328,10 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     onParked: (listener) => {
       parkedListeners.add(listener)
       return () => parkedListeners.delete(listener)
+    },
+    onSelfResumed: (listener) => {
+      resumedListeners.add(listener)
+      return () => resumedListeners.delete(listener)
     },
     waitForIdle: () =>
       reachedIdle || outcome ? Promise.resolve() : new Promise<void>((resolve) => idleWaiters.push(resolve)),

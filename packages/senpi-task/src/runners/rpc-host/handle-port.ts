@@ -81,6 +81,7 @@ export type HostSessionChildHandle = RpcChildHandle & {
   close(): Promise<void>
   /** The daemon suspended the session: no exit, no status change - the record parks. */
   onParked(listener: (event: HostSessionParked) => void): () => void
+  onSelfResumed(listener: () => void): () => void
   startInitialPrompt(text: string): Promise<void>
   waitForOutcome(): Promise<RunnerOutcome>
   hasExited(): boolean

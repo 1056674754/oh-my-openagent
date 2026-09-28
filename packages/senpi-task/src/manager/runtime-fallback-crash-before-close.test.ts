@@ -55,6 +55,7 @@ test("#given the parent dies before the failed rung's session closes #when anoth
   const message = { role: "assistant", content: [], stopReason: "error", errorMessage: "500 overloaded" }
   host.emitRecord(original.routingId, { type: "message_end", message })
   host.emitRecord(original.routingId, { type: "agent_end", willRetry: false, messages: [message] })
+  host.emitRecord(original.routingId, { type: "agent_idle" })
   await closing.promise
   const disconnected = host.waitForConnections(0)
   await failedRung?.dispose()

@@ -292,6 +292,9 @@ export type TaskRecord = TaskRecordInput & TaskStartFailureRecordFields & {
   readonly run_stats?: TaskRunStats
   readonly notification: TaskNotification
   readonly revive_delivery_uncertain?: ReviveDeliveryUncertainty
+  // The run_epoch of a run the child started on its own after an earlier run had already settled
+  // (a monitor or background job woke it): its completion is announced as a resumed turn's result.
+  readonly resumed_run_epoch?: number
   // Why this record is suspended, when the reason is NOT "its session went away": the daemon was
   // unreachable for the whole bounded reconcile, or an old generation never finished draining.
   // Cleared by the revival that succeeds.
