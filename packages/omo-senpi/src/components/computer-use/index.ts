@@ -196,12 +196,16 @@ export function createComputerUseComponent(options: ComputerUseComponentOptions 
       const handle = new ComputerHandle({ service, settings: () => settings })
       const host = available.host
       session = { handle, service, host, runtime }
+      // Providers without native deferred-tool search reach a tool only once it is active, so the
+      // adapter's `computer_actions` moves with `computer` (#9048).
+      const computerTools = settings.cuaAdapter ? [COMPUTER_TOOL_NAME, COMPUTER_ACTIONS_TOOL_NAME] : [COMPUTER_TOOL_NAME]
       handle.onActivationChange((active) => {
         const current = host.getActiveTools()
-        if (active === current.includes(COMPUTER_TOOL_NAME)) return
-        host.setActiveTools(
-          active ? [...current, COMPUTER_TOOL_NAME] : current.filter((name) => name !== COMPUTER_TOOL_NAME),
-        )
+        const next = active
+          ? [...current, ...computerTools.filter((name) => !current.includes(name))]
+          : current.filter((name) => !computerTools.includes(name))
+        if (next.length === current.length && next.every((name, index) => name === current[index])) return
+        host.setActiveTools(next)
       })
       const executeTool = host.executeTool
       pi.registerTool({
