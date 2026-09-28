@@ -1,7 +1,7 @@
 import { dirname, resolve } from "node:path"
 
 import { withTaskRecordLockAsync } from "../../store/record-lock"
-import { DURABLE_JSON_FS, isRecord, type DurableJsonFs } from "./durable-json"
+import { DURABLE_JSON_FS, DURABLE_JSON_LOCK_OPTIONS, isRecord, type DurableJsonFs } from "./durable-json"
 import { parseShardBasename, shardMetaPath, type ShardKind, type ShardNotice } from "./shard-socket"
 
 /**
@@ -64,7 +64,7 @@ export async function writeStartedShardSidecar(input: WriteStartedSidecarInput):
       stores: storesOf(previous),
     }
     fs.write(metaPath, `${JSON.stringify(sidecar, null, 2)}\n`)
-  })
+  }, DURABLE_JSON_LOCK_OPTIONS)
 }
 
 export interface RegisterSidecarStoreInput {
@@ -88,7 +88,7 @@ export async function registerSidecarStore(input: RegisterSidecarStoreInput): Pr
     const next = { ...previous, stores: stores.includes(storeDir) ? stores : [...stores, storeDir] }
     fs.write(metaPath, `${JSON.stringify(next, null, 2)}\n`)
     return "registered"
-  })
+  }, DURABLE_JSON_LOCK_OPTIONS)
 }
 
 export function readShardSidecar(metaPath: string, fs: DurableJsonFs = DURABLE_JSON_FS): Record<string, unknown> | undefined {

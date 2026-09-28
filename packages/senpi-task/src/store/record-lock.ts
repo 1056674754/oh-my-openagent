@@ -47,10 +47,19 @@ export function withTaskRecordLock<T>(recordPath: string, operation: () => T): T
   }
 }
 
-export async function withTaskRecordLockAsync<T>(recordPath: string, operation: () => Promise<T>): Promise<T> {
+export interface TaskRecordLockOptions {
+  /** How long ONE live holder may keep the lock before a waiter gives up; sized to what holders of this lock do. */
+  readonly holderWaitMs?: number
+}
+
+export async function withTaskRecordLockAsync<T>(
+  recordPath: string,
+  operation: () => Promise<T>,
+  options: TaskRecordLockOptions = {},
+): Promise<T> {
   const lockPath = `${recordPath}.lock`
   mkdirSync(dirname(lockPath), { recursive: true })
-  const token = await acquireLockAsync(lockPath)
+  const token = await acquireLockAsync(lockPath, options.holderWaitMs ?? LOCK_HOLDER_WAIT_MS)
   const heartbeat = setInterval(() => refreshLock(lockPath), LOCK_STALE_MS / 2)
   heartbeat.unref()
   try {
@@ -65,7 +74,7 @@ export async function withTaskRecordLockAsync<T>(recordPath: string, operation: 
 type AcquireAttempt = { readonly acquired: string } | { readonly held: string } | "retry"
 
 function acquireLock(lockPath: string): string {
-  const waitOn = holderWait(lockPath)
+  const waitOn = holderWait(lockPath, LOCK_HOLDER_WAIT_MS)
   for (;;) {
     const attempt = tryAcquire(lockPath)
     if (attempt === "retry") continue
@@ -75,8 +84,8 @@ function acquireLock(lockPath: string): string {
   }
 }
 
-async function acquireLockAsync(lockPath: string): Promise<string> {
-  const waitOn = holderWait(lockPath)
+async function acquireLockAsync(lockPath: string, holderWaitMs: number): Promise<string> {
+  const waitOn = holderWait(lockPath, holderWaitMs)
   for (;;) {
     const attempt = tryAcquire(lockPath)
     if (attempt === "retry") continue
@@ -86,7 +95,7 @@ async function acquireLockAsync(lockPath: string): Promise<string> {
   }
 }
 
-function holderWait(lockPath: string): (holder: string) => void {
+function holderWait(lockPath: string, holderWaitMs: number): (holder: string) => void {
   let current: string | undefined
   let since = 0
   return (holder) => {
@@ -96,7 +105,7 @@ function holderWait(lockPath: string): (holder: string) => void {
       since = now
       return
     }
-    if (now - since >= LOCK_HOLDER_WAIT_MS) {
+    if (now - since >= holderWaitMs) {
       throw new Error(`Timed out acquiring task record lock: ${lockPath} (${describeHolder(holder)} for ${now - since}ms)`)
     }
   }

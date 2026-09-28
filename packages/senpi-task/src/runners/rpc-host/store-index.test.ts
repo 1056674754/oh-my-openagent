@@ -128,6 +128,34 @@ describe("registerStoreIndex", () => {
     expect(Object.keys(readTaskStoreIndex(path).stores)).toEqual([existingStore])
   })
 
+  test("#given a live holder that keeps the index lock past a record lock's budget #when another store registers #then it waits for the holder and lands", async () => {
+    // given - a live holder slowed the way a loaded host slows an fsynced rewrite of the index
+    const path = indexPath()
+    const existingStore = join(dirname(path), "existing-store")
+    mkdirSync(existingStore, { recursive: true })
+    await registerStoreIndex({ indexPath: path, storeDir: existingStore, now: Date.now })
+    let reportHeld: (() => void) | undefined
+    const held = new Promise<void>((resolve) => {
+      reportHeld = resolve
+    })
+    const slowHolder = pruneMissingStoreIndexEntries(path, {
+      _test: {
+        afterLockAcquired: async () => {
+          reportHeld?.()
+          await Bun.sleep(1_500)
+        },
+      },
+    })
+    await held
+
+    // when
+    const registered = registerStoreIndex({ indexPath: path, storeDir: "/p2/.omo/senpi-task", now: Date.now })
+
+    // then
+    await Promise.all([slowHolder, registered])
+    expect(Object.keys(readTaskStoreIndex(path).stores).sort()).toEqual([existingStore, resolve("/p2/.omo/senpi-task")].sort())
+  })
+
   test("#given 32 processes each registering 25 distinct stores at once #when they all finish #then every one of the 800 stores is in the index", async () => {
     // given
     const path = indexPath()
