@@ -14,6 +14,7 @@ import { createTaskRecord, isSpawnSpecV1, parseTaskId, syncTaskIdFloor } from ".
 import { resolvedReasoningFields } from "../state/resolved-reasoning"
 import { TaskIdSpaceExhaustedError } from "../state/id"
 import type { ResolvedModelRecord, TaskRecord, TaskRunStats } from "../state"
+import { reopenSelfResumedTurn, type SelfResumedTurnPorts } from "./self-resumed-turn"
 import { createSteeringEngine } from "../steering"
 import type { CancelOptions, CancelOutcome, DestructionPort, InterruptOutcome, SendInput, SendOutcome, SteeringEngine, SteeringPort } from "../steering"
 import { discardManagedHandle, releaseOnDispose, releaseSupersededHandle, type ManagedChildHandle, type ManagedChildListener } from "./child-handle"
@@ -999,6 +1000,19 @@ class TaskManagerImpl implements TaskManager {
   // One child subscription feeds BOTH durable facts: the JSONL transcript log and the run-stats
   // tracker whose snapshot lands on the terminal record. Looked up per event so a revive can
   // swap in a fresh tracker without resubscribing.
+  get #selfResumedPorts(): SelfResumedTurnPorts {
+    return {
+      store: this.#options.store,
+      now: this.#now,
+      liveHandle: (taskId) => this.#live.get(taskId)?.handle,
+      liveModel: (taskId) => this.#live.get(taskId)?.model,
+      tryLoad: (taskId) => this.#tryLoad(taskId) ?? null,
+      waitForTerminal: (taskId) => this.waitFor(taskId),
+      reserveForRevive: (taskId) => this.#reserveForRevive(taskId),
+      trackOutcome: (taskId, handle, model, epoch) => this.#outcome.trackOutcome(taskId, handle, model, epoch),
+    }
+  }
+
   #subscribeChildFacts(handle: ManagedChildHandle, taskId: string): () => void {
     const transcript = subscribeTranscriptLog(handle, this.#options.store, taskId)
     this.#runStats.set(taskId, createRunStatsTracker(this.#now(), this.#now))
@@ -1006,9 +1020,15 @@ class TaskManagerImpl implements TaskManager {
       if (event.type === "retry_fallback_exhausted") this.#nativeFallbackExhaustions.add(handle)
       this.#runStats.get(taskId)?.accept(event)
     })
+    const resumed = handle.onSelfResumed?.(() => {
+      this.#runStats.set(taskId, createRunStatsTracker(this.#now(), this.#now))
+      void reopenSelfResumedTurn(this.#selfResumedPorts, taskId, handle).catch((error: unknown) =>
+        log("senpi-task self-resumed turn reopen failed", { taskId, error: String(error) }))
+    })
     return () => {
       transcript()
       stats()
+      resumed?.()
     }
   }
 
