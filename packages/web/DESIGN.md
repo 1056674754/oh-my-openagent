@@ -395,7 +395,9 @@ Roboto Mono family, Regular 400 followed by Bold 700.
   apart, each a 52 px mark + 18 px gap + label. Stars: GitHub mark, whole-thousand
   floor, uppercase K and plus, e.g. 69,999 → `69K+ Stars`. Downloads: npm mark,
   all-time npm total of `oh-my-opencode` + `oh-my-openagent` + `omo-ai` +
-  `lazycodex-ai` (the same figure as the site, `lib/npm-downloads.ts`), floored to
+  `lazycodex-ai` (`lib/npm-downloads.ts`) plus every `omo-*` compiled binary
+  downloaded from GitHub releases (`lib/native-downloads.ts`), the same figure
+  as the site total, floored to
   0.1 M, e.g. 4,032,665 → `4M+ Downloads`, 3,894,680 → `3.8M+ Downloads`.
   Counts below 1,000 remain exact. No website label.
 - Star states: fresh/cached for up to 5 minutes; last known good for at most

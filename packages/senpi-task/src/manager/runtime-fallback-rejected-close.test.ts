@@ -77,6 +77,7 @@ describe("runtime fallback whose failed-rung close is never acknowledged", () =>
       // when
       host.emitRecord(original.routingId, { type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "provider failed" } })
       host.emitRecord(original.routingId, { type: "agent_end", willRetry: false, messages: [] })
+      host.emitRecord(original.routingId, { type: "agent_idle" })
       const record = await settled
 
       // then

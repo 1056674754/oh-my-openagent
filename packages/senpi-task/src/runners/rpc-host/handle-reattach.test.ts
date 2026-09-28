@@ -120,7 +120,7 @@ describe("host-session handle reattach", () => {
     host.completeTurn(live.routingId, "finished after the cut")
     expect((await handle.waitForOutcome()).status).toBe("completed")
     expect(handle.lastAssistantText()).toBe("finished after the cut")
-    expect(observed).toEqual(["message_end", "agent_end"])
+    expect(observed).toEqual(["message_end", "agent_end", "agent_idle"])
     expect(handle.hasExited()).toBe(false)
     expect(handle.attached).toBe(true)
     expect(handle.openDisposition).toBe("attached")
