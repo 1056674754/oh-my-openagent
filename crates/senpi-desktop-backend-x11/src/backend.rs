@@ -23,6 +23,8 @@ pub struct X11Backend<S = X11Connection, I = X11InputConnection> {
     input: Result<X11Input<I>, DesktopError>,
     ax: Option<AtSpiAx>,
     display_server: Option<String>,
+    focus_restore_owner: Option<String>,
+    pointer_restore_owner: Option<DesktopPoint>,
 }
 
 impl X11Backend<X11Connection, X11InputConnection> {
@@ -38,6 +40,8 @@ impl X11Backend<X11Connection, X11InputConnection> {
             input: X11Input::connect(),
             ax: AtSpiAx::new().ok(),
             display_server: std::env::var("DISPLAY").ok(),
+            focus_restore_owner: None,
+            pointer_restore_owner: None,
         })
     }
 }
@@ -54,6 +58,8 @@ impl<S: XServer, I: InputServer> X11Backend<S, I> {
             input,
             ax: None,
             display_server,
+            focus_restore_owner: None,
+            pointer_restore_owner: None,
         }
     }
 
@@ -139,10 +145,20 @@ impl<S: XServer + Send, I: InputServer + Send> Backend for X11Backend<S, I> {
         _frame: &FrameGeometry,
         mode: DeliveryMode,
     ) -> CoreResult<()> {
-        self.input()?.pointer(target, &event, mode)
+        self.focus_restore_owner = foreground_owner(target, mode);
+        self.pointer_restore_owner = None;
+        let (result, cursor) = {
+            let input = self.input()?;
+            let result = input.pointer(target, &event, mode);
+            (result, input.last_pointer_motion())
+        };
+        self.pointer_restore_owner = cursor;
+        result
     }
 
     fn type_text(&mut self, target: &Target, text: &str, mode: DeliveryMode) -> CoreResult<()> {
+        self.focus_restore_owner = foreground_owner(target, mode);
+        self.pointer_restore_owner = None;
         self.input()?.type_text(target, text, mode)
     }
 
@@ -154,10 +170,14 @@ impl<S: XServer + Send, I: InputServer + Send> Backend for X11Backend<S, I> {
         check_stop: &dyn Fn() -> CoreResult<()>,
         delivered: &mut dyn FnMut(),
     ) -> CoreResult<()> {
+        self.focus_restore_owner = foreground_owner(target, mode);
+        self.pointer_restore_owner = None;
         self.input()?.type_text_interruptible(target, text, mode, check_stop, delivered)
     }
 
     fn key_chord(&mut self, target: &Target, keys: &[KeyName], mode: DeliveryMode) -> CoreResult<()> {
+        self.focus_restore_owner = foreground_owner(target, mode);
+        self.pointer_restore_owner = None;
         self.input()?.key_chord(target, keys, mode)
     }
 
@@ -184,7 +204,14 @@ impl<S: XServer + Send, I: InputServer + Send> Backend for X11Backend<S, I> {
     }
 
     fn warp_cursor(&mut self, point: DesktopPoint) -> CoreResult<()> {
-        self.input()?.warp_cursor(point)
+        let Some(owner) = self.pointer_restore_owner.take() else {
+            return Ok(());
+        };
+        let input = self.input()?;
+        if input.cursor_position()? == owner {
+            input.warp_cursor(point)?;
+        }
+        Ok(())
     }
 
     fn front_window(&mut self) -> CoreResult<Option<FrontWindow>> {
@@ -202,9 +229,23 @@ impl<S: XServer + Send, I: InputServer + Send> Backend for X11Backend<S, I> {
     }
 
     fn restore_front_window(&mut self, front: &FrontWindow) -> CoreResult<()> {
-        match &front.window_id {
-            Some(id) => self.input()?.raise_window(id),
-            None => Ok(()),
+        let (Some(owner), Some(id)) = (self.focus_restore_owner.take(), &front.window_id) else {
+            return Ok(());
+        };
+        let input = self.input()?;
+        if input.window_owns_foreground(id)? {
+            return Ok(());
         }
+        if input.window_owns_foreground(&owner)? {
+            input.raise_window(id)?;
+        }
+        Ok(())
+    }
+}
+
+fn foreground_owner(target: &Target, mode: DeliveryMode) -> Option<String> {
+    match (target, mode) {
+        (Target::Window(id), DeliveryMode::Foreground) => Some(id.clone()),
+        (Target::Desktop, _) | (Target::Window(_), DeliveryMode::Background) => None,
     }
 }

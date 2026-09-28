@@ -12,6 +12,8 @@ mod input;
 mod stop_path;
 
 #[cfg(test)]
+mod backend_live_tests;
+#[cfg(test)]
 mod backend_tests;
 
 pub use backend::X11Backend;
