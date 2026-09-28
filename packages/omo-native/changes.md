@@ -1,3 +1,24 @@
+## 2026-09-28 - Native daemon commands cover every session host
+
+`omo daemon status` and `omo doctor` now enumerate the operator daemon, task
+shards, Desktop thread hosts, and other discovered endpoints in one read-only
+engine sweep. Text output joins shard owner sidecars, reports concurrent
+generations, memory, descriptors and crash counts, and ends with a machine
+aggregate; JSON preserves the engine rows and adds owner and aggregate fields.
+
+`omo daemon gc` reaps only endpoint state the engine proves dead, `handoff` walks
+every live endpoint through the engine's upgrade gate, and `stop --all` applies
+the existing refusal and drain rules per endpoint. `stop --drain --all --wait`
+waits for both generation pids and live session-path claims before authorizing a
+downgrade. `rollback-prepare` discovers every durable task store, refuses partial
+coverage or a live endpoint, and migrates retained host-session records back to
+`rpc.sock` through the locked task-store mutation path.
+
+The focused Native and senpi-task suites cover endpoint rendering and JSON
+preservation, gc sidecar ownership, upgrade/refusal fan-out, drain completion and
+timeout, rollback preflight and record events, plus shard naming parity with the
+adopted engine.
+
 ## 2026-09-28 - The doctor recognizes a Bun-installed omo on Windows (#8909)
 
 ### What changed

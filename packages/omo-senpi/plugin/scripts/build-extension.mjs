@@ -62,6 +62,8 @@ const toolkitSdkEntryPath = join(packageRoot, "src", "extension", "agent-toolkit
 const toolkitSdkOutputPath = join(process.env.OMO_SENPI_PLUGIN_OUTPUT ?? pluginRoot, "runtime", "agent-toolkit-sdk", "sdk.js")
 const advisorRuntimeEntryPath = join(packageRoot, "src", "components", "init-deep-advisor", "runtime.ts")
 const advisorRuntimeOutputPath = process.env.OMO_SENPI_PLUGIN_OUTPUT === undefined ? join(pluginRoot, "extensions", "omo-init-deep-advisor.js") : join(process.env.OMO_SENPI_PLUGIN_OUTPUT, "extensions", "omo-init-deep-advisor.js")
+const rollbackRuntimeEntryPath = join(packageRoot, "src", "extension", "rollback-migrate-runtime.ts")
+const rollbackRuntimeOutputPath = join(process.env.OMO_SENPI_PLUGIN_OUTPUT ?? pluginRoot, "runtime", "rollback-migrate.js")
 const builtinModuleNames = builtinModules
   .filter((moduleName) => !moduleName.startsWith("_"))
   .sort()
@@ -108,18 +110,35 @@ export async function buildExtension(options = {}) {
   const toolkitSdkOutput = options.toolkitSdkOutputPath ?? (options.outputPath === undefined
     ? toolkitSdkOutputPath
     : join(dirname(output), "runtime", "agent-toolkit-sdk", "sdk.js"))
+  const rollbackRuntimeOutput = options.rollbackRuntimeOutputPath ?? (options.outputPath === undefined
+    ? rollbackRuntimeOutputPath
+    : join(dirname(output), "runtime", "rollback-migrate.js"))
   const toolkitSdkInputs = await buildEntry(toolkitSdkEntryPath, toolkitSdkOutput, buildDefines, sdkExternalSpecifiers)
   const mainInputs = await buildEntry(entryPath, output, buildDefines)
   const taskInputs = await buildEntry(taskEntryPath, taskOutput, buildDefines)
   const memberInputs = await buildEntry(memberEntryPath, memberOutput, buildDefines)
   const supervisorInputs = await buildEntry(supervisorEntryPath, supervisorOutput, buildDefines)
   const advisorRuntimeInputs = await buildEntry(advisorRuntimeEntryPath, advisorRuntimeOutput, buildDefines)
+  const rollbackRuntimeInputs = await buildEntry(
+    rollbackRuntimeEntryPath,
+    rollbackRuntimeOutput,
+    buildDefines,
+    sdkExternalSpecifiers,
+  )
   // Bundling inlines assets.ts but its markdown is read from disk at runtime next to the bundle,
   // so the persona must be staged into the extension output directory the loader executes from.
   await Promise.all([
     stageRuntimePersonas(repoRoot, dirname(output)),
   ])
-  return { mainInputs, taskInputs, memberInputs, supervisorInputs, advisorRuntimeInputs, toolkitSdkInputs }
+  return {
+    mainInputs,
+    taskInputs,
+    memberInputs,
+    supervisorInputs,
+    advisorRuntimeInputs,
+    toolkitSdkInputs,
+    rollbackRuntimeInputs,
+  }
 }
 
 async function buildEntry(entry, output, buildDefines, externals = externalSpecifiers) {
@@ -165,8 +184,13 @@ export async function checkExtensionCurrent(options = {}) {
   const toolkitSdkOutput = options.toolkitSdkOutputPath ?? (options.outputPath === undefined
     ? toolkitSdkOutputPath
     : join(dirname(output), "runtime", "agent-toolkit-sdk", "sdk.js"))
+  const rollbackRuntimeOutput = options.rollbackRuntimeOutputPath ?? (options.outputPath === undefined
+    ? rollbackRuntimeOutputPath
+    : join(dirname(output), "runtime", "rollback-migrate.js"))
   const currentToolkitSdk = await readBuiltEntry(toolkitSdkOutput)
   if (currentToolkitSdk === undefined) return { ok: false, reason: "missing-output", output: toolkitSdkOutput }
+  const currentRollbackRuntime = await readBuiltEntry(rollbackRuntimeOutput)
+  if (currentRollbackRuntime === undefined) return { ok: false, reason: "missing-output", output: rollbackRuntimeOutput }
   const currentMain = await readBuiltEntry(output)
   if (currentMain === undefined) return { ok: false, reason: "missing-output", output }
   const currentTask = await readBuiltEntry(taskOutput)
@@ -191,6 +215,7 @@ export async function checkExtensionCurrent(options = {}) {
   const expectedSupervisorOutput = join(tempRoot, "memory-run-supervisor.mjs")
   const expectedAdvisorRuntimeOutput = join(tempRoot, "omo-init-deep-advisor.js")
   const expectedToolkitSdkOutput = join(tempRoot, "runtime", "agent-toolkit-sdk", "sdk.js")
+  const expectedRollbackRuntimeOutput = join(tempRoot, "runtime", "rollback-migrate.js")
   try {
     await buildExtension({
       outputPath: expectedOutput,
@@ -199,7 +224,11 @@ export async function checkExtensionCurrent(options = {}) {
       supervisorOutputPath: expectedSupervisorOutput,
       advisorRuntimeOutputPath: expectedAdvisorRuntimeOutput,
       toolkitSdkOutputPath: expectedToolkitSdkOutput,
+      rollbackRuntimeOutputPath: expectedRollbackRuntimeOutput,
     })
+    if (!artifactsMatch(currentRollbackRuntime, await readFile(expectedRollbackRuntimeOutput, "utf8"))) {
+      return { ok: false, reason: "stale-output", output: rollbackRuntimeOutput }
+    }
     if (!artifactsMatch(currentToolkitSdk, await readFile(expectedToolkitSdkOutput, "utf8"))) {
       return { ok: false, reason: "stale-output", output: toolkitSdkOutput }
     }

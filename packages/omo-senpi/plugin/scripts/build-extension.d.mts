@@ -5,6 +5,7 @@ export interface BuildExtensionOptions {
   supervisorOutputPath?: string
   advisorRuntimeOutputPath?: string
   toolkitSdkOutputPath?: string
+  rollbackRuntimeOutputPath?: string
 }
 export function buildExtension(options?: BuildExtensionOptions): Promise<{
   mainInputs: string[]
@@ -13,6 +14,7 @@ export function buildExtension(options?: BuildExtensionOptions): Promise<{
   supervisorInputs: string[]
   advisorRuntimeInputs: string[]
   toolkitSdkInputs: string[]
+  rollbackRuntimeInputs: string[]
 }>
 export const SENPI_LOADER_ALIASES: readonly [
   "@earendil-works/pi-coding-agent",
