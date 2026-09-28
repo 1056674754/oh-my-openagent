@@ -27,6 +27,7 @@ export const HOST_START_FAILURE_REASONS = [
   "host_unreachable",
   "ensure_failed",
   "ensure_timed_out",
+  "host_busy",
 ] as const
 
 export const SESSION_START_FAILURE_REASONS = [
