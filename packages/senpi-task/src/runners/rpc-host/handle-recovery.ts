@@ -23,6 +23,7 @@ export interface HandleRecovery {
   issue(command: HostSessionCommand): Promise<void>
   onTransportGone(lost: HostSessionPort): void
   settled(): Promise<void>
+  currentPort(): Promise<HostSessionPort>
 }
 
 /**
@@ -86,5 +87,13 @@ export function createHandleRecovery(host: HandleRecoveryHost): HandleRecovery {
       })
   }
 
-  return { issue, onTransportGone, settled: async () => await reattaching }
+  return {
+    issue,
+    onTransportGone,
+    settled: async () => await reattaching,
+    currentPort: async () => {
+      await reattaching
+      return host.port()
+    },
+  }
 }
