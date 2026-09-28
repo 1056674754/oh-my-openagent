@@ -147,14 +147,13 @@ impl<S: XServer + Send, I: InputServer + Send> Backend for X11Backend<S, I> {
     ) -> CoreResult<()> {
         self.focus_restore_owner = foreground_owner(target, mode);
         self.pointer_restore_owner = None;
-        let moved_pointer = matches!(target, Target::Desktop) || mode == DeliveryMode::Foreground;
-        let cursor = {
+        let (result, cursor) = {
             let input = self.input()?;
-            input.pointer(target, &event, mode)?;
-            moved_pointer.then(|| input.cursor_position()).transpose()?
+            let result = input.pointer(target, &event, mode);
+            (result, input.last_pointer_motion())
         };
         self.pointer_restore_owner = cursor;
-        Ok(())
+        result
     }
 
     fn type_text(&mut self, target: &Target, text: &str, mode: DeliveryMode) -> CoreResult<()> {
@@ -171,6 +170,8 @@ impl<S: XServer + Send, I: InputServer + Send> Backend for X11Backend<S, I> {
         check_stop: &dyn Fn() -> CoreResult<()>,
         delivered: &mut dyn FnMut(),
     ) -> CoreResult<()> {
+        self.focus_restore_owner = foreground_owner(target, mode);
+        self.pointer_restore_owner = None;
         self.input()?.type_text_interruptible(target, text, mode, check_stop, delivered)
     }
 

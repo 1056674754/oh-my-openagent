@@ -61,6 +61,7 @@ pub struct FakeInputServer {
     pub active: Cell<Option<Window>>,
     pub focus: Cell<Window>,
     pub pointer: Cell<(i16, i16)>,
+    pub pointer_after_flush: Cell<Option<(i16, i16)>>,
     pub focus_after_input: Cell<Option<Window>>,
     activate_updates_active: Cell<bool>,
     classes: HashMap<Window, Vec<u8>>,
@@ -83,6 +84,7 @@ impl FakeInputServer {
             active: Cell::new(active),
             focus: Cell::new(active.unwrap_or(ROOT)),
             pointer: Cell::new((0, 0)),
+            pointer_after_flush: Cell::new(None),
             focus_after_input: Cell::new(None),
             activate_updates_active: Cell::new(true),
             classes: HashMap::new(),
@@ -210,6 +212,9 @@ impl InputServer for FakeInputServer {
     }
 
     fn flush(&self) -> CoreResult<()> {
+        if let Some(point) = self.pointer_after_flush.take() {
+            self.pointer.set(point);
+        }
         Ok(())
     }
 }

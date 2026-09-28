@@ -2,6 +2,8 @@
 //! server: capabilities measured from what connected, and the focus-guard
 //! hooks the session transaction calls.
 
+mod restore_tests;
+
 use senpi_desktop_core::backend::{Backend, DeliveryMode, Modifiers, MouseButton, PointerEvent};
 use senpi_desktop_core::error::{DesktopError, ErrorCode};
 use senpi_desktop_core::frame::FrameGeometry;

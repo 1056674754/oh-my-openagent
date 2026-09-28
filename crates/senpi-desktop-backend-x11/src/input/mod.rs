@@ -43,6 +43,7 @@ use server::{FakeInput, SentEvent, Spot};
 pub struct X11Input<S = X11InputConnection> {
     server: S,
     held: Held,
+    last_pointer_motion: Option<DesktopPoint>,
 }
 
 impl X11Input<X11InputConnection> {
@@ -58,6 +59,7 @@ impl<S: InputServer> X11Input<S> {
         Self {
             server,
             held: Held::default(),
+            last_pointer_motion: None,
         }
     }
 
@@ -70,6 +72,7 @@ impl<S: InputServer> X11Input<S> {
     /// `WindowNotFound` for a malformed id, `BackgroundUnavailable` for a
     /// filtering toolkit, `InputFailed` when a request fails.
     pub fn pointer(&mut self, target: &Target, event: &PointerEvent, mode: DeliveryMode) -> CoreResult<()> {
+        self.last_pointer_motion = None;
         match (target, mode) {
             (Target::Desktop, _) => self.pointer_xtest(event),
             (Target::Window(id), DeliveryMode::Foreground) => {
@@ -80,6 +83,10 @@ impl<S: InputServer> X11Input<S> {
                 self.pointer_send_event(window, event)
             }
         }
+    }
+
+    pub(crate) const fn last_pointer_motion(&self) -> Option<DesktopPoint> {
+        self.last_pointer_motion
     }
 
     /// # Errors
