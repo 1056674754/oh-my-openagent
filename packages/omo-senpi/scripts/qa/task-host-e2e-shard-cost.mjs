@@ -11,6 +11,7 @@ import { idleExit } from "./task-host-e2e-shard-cost-idle-exit.mjs"
 import { latency } from "./task-host-e2e-shard-cost-latency.mjs"
 import { controlIdle, idleAndMarginal, totals } from "./task-host-e2e-shard-cost-memory.mjs"
 import { provisionConfig } from "./task-host-e2e-shard-cost-support.mjs"
+import { prewarmIdle } from "./task-host-e2e-shard-cost-user-latency.mjs"
 
 function parseArgs(argv) {
   const options = { targets: [], skip: [], control: false, keepSandbox: false }
@@ -57,8 +58,11 @@ function table(report, verdict) {
   const lines = [`# shard cost (${report.hardware})`, "", `sharded: ${report.binaries.sharded?.version ?? "n/a"}`, `control: ${report.binaries.control?.version ?? "n/a"}`, "", "| target | measured | acceptance | verdict |", "|---|---|---|---|"]
   for (const row of verdict.rows) lines.push(`| ${row.id} | ${row.measured} | ${row.target} | ${row.verdict} |`)
   const latencyRows = report.sections.latency?.scenarios ?? {}
-  lines.push("", "| latency scenario | n | p50 ms | p95 ms | min ms |", "|---|---|---|---|---|")
-  for (const [name, cell] of Object.entries(latencyRows)) lines.push(`| ${name} | ${cell.n} | ${cell.p50_ms} | ${cell.p95_ms} | ${cell.min_ms} |`)
+  lines.push("", "| latency scenario | n | p50 ms | p95 ms | min ms | max ms |", "|---|---|---|---|---|---|")
+  for (const [name, cell] of Object.entries(latencyRows)) lines.push(`| ${name} | ${cell.n} | ${cell.p50_ms} | ${cell.p95_ms} | ${cell.min_ms} | ${cell.max_ms} |`)
+  for (const [name, idle] of Object.entries(report.sections.prewarm_idle ?? {})) {
+    lines.push("", `pre-warm idle (${name}, no child): ${idle.idle?.endpoint_footprint_mb} MB footprint / ${idle.idle?.endpoint_rss_mb} MB RSS; host exited ${idle.host_exit_ms_after_last_probe} ms after the last probe (idle window ${idle.idle_exit_ms_configured} ms), parent alive ${idle.parent_alive_at_host_exit}`)
+  }
   for (const row of report.sections.totals?.rows ?? []) lines.push(`\nN=${row.parents} x 4: sharded ${row.sharded.rss_mb} MB RSS / ${row.sharded.footprint_mb} MB footprint over ${row.sharded.endpoints_alive} hosts; control ${row.control.rss_mb} / ${row.control.footprint_mb} MB on 1 host`)
   return `${lines.join("\n")}\n`
 }
@@ -90,7 +94,7 @@ async function main(options) {
   const bin = options.bin ?? process.env.SENPI_BIN
   const samples = Number(options.samples ?? REQUIRED_SAMPLES)
   if (bin === undefined && !options.control) throw new Error("--bin <compiled omo from this branch> (or SENPI_BIN) is required")
-  if (options.beforeBin === undefined && (options.control || !["idle", "totals", "idle_exit"].every((name) => options.skip.includes(name)))) {
+  if (options.beforeBin === undefined && (options.control || !["idle", "totals", "idle_exit", "latency"].every((name) => options.skip.includes(name)))) {
     throw new Error("--before-bin <compiled R0 omo> is required for the control halves")
   }
   const realBefore = realAgentFingerprint()
@@ -127,6 +131,7 @@ async function main(options) {
       else if (wanted("marginal") && !wanted("idle")) await measure("marginal", async () => (await idleAndMarginal(run, cleanup, log)).marginal)
       await measure("totals", () => totals(run, cleanup, log))
       await measure("latency", () => latency(run, samples, cleanup, log))
+      await measure("prewarm_idle", () => prewarmIdle(run, cleanup, log))
       await measure("idle_exit", () => idleExit(run, [sharded, control], cleanup, log))
     }
   } finally {
