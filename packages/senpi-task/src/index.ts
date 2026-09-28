@@ -126,6 +126,7 @@ export {
   CATEGORY_DESCRIPTIONS,
   CATEGORY_PROMPT_APPENDS,
   DEFAULT_CATEGORIES,
+  builtinCategoryChainCandidates,
   resolveAvailableCategoryNames,
   resolveCategory,
 } from "./category"
