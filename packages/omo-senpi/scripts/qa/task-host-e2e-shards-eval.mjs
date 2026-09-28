@@ -43,13 +43,17 @@ export function evaluateShardFaultReport(report) {
   const expected = control ? [CONTROL_ID] : SCENARIO_IDS
   const rows = expected.map((id) => verdictFor(id, report.scenarios?.[id]))
   const unexpected = Object.keys(report.scenarios ?? {}).filter((id) => !expected.includes(id))
-  const pass = rows.every((row) => row.verdict === "PASS") && unexpected.length === 0
+  const failedGates = Object.entries(report.gates ?? {})
+    .filter(([, gate]) => gate?.status !== "pass" || !Array.isArray(gate.evidence) || gate.evidence.length === 0)
+    .map(([name]) => name)
+  const pass = rows.every((row) => row.verdict === "PASS") && unexpected.length === 0 && failedGates.length === 0
   return {
     exitCode: pass ? 0 : 1,
     verdict: pass ? "PASS" : "FAIL",
     expected: expected.length,
     passed: rows.filter((row) => row.verdict === "PASS").length,
     failed: rows.filter((row) => row.verdict === "FAIL").map((row) => row.id),
+    failedGates,
     unexpected,
     rows,
   }

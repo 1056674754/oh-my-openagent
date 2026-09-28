@@ -55,4 +55,15 @@ describe("evaluateShardFaultReport", () => {
     expect(verdict.exitCode).toBe(1)
     expect(verdict.unexpected).toEqual(["max_depth_bounded"])
   })
+
+  test("an extra contract gate can fail without substituting a scenario row", () => {
+    const report = complete()
+    report.gates = {
+      contracts: { status: "fail", evidence: ["contract-tests.log"] },
+    }
+    const verdict = evaluateShardFaultReport(report)
+    expect(verdict.exitCode).toBe(1)
+    expect(verdict.failed).toEqual([])
+    expect(verdict.failedGates).toEqual(["contracts"])
+  })
 })

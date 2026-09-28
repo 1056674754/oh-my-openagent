@@ -5,7 +5,12 @@ import { resolve } from "node:path"
 import { runCrashMatrix, controlRowForReport, crashRowsForReport } from "./task-host-e2e-shards-crash.mjs"
 import { runContractMatrix } from "./task-host-e2e-shards-contracts.mjs"
 import { evaluateShardFaultReport, CONTROL_ID, SCENARIO_IDS } from "./task-host-e2e-shards-eval.mjs"
+import { runMixedEngineScenario } from "./task-host-e2e-shards-handoff.mjs"
+import { runHandoffSuccessorMatrix } from "./task-host-e2e-shards-handoff-successors.mjs"
+import { runIndexLiveMatrix } from "./task-host-e2e-shards-index-live.mjs"
 import { runNestedMatrix } from "./task-host-e2e-shards-nested.mjs"
+import { runRollbackLiveMatrix } from "./task-host-e2e-shards-rollback-live.mjs"
+import { runRetainLiveMatrix } from "./task-host-e2e-shards-retain-live.mjs"
 import { sandboxProcesses } from "./task-host-e2e-process.mjs"
 import {
   binaryDigest,
@@ -83,6 +88,7 @@ async function main(options) {
   const realBefore = realAgentDigests()
   const binaries = {}
   const scenarios = {}
+  const gates = {}
   const errors = {}
   const started = new Date().toISOString()
   const only = new Set(options.only)
@@ -116,11 +122,63 @@ async function main(options) {
           errors.nested = String(error?.stack ?? error)
         }
       }
+      if (selected("handoff")) {
+        if (options.olderBin === undefined) {
+          errors.handoff = "--older-bin <stamped lower-ordinal sharded omo> is required"
+        } else {
+          try {
+            Object.assign(scenarios, await runMixedEngineScenario(sharded, resolve(options.olderBin), out))
+          } catch (error) {
+            errors.handoff = String(error?.stack ?? error)
+          }
+        }
+      }
+      if (selected("handoff-successors")) {
+        if (options.olderBin === undefined) {
+          errors.handoffSuccessors = "--older-bin <stamped lower-ordinal sharded omo> is required"
+        } else {
+          try {
+            Object.assign(scenarios, await runHandoffSuccessorMatrix(sharded, resolve(options.olderBin), out))
+          } catch (error) {
+            errors.handoffSuccessors = String(error?.stack ?? error)
+          }
+        }
+      }
+      if (selected("index")) {
+        if (options.beforeBin === undefined) {
+          errors.index = "--before-bin <R0 compiled omo> is required"
+        } else {
+          try {
+            Object.assign(scenarios, await runIndexLiveMatrix(sharded, resolve(options.beforeBin), out))
+          } catch (error) {
+            errors.index = String(error?.stack ?? error)
+          }
+        }
+      }
+      if (selected("rollback")) {
+        if (options.beforeBin === undefined) {
+          errors.rollback = "--before-bin <R0 compiled omo> is required"
+        } else {
+          try {
+            Object.assign(scenarios, await runRollbackLiveMatrix(sharded, resolve(options.beforeBin), out))
+          } catch (error) {
+            errors.rollback = String(error?.stack ?? error)
+          }
+        }
+      }
+      if (selected("retain")) {
+        try {
+          Object.assign(scenarios, await runRetainLiveMatrix(sharded, out))
+        } catch (error) {
+          errors.retain = String(error?.stack ?? error)
+        }
+      }
       if (selected("contracts")) {
         try {
-          Object.assign(scenarios, runContractMatrix(process.cwd(), out))
+          gates.contracts = runContractMatrix(process.cwd(), out)
         } catch (error) {
           errors.contracts = String(error?.stack ?? error)
+          gates.contracts = { status: "fail", evidence: [], reason: errors.contracts }
         }
       }
       Object.assign(scenarios, unimplementedRows(scenarios))
@@ -136,6 +194,7 @@ async function main(options) {
       finished: new Date().toISOString(),
       binaries,
       scenarios,
+      gates,
       errors,
       real_agent_dir: {
         before: realBefore,
