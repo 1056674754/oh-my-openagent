@@ -4,7 +4,8 @@ import { spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { delimiter, join, resolve } from "node:path"
-import { removeTestTempRoot, writeTestExecutable } from "./omob-test-executable"
+import { removeTempRoot } from "./remove-temp-root"
+import { writeTestExecutable } from "./omob-test-executable"
 import * as builder from "./build-omob"
 
 describe("omob mainline launcher", () => {
@@ -50,7 +51,7 @@ describe("omob mainline launcher", () => {
 				expect(current(binary, requested, builder.hostTargetFor(process.platform, process.arch))).toBe(!changed)
 				rmSync(binary)
 				expect(current(binary, requested, builder.hostTargetFor(process.platform, process.arch))).toBe(false)
-			} finally { removeTestTempRoot(root) }
+			} finally { removeTempRoot(root) }
 		})
 	}
 

@@ -1,9 +1,10 @@
 import { spawnSync } from "node:child_process"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { RuntimeManifest } from "./build-omo-binary"
 import { relPathForEmbeddedName, RUNTIME_MANIFEST_REL_PATH } from "./embedded-payload-naming"
+import { removeTempRoot } from "./remove-temp-root"
 
 const EMBEDDED_PROBE_SOURCE = `import { embeddedFiles } from "bun"
 const names = []
@@ -30,7 +31,10 @@ export interface EmbeddedPayloadReport {
  * shares the build's toolchain, so it also catches a bun that silently drops
  * assets (e.g. a stale bun shadowing PATH).
  */
-export function reportEmbeddedPayload(stageDir: string): EmbeddedPayloadReport {
+export function reportEmbeddedPayload(
+  stageDir: string,
+  removeProbeRoot: (root: string) => void = removeTempRoot,
+): EmbeddedPayloadReport {
   const probeRoot = mkdtempSync(join(tmpdir(), "omo-embed-probe-"))
   try {
     const probeEntry = join(probeRoot, "probe.ts")
@@ -60,6 +64,6 @@ export function reportEmbeddedPayload(stageDir: string): EmbeddedPayloadReport {
       .filter((relPath): relPath is string => relPath !== undefined)
     return { names: parsed.names, relPaths, manifest: parsed.manifest }
   } finally {
-    rmSync(probeRoot, { recursive: true, force: true })
+    removeProbeRoot(probeRoot)
   }
 }
