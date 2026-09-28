@@ -5,6 +5,7 @@ import { win32 } from "node:path"
 
 import { log } from "@oh-my-opencode/utils"
 
+import { socketAcceptsConnection } from "./busy-host"
 import { probeWithEngine } from "./session-transport"
 
 /**
@@ -22,11 +23,17 @@ const WINDOWS_SECRET_BYTES = 32
 
 export async function daemonReachable(socket: string): Promise<boolean> {
   try {
-    return (await probeWithEngine(socket)) !== undefined
+    if ((await probeWithEngine(socket)) !== undefined) return true
   } catch (error) {
     log("senpi-task daemon probe failed", { socket, error: String(error) })
-    return false
   }
+  // A daemon whose loop is blocked still completes the connect from its listen backlog: it is busy,
+  // not gone, and parking its children as daemon_unavailable strands live sessions (omo#9069).
+  if (process.platform !== "win32" && (await socketAcceptsConnection(socket))) {
+    log("senpi-task daemon probe unanswered but the socket accepts; treating the daemon as busy", { socket })
+    return true
+  }
+  return false
 }
 
 /**

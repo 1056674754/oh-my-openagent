@@ -146,6 +146,7 @@ export function buildHostChaosHarness(): HostChaosHarness {
       maxDrainAttempts: 4,
       defaultRetryAfterMs: 20,
       daemonLossBackoffMs: [1, 4, 16],
+      deferredRetryBackoffMs: [],
       wait: (ms) => {
         waits.push(ms)
         return Promise.resolve()

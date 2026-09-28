@@ -87,3 +87,37 @@ async function reviveParkedHostSession(context: LifecycleContext, taskId: string
     return false
   }
 }
+
+const DEFERRED_REASONS = new Set(["host_unreachable", "host_draining"])
+const retrying = new WeakMap<LifecycleContext, Set<string>>()
+
+/**
+ * A reconcile that deferred a daemon-hosted child (its daemon did not answer, or a draining
+ * generation still holds its session path) used to leave the record `running` + `rpc_detached`
+ * until the NEXT parent session start, so the child's work was never observed and a DAG waited on
+ * it forever (omo#9069). Each such child now gets one bounded background retry through the same
+ * single-flight revival a reconcile uses, against its RECORDED session; it stops as soon as the
+ * record is revived, terminal, killed, or claimed elsewhere.
+ */
+export function retryDeferredHostSessions(context: LifecycleContext, outcomes: readonly ReconcileOutcome[]): void {
+  const active = retrying.get(context) ?? new Set<string>()
+  retrying.set(context, active)
+  for (const outcome of outcomes) {
+    if (outcome.kind !== "deferred" || !DEFERRED_REASONS.has(outcome.reason ?? "")) continue
+    if (active.has(outcome.task_id) || !isHostSessionRecord(context.store.load(outcome.task_id))) continue
+    active.add(outcome.task_id)
+    void retryDeferredHostSession(context, outcome.task_id)
+      .catch((error: unknown) => log("senpi-task deferred host session retry failed", { taskId: outcome.task_id, error: String(error) }))
+      .finally(() => active.delete(outcome.task_id))
+  }
+}
+
+async function retryDeferredHostSession(context: LifecycleContext, taskId: string): Promise<void> {
+  for (const backoffMs of context.hostRetry.deferredRetryBackoffMs) {
+    await context.hostRetry.wait(backoffMs)
+    const fresh = context.store.load(taskId)
+    if (fresh === null || fresh.status !== "running" || fresh.residency_state !== "rpc_detached" || fresh.killed === true) return
+    context.hostSessionProbe.refresh()
+    if (await reviveParkedHostSession(context, taskId)) return
+  }
+}

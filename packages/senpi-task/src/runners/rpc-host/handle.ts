@@ -329,6 +329,9 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
       parkedListeners.add(listener)
       return () => parkedListeners.delete(listener)
     },
+    adoptFinishedTurn: (finalResponse) => {
+      if (turnOutcome === undefined && settlement.pending() === undefined) settleTurn({ status: "completed", finalResponse })
+    },
     onSelfResumed: (listener) => {
       resumedListeners.add(listener)
       return () => resumedListeners.delete(listener)

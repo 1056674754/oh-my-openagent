@@ -194,6 +194,9 @@ export function createRpcChildHandle(options: CreateRpcChildHandleOptions): Trac
       return runCommand({ type: "abort" }, "abort")
     },
     subscribe: (listener: ChildEventListener) => client.onEvent(listener),
+    adoptFinishedTurn: (finalResponse) => {
+      if (turnOutcome === undefined && settlement.pending() === undefined) settleTurn({ status: "completed", finalResponse })
+    },
     onSelfResumed: (listener) => {
       resumedListeners.add(listener)
       return () => resumedListeners.delete(listener)
