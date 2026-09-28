@@ -51,6 +51,8 @@ interface Episode {
   announced: boolean
 }
 
+const subagents = (n: number): string => `${n} ${n === 1 ? "subagent" : "subagents"}`
+
 const count = (outcomes: readonly ReattachOutcome[], ...kinds: readonly ReattachOutcome[]): number =>
   outcomes.filter((outcome) => kinds.includes(outcome)).length
 
@@ -72,7 +74,7 @@ export function createShardCrashNotices(deps: ShardCrashNoticeDeps): Required<Ho
     const supervisorPid = info.supervisorPid ?? crash.supervisorPid
     const pid = supervisorPid === undefined ? "pid unknown" : `supervisor pid ${supervisorPid}`
     const n = episode.members.size
-    const text = `${SHARD_CRASH_TOKEN}:${episode.key} Background task host crashed (shard ${episode.key}, ${pid}, ${crash.cause ?? "cause unknown"}): reattaching ${n} ${n === 1 ? "child" : "children"}...`
+    const text = `${SHARD_CRASH_TOKEN}:${episode.key} Background task host crashed (shard ${episode.key}, ${pid}, ${crash.cause ?? "cause unknown"}): reattaching ${subagents(n)}...`
     emit(`${SHARD_CRASH_TOKEN}:${episode.id}`, text, "warning")
   }
 
@@ -82,8 +84,11 @@ export function createShardCrashNotices(deps: ShardCrashNoticeDeps): Required<Ho
     closed.add(episode.id)
     if (!episode.announced) return
     const cancelled = count(episode.outcomes, "cancelled")
-    const settled = episode.outcomes.length - cancelled
-    const counts = `${settled} reattached: ${count(episode.outcomes, "continued")} continued mid-turn, ${count(episode.outcomes, "lost", "host_incompatible")} lost`
+    const lost = count(episode.outcomes, "lost", "host_incompatible")
+    const reattached = count(episode.outcomes, "attached", "resumed", "continued")
+    // The Desktop parses this shape into its one "Task host restarted" row: the loss leads when there is one.
+    const counts =
+      lost === 0 ? `${subagents(reattached)} reattached, 0 lost` : `${subagents(lost)} lost (reattach failed), ${reattached} reattached`
     const text = `${SHARD_CRASH_DONE_TOKEN}:${episode.key} ${counts}${cancelled === 0 ? "" : `, ${cancelled} cancelled`}`
     emit(`${SHARD_CRASH_DONE_TOKEN}:${episode.id}`, text, "info")
   }

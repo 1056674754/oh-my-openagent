@@ -25,7 +25,15 @@ export function reattachingCount(line: string): number {
   return Number(line.match(/\d+/g)?.at(-1))
 }
 
-/** The done line's counts after its token, in order: reattached, continued, lost[, cancelled]. */
-export function doneCounts(line: string): readonly number[] {
-  return (line.slice(line.indexOf(" ")).match(/\d+/g) ?? []).map(Number)
+/**
+ * The done line's counts, read by their words: "<R> subagent(s) reattached, 0 lost" or
+ * "<L> subagent(s) lost (reattach failed), <R> reattached", then ", <C> cancelled" when any were.
+ * The Desktop parses the same shape.
+ */
+export function doneCounts(line: string): { readonly reattached: number; readonly lost: number; readonly cancelled: number } {
+  const body = line.slice(line.indexOf(" ") + 1)
+  const reattached = body.match(/(\d+) (?:subagents? )?reattached/)
+  const lost = body.match(/(\d+) (?:subagents? )?lost/)
+  const cancelled = body.match(/(\d+) cancelled/)
+  return { reattached: Number(reattached?.[1] ?? Number.NaN), lost: Number(lost?.[1] ?? Number.NaN), cancelled: Number(cancelled?.[1] ?? 0) }
 }

@@ -87,10 +87,10 @@ describe("shard crash notice", () => {
 
     // then
     expect(beforeSecond).toBe(0)
-    expect(doneCounts(linesWith(world.notices.list(), SHARD_CRASH_DONE_TOKEN)[0] ?? "")).toEqual([2, 2, 0])
+    expect(doneCounts(linesWith(world.notices.list(), SHARD_CRASH_DONE_TOKEN)[0] ?? "")).toEqual({ reattached: 2, lost: 0, cancelled: 0 })
   })
 
-  test("#given the episode's children #when one continues and one is lost #then one done line with counts 2/1/1 and exactly two notifies, warning then info", () => {
+  test("#given the episode's children #when one continues and one is lost #then one done line with 1 reattached and 1 lost and exactly two notifies, warning then info", () => {
     // given
     const world = harness()
     world.lose("st_a")
@@ -104,7 +104,7 @@ describe("shard crash notice", () => {
     // then
     const done = linesWith(world.notices.list(), SHARD_CRASH_DONE_TOKEN)
     expect(done).toHaveLength(1)
-    expect(doneCounts(done[0] ?? "")).toEqual([2, 1, 1])
+    expect(doneCounts(done[0] ?? "")).toEqual({ reattached: 1, lost: 1, cancelled: 0 })
     expect(world.notified.map((call) => call.type)).toEqual(["warning", "info"])
     expect(world.notified[0]?.text).toStartWith(`${SHARD_CRASH_TOKEN}:`)
     expect(world.notified[1]?.text).toStartWith(`${SHARD_CRASH_DONE_TOKEN}:`)
@@ -120,7 +120,29 @@ describe("shard crash notice", () => {
     world.settle("st_b", "cancelled")
 
     // then
-    expect(doneCounts(linesWith(world.notices.list(), SHARD_CRASH_DONE_TOKEN)[0] ?? "")).toEqual([1, 1, 0, 1])
+    expect(doneCounts(linesWith(world.notices.list(), SHARD_CRASH_DONE_TOKEN)[0] ?? "")).toEqual({ reattached: 1, lost: 0, cancelled: 1 })
+  })
+
+  test("#given each outcome mix #when the episode closes #then the done line reads the lost count first only when something was lost", () => {
+    // given - the Desktop parses this exact shape into its one "Task host restarted" row
+    const continued = harness()
+    continued.lose("st_a")
+    continued.settle("st_a", "continued")
+    const lostOne = harness()
+    lostOne.lose("st_a", { boundTaskIds: ["st_a", "st_b", "st_c"] })
+
+    // when
+    lostOne.settle("st_a", "lost")
+    lostOne.settle("st_b", "resumed")
+    lostOne.settle("st_c", "cancelled")
+
+    // then
+    expect(linesWith(continued.notices.list(), SHARD_CRASH_DONE_TOKEN)).toEqual([`${SHARD_CRASH_DONE_TOKEN}:aaaaaaaaaaaaaaaa 1 subagent reattached, 0 lost`])
+    expect(linesWith(lostOne.notices.list(), SHARD_CRASH_DONE_TOKEN)).toEqual([
+      `${SHARD_CRASH_DONE_TOKEN}:aaaaaaaaaaaaaaaa 1 subagent lost (reattach failed), 1 reattached, 1 cancelled`,
+    ])
+    expect(linesWith(lostOne.notices.list(), SHARD_CRASH_TOKEN)[0]).toEndWith("reattaching 3 subagents...")
+    expect(linesWith(continued.notices.list(), SHARD_CRASH_TOKEN)[0]).toEndWith("reattaching 1 subagent...")
   })
 
   test("#given one crash in progress #when a child on a second socket loses its host #then that is a second notice", () => {

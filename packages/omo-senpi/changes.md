@@ -1,3 +1,7 @@
+## 2026-09-29 — Task-host crash lines read in one word and count only what came back
+
+The `host_shard_crash_done:<key>` closing line now reads `N subagent(s) reattached, 0 lost`, or, when anything was lost, `N subagent(s) lost (reattach failed), M reattached` (`, C cancelled` as before). "Reattached" counts only children that actually came back (attached, resumed, continued); the old first number counted lost ones too, so a lost case read "1 reattached: 0 continued mid-turn, 1 lost". The `host_shard_crash:<key>` warning says "reattaching N subagent(s)..." instead of "child/children". Both tokens are unchanged; the Desktop's parser moves to this shape in the same release. `shard-crash-notice.test.ts` pins both shapes.
+
 ## task: the session's own host is pre-warmed by default, and warmed up with one throwaway session (rpc-host-sharding PR-A)
 
 `task.host_shard_prewarm` now defaults to `"first-turn"` (schema `packages/omo-config-core/src/schema/task.ts`,
