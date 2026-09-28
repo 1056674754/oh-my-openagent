@@ -6,6 +6,7 @@ import { dirname, join } from "node:path"
 import { DURABLE_JSON_FS } from "./durable-json"
 import {
   pruneMissingStoreIndexEntries,
+  pruneMissingStoreIndexEntriesSync,
   readTaskStoreIndex,
   registerStoreIndex,
   StoreIndexUnavailableError,
@@ -125,6 +126,17 @@ describe("registerStoreIndex", () => {
     const [removed] = await Promise.all([prune, register])
 
     expect(removed).toEqual(["/tmp/missing-store"])
+    expect(Object.keys(readTaskStoreIndex(path).stores)).toEqual([existingStore])
+  })
+
+  test("#given compiled launcher pruning #when one indexed store is missing #then the sync port removes only that entry", async () => {
+    const path = indexPath()
+    const existingStore = join(dirname(path), "existing-store")
+    mkdirSync(existingStore, { recursive: true })
+    await registerStoreIndex({ indexPath: path, storeDir: existingStore, now: Date.now })
+    await registerStoreIndex({ indexPath: path, storeDir: "/tmp/missing-sync-store", now: Date.now })
+
+    expect(pruneMissingStoreIndexEntriesSync(path)).toEqual(["/tmp/missing-sync-store"])
     expect(Object.keys(readTaskStoreIndex(path).stores)).toEqual([existingStore])
   })
 
