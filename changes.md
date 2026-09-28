@@ -1,3 +1,11 @@
+## 2026-09-29 - Adopt senpi 2026.9.28-7: app-server extensions, the host warm command, and the experimental /computer tip
+
+Every senpi pin moves from 2026.9.28-6 to 2026.9.28-7 (root devDependency, `omo-native`, the `omo-senpi` and `senpi-task` peer and dev pins, their pin tests, `bun.lock`, and the version comment in `packages/omo-native/bin/lib/provider-map.json`). The new engine carries:
+
+- **`senpi app-server` loads extensions passed with `--extension <path>`** into every thread, including through `app-server daemon start|restart` (#9117, senpi #2313).
+- **An RPC host can warm its prompt path without opening a session** (senpi #2314, #2318).
+- **The `/computer` introduction tip says computer use is experimental** (senpi #2315, #2316).
+
 ## 2026-09-28 - Adopt senpi 2026.9.28-6: GitHub Copilot Business and Enterprise requests reach the account's own host (#8662)
 
 Every senpi pin moves from 2026.9.28-5 to 2026.9.28-6 (root devDependency, `omo-native`, the `omo-senpi` and `senpi-task` peer and dev pins, their pin tests, `bun.lock`, and the version comment in `packages/omo-native/bin/lib/provider-map.json`). The new engine carries:
