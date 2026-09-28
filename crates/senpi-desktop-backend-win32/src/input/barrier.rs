@@ -42,7 +42,9 @@ const POLL: Duration = Duration::from_millis(1);
 /// within the hang guard.
 pub(super) fn delivered(target: Window) -> CoreResult<()> {
     routed(target)?;
-    consumed(paint_probe(target))
+    let probe = paint_probe(target);
+    super::diag_timeline::mark(&format!("routed paint_probe={}", probe.address()), None);
+    consumed(probe)
 }
 
 fn routed(target: Window) -> CoreResult<()> {

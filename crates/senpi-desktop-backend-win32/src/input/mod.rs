@@ -26,6 +26,8 @@ mod barrier;
 #[cfg(target_os = "windows")]
 mod char_sink;
 #[cfg(target_os = "windows")]
+mod diag_timeline;
+#[cfg(target_os = "windows")]
 mod dispatch;
 #[cfg(target_os = "windows")]
 mod foreground;

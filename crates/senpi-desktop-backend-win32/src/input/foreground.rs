@@ -39,9 +39,13 @@ impl Win32Input {
         let target = Window::target(id, self.integrity)?;
         self.last_takeover_target = Some(target);
         let previous = native::foreground();
+        super::diag_timeline::mark("activate-begin", None);
         activate(id, target)?;
+        super::diag_timeline::mark("activated", None);
         let result = body(self, target);
+        super::diag_timeline::mark("body-done", None);
         let delivered = barrier::delivered(target);
+        super::diag_timeline::mark("delivered", None);
         let current = native::foreground();
         let owner = current.map(Window::root_owner);
         let restore = previous
@@ -58,6 +62,7 @@ impl Win32Input {
         if let Some(previous) = restore {
             // Refused restores are reported by the session's transaction.
             let _restored = native::set_foreground(previous);
+            super::diag_timeline::mark("restored", None);
         }
         result.and_then(|value| delivered.map(|()| value))
     }

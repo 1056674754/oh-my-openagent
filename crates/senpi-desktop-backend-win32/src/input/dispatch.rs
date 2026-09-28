@@ -228,6 +228,7 @@ pub(crate) fn cursor_position() -> CoreResult<DesktopPoint> {
 /// Moves the cursor to a global logical point without input.
 pub(crate) fn warp_cursor(point: DesktopPoint) -> CoreResult<()> {
     let (x, y) = to_physical(point.x, point.y)?;
+    super::diag_timeline::mark("warp-cursor", Some((x, y)));
     native::set_cursor(x, y)
 }
 

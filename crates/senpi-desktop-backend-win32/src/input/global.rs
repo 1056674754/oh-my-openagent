@@ -27,7 +27,7 @@ impl Win32Input {
                 count,
                 modifiers,
             } => {
-                system::move_to(to_physical(*x, *y)?, target)?;
+                system::move_to(to_physical(*x, *y)?, target).inspect(|()| super::diag_timeline::mark("moved", to_physical(*x, *y).ok()))?;
                 self.holding(Via::SendInput(target), &modifier_virtual_keys(*modifiers), |this| {
                     for _ in 0..*count {
                         this.system_button(*button, true, target)?;
@@ -36,7 +36,7 @@ impl Win32Input {
                     Ok(())
                 })
             }
-            PointerEvent::Move { x, y } => system::move_to(to_physical(*x, *y)?, target),
+            PointerEvent::Move { x, y } => system::move_to(to_physical(*x, *y)?, target).inspect(|()| super::diag_timeline::mark("moved", to_physical(*x, *y).ok())),
             PointerEvent::Drag {
                 path,
                 button,
@@ -45,19 +45,19 @@ impl Win32Input {
                 let Some(&(x, y)) = path.first() else {
                     return Err(DesktopError::input_failed("drag path is empty"));
                 };
-                system::move_to(to_physical(x, y)?, target)?;
+                system::move_to(to_physical(x, y)?, target).inspect(|()| super::diag_timeline::mark("moved", to_physical(x, y).ok()))?;
                 self.holding(Via::SendInput(target), &modifier_virtual_keys(*modifiers), |this| {
                     this.system_button(*button, true, target)?;
                     let movement = path
                         .iter()
                         .skip(1)
-                        .try_for_each(|&(x, y)| system::move_to(to_physical(x, y)?, target));
+                        .try_for_each(|&(x, y)| system::move_to(to_physical(x, y)?, target).inspect(|()| super::diag_timeline::mark("moved", to_physical(x, y).ok())));
                     let release = this.system_button(*button, false, target);
                     movement.and(release)
                 })
             }
             PointerEvent::Scroll { x, y, dx, dy } => {
-                system::move_to(to_physical(*x, *y)?, target)?;
+                system::move_to(to_physical(*x, *y)?, target).inspect(|()| super::diag_timeline::mark("moved", to_physical(*x, *y).ok()))?;
                 let horizontal = scroll_steps(*dx).saturating_mul(WHEEL_DELTA);
                 let vertical = scroll_steps(*dy).saturating_mul(-WHEEL_DELTA);
                 if horizontal != 0 {
@@ -65,6 +65,7 @@ impl Win32Input {
                 }
                 if vertical != 0 {
                     system::wheel(false, vertical, target)?;
+                    super::diag_timeline::mark("wheel", to_physical(*x, *y).ok());
                 }
                 Ok(())
             }
@@ -79,6 +80,7 @@ impl Win32Input {
         target: Option<Window>,
     ) -> CoreResult<()> {
         system::button(button, down, target)?;
+        super::diag_timeline::mark(if down { "button-down" } else { "button-up" }, None);
         if down {
             self.held.button_down(HeldButton {
                 route: Route::System,
