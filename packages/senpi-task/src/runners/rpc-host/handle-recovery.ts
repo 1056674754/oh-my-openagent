@@ -15,6 +15,8 @@ export interface HandleRecoveryHost {
   turnResumed(): void
   endLost(): void
   park(reason: HostParkReason): void
+  /** The continuation that re-drives the in-flight turn after a reattach was not delivered. */
+  continuationFailed(error: unknown): void
 }
 
 export interface HandleRecovery {
@@ -77,9 +79,11 @@ export function createHandleRecovery(host: HandleRecoveryHost): HandleRecovery {
         giveUp: (reason) => (reason === undefined ? host.endLost() : host.park(reason)),
       },
       reattach,
-    ).finally(() => {
-      reattaching = undefined
-    })
+    )
+      .catch((error: unknown) => host.continuationFailed(error))
+      .finally(() => {
+        reattaching = undefined
+      })
   }
 
   return { issue, onTransportGone, settled: async () => await reattaching }

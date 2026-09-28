@@ -1,3 +1,5 @@
+import { log } from "@oh-my-opencode/utils"
+
 import type { RunnerOutcome } from "../in-process/child-handle"
 import { isBusyChildRejection, type RpcStreamingBehavior } from "../rpc/delivery-semantics"
 import { exitTurnOutcome, promptFailureOutcome } from "../rpc/turn-outcome"
@@ -19,6 +21,7 @@ import type {
 import { startHostHeartbeat } from "./handle-heartbeat"
 import { createHandleRecovery } from "./handle-recovery"
 import { endSessionOnHost } from "./handle-teardown"
+import { isTransportLossError } from "./reattach"
 import type { HostSessionParked } from "./session-client"
 import { extractTerminalAssistantMessage } from "./terminal-message"
 
@@ -162,6 +165,13 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
       for (const listener of turnResumedListeners) listener()
     },
     endLost: () => endSession({ kind: "transport_gone" }),
+    // The continuation that re-drives the in-flight turn was not delivered (omo#9093). A lost
+    // transport is the next recovery's to handle; anything else fails the turn exactly like an
+    // undelivered prompt, instead of escaping as an unhandled rejection.
+    continuationFailed: (error) => {
+      log("senpi-task host session reattach continuation failed", { taskId, error: String(error) })
+      if (!isTransportLossError(error)) settleTurn(promptFailureOutcome(error))
+    },
     park: (reason) => park({ sessionId: session.routingId, sessionPath: session.sessionPath, reason }),
   })
 
