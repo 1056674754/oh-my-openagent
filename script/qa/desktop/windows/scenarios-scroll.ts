@@ -2,14 +2,23 @@
 // toward the end of the content, negative toward the start) on a real Win32 EDIT, for background
 // (posted WM_MOUSEWHEEL) and foreground (SendInput) delivery. The EDIT's first visible line comes
 // from the independent observer (EM_GETFIRSTVISIBLELINE), never from the engine. The front window is
-// a second scroll host, so a wheel delivered to the wrong window shows up in its event log.
+// a second scroll host, so a wheel delivered to the wrong window shows up in its event log. The
+// foreground scenario ends with a control: one SendInput wheel injected by the QA side itself, which
+// tells an engine that delivered nothing apart from a desktop that takes no injected wheel.
+import { execFile } from "node:child_process"
 import { readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 
 import { asObject, type Engine, errorCode, type Reply } from "./engine"
 import { SCROLL_DOCUMENT, type ScrollWindow } from "./fixtures"
 import { firstVisibleLine, type Observation, observeUntil } from "./observer"
 import { type Scenario, type ScenarioContext, verdict, withEngine } from "./scenario-kit"
 import { bringToFront } from "./scenarios-delivery"
+import { HANG_GUARD_MS } from "./until"
+
+const WHEEL_CONTROL_SCRIPT = fileURLToPath(new URL("./wheel-control.ps1", import.meta.url))
+/** One SendInput wheel of three notches toward the end of the content (WHEEL_DELTA is 120). */
+const CONTROL_WHEEL_DELTA = -360
 
 /** Three wheel notches: the win32 backend maps every 100 units of delta to one notch. */
 const SCROLL_DELTA = 300
@@ -22,6 +31,37 @@ async function scrollBy(engine: Engine, at: Record<string, string | number | nul
 
 function lineMoved(ids: readonly string[], document: string, from: number): Promise<Observation> {
   return observeUntil(ids, (seen) => firstVisibleLine(seen, document) !== from)
+}
+
+/** Runs wheel-control.ps1; its `sent <n>` line, or the failure. */
+function injectWheel(x: number, y: number, delta: number): Promise<string> {
+  const args = ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", WHEEL_CONTROL_SCRIPT]
+  args.push("-X", String(x), "-Y", String(y), "-Delta", String(delta))
+  return new Promise((resolve) => {
+    execFile("powershell.exe", args, { timeout: HANG_GUARD_MS, windowsHide: true }, (error, stdout, stderr) => {
+      resolve(error === null ? stdout.trim() : `failed: ${error.message} ${stderr.trim()}`)
+    })
+  })
+}
+
+interface Control {
+  readonly injected: string
+  readonly before: number
+  readonly after: number
+}
+
+/** Raises the target, injects the control wheel at its centre, then gives the front window back. */
+async function controlWheel(engine: Engine, document: ScrollWindow, front: ScrollWindow): Promise<Control> {
+  const raised = await bringToFront(engine, document, [front.id])
+  const rect = raised.windows[document.id]?.rect
+  const before = firstVisibleLine(raised, document.id)
+  if (rect === undefined) return { injected: "skipped: no target rect", before, after: before }
+  const x = Math.floor((rect.left + rect.right) / 2)
+  const y = Math.floor((rect.top + rect.bottom) / 2)
+  const injected = await injectWheel(x, y, CONTROL_WHEEL_DELTA)
+  const after = firstVisibleLine(await lineMoved([document.id, front.id], document.id, before), document.id)
+  await bringToFront(engine, front, [document.id])
+  return { injected, before, after }
 }
 
 function hostEvents(window: ScrollWindow): string[] {
@@ -54,6 +94,7 @@ function scrollDirection(mode: DeliveryMode): Scenario {
         const up = await scrollBy(engine, at, -SCROLL_DELTA, mode)
         const after = await lineMoved(ids, document.id, afterPositive)
         const afterNegative = firstVisibleLine(after, document.id)
+        const control = mode === "foreground" ? await controlWheel(engine, document, front) : undefined
         const frontEvents = hostEvents(front)
         return verdict({
           checks: [
@@ -66,6 +107,9 @@ function scrollDirection(mode: DeliveryMode): Scenario {
             ["negative-dy-returns-to-start", afterNegative === start],
             ["front-received-no-wheel", !frontEvents.some((event) => event.includes("wheel"))],
             [mode === "background" ? "foreground-unchanged" : "front-restored", after.foreground === before.foreground],
+            ...(control === undefined
+              ? []
+              : [["control-sendinput-wheel-scrolls-target", control.after > control.before] as const]),
           ],
           facts: {
             target: document.id,
@@ -80,6 +124,7 @@ function scrollDirection(mode: DeliveryMode): Scenario {
             frontEvents,
             cursorAfterPositiveDy: middle.cursor,
             cursorWindowAfterPositiveDy: middle.raw.cursorWindow ?? null,
+            control: control === undefined ? null : { ...control, delta: CONTROL_WHEEL_DELTA },
             positiveDyError: errorCode(down) ?? null,
             negativeDyError: errorCode(up) ?? null,
           },
