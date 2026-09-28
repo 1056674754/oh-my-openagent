@@ -4,6 +4,7 @@ import { delimiter, dirname, isAbsolute, join, win32 } from "node:path"
 import { parseJsonc } from "./jsonc.js"
 import { releaseChannel } from "./package-paths.js"
 import { opencodeConfigSources } from "./setup-opencode-assets.js"
+import { standaloneBinaryVersion } from "./standalone-binary.js"
 
 // Migration leftovers from the OpenCode edition, reported and never touched: another `omo` ahead of
 // omo-ai's on PATH, the legacy package still installed globally, and the OpenCode plugin still
@@ -51,7 +52,7 @@ export function resolveMigrationEnvironment({ env, platform, homeDir }) {
     ...opencode.files,
     ...opencode.directories.flatMap((directory) => TUI_CONFIG_FILES.map((name) => join(directory, name))),
   ]
-  return { isWindows, pathDirectories, npmPrefixes, bunRoot, opencodeConfigFiles }
+  return { isWindows, homeDir, pathDirectories, npmPrefixes, bunRoot, opencodeConfigFiles }
 }
 
 function npmrcPrefix(homeDir) {
@@ -72,15 +73,27 @@ export function scanOmoBins(environment) {
     const binPath = suffixes.map((suffix) => join(directory, `omo${suffix}`)).find(pathExists)
     if (binPath === undefined) continue
     const owner = resolveOwner(binPath)
-    entries.push({ binPath, directory, owner, kind: classify(owner) })
+    const kind = classify(owner)
+    const standalone = kind === "foreign" ? standaloneBinaryVersion(binPath, environment.homeDir, environment.isWindows) : null
+    entries.push(standalone === null
+      ? { binPath, directory, owner, kind }
+      : { binPath, directory, owner: { name: STANDALONE_LABEL, version: standalone }, kind: "standalone" })
   }
   return entries
 }
 
-/** The entries a typed `omo` reaches before omo-ai's own; all of them when omo-ai is not on PATH. */
+const STANDALONE_LABEL = "standalone omo binary"
+const isOmoInstall = (entry) => entry.kind === "native" || entry.kind === "standalone"
+
+/** The entries a typed `omo` reaches before OmO's own (omo-ai or a standalone binary); all of them when neither is on PATH. */
 export function shadowingOmoBins(entries) {
-  const nativeIndex = entries.findIndex((entry) => entry.kind === "native")
-  return (nativeIndex < 0 ? entries : entries.slice(0, nativeIndex)).filter((entry) => entry.kind !== "native")
+  const firstOmo = entries.findIndex(isOmoInstall)
+  return (firstOmo < 0 ? entries : entries.slice(0, firstOmo)).filter((entry) => !isOmoInstall(entry))
+}
+
+/** omo-ai and standalone binaries on PATH, in PATH order; only the first one runs. */
+export function omoInstallsOnPath(entries) {
+  return entries.filter(isOmoInstall)
 }
 
 function classify(owner) {
@@ -264,23 +277,39 @@ function isPluginEntryFor(entry, name) {
 
 function ownerLabel(owner) {
   if (owner === null) return "unknown owner"
+  if (owner.name === STANDALONE_LABEL) return `${owner.name} ${owner.version}`
   return owner.version === null ? owner.name : `${owner.name}@${owner.version}`
 }
 
-export function formatMigrationLines({ shadowing, nativeDirectory, legacyPackages, registrations, restoreCommand }) {
+function omoInstallRemoval(entry, bunRoot) {
+  if (entry.kind === "standalone") return `remove ${entry.binPath}`
+  return realPathOf(entry.binPath).startsWith(realPathOf(bunRoot)) ? "bun remove -g omo-ai" : "npm uninstall -g omo-ai"
+}
+
+export function formatMigrationLines({ shadowing, nativeDirectory, legacyPackages, registrations, restoreCommand, omoInstalls = [], bunRoot = "", standalone = false }) {
   const lines = []
+  const first = omoInstalls[0]
+  const target = first?.kind === "standalone" || (first === undefined && standalone) ? "the standalone omo binary" : "omo-ai"
   for (const entry of shadowing) {
-    const fix = entry.kind === "legacy"
+    const fix = entry.kind === "legacy" && target === "omo-ai"
       ? `${repairCommand()} (repairs it), or remove that file.`
       : nativeDirectory === null
-        ? "remove that file, or put omo-ai's bin dir ahead of it on PATH."
+        ? `remove that file, or put ${target === "omo-ai" ? "omo-ai's bin dir" : "the omo binary's directory"} ahead of it on PATH.`
         : `remove that file, or move ${nativeDirectory} ahead of ${entry.directory} on PATH.`
-    lines.push(`WARN another omo precedes omo-ai on PATH: ${entry.binPath} (${ownerLabel(entry.owner)}). Fix: ${fix}`)
+    lines.push(`WARN another omo precedes ${target} on PATH: ${entry.binPath} (${ownerLabel(entry.owner)}). Fix: ${fix}`)
+  }
+  const shadowedOmo = omoInstalls.slice(1).filter((entry) => entry.kind !== first.kind || entry.kind === "standalone")
+  if (shadowedOmo.length > 0) {
+    const others = shadowedOmo.map((entry) => `${entry.binPath} (${ownerLabel(entry.owner)})`).join(", ")
+    const removals = shadowedOmo.map((entry) => omoInstallRemoval(entry, bunRoot)).join(" and ")
+    lines.push(`WARN more than one OmO install is on PATH: ${first.binPath} (${ownerLabel(first.owner)}) runs when you type omo; ${others} never runs. Keep one: ${removals}, or ${omoInstallRemoval(first, bunRoot)} to use the other.`)
   }
   for (const found of legacyPackages) {
     const label = ownerLabel({ name: found.name, version: found.version })
     const remove = found.manager === "npm"
-      ? `npm uninstall -g ${found.name}, then re-run ${restoreCommand} if omo disappears.`
+      ? restoreCommand === null
+        ? `npm uninstall -g ${found.name}`
+        : `npm uninstall -g ${found.name}, then re-run ${restoreCommand} if omo disappears.`
       : `bun remove -g ${found.name}`
     lines.push(`WARN legacy package ${label} is still installed globally (${found.manager}: ${found.packageDir}). Remove: ${remove}`)
   }
@@ -300,11 +329,15 @@ export function migrationReport(options, restoreCommand) {
     homeDir: options.homeDir ?? homedir(),
   })
   const bins = scanOmoBins(environment)
+  const omoInstalls = omoInstallsOnPath(bins)
   return formatMigrationLines({
     shadowing: shadowingOmoBins(bins),
-    nativeDirectory: bins.find((entry) => entry.kind === "native")?.directory ?? null,
+    nativeDirectory: omoInstalls[0]?.directory ?? null,
     legacyPackages: findLegacyPackages(environment),
     registrations: findOpenCodeRegistrations(environment.opencodeConfigFiles),
     restoreCommand,
+    omoInstalls,
+    bunRoot: environment.bunRoot,
+    standalone: options.standalone === true,
   })
 }
