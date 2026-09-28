@@ -16,6 +16,7 @@ use senpi_desktop_core::types::{
     CaptureCaps, DesktopCapabilities, DesktopDisplay, DesktopWindow, DisplaySelector, Target,
 };
 
+use crate::capture::layout::EisRegion;
 use crate::capture::PortalCapture;
 use crate::input::Libei;
 use crate::portal::{portal_runtime, remote_desktop, token_cleanup};
@@ -35,6 +36,9 @@ pub struct WaylandBackend {
     /// only while no libei connection was tried.
     portal_offered: Option<bool>,
     pub(crate) capture: PortalCapture,
+    /// The libei layout the last capture's geometry was derived from; pointer
+    /// input through a capture frame is refused once it no longer holds.
+    frame_layout: Option<Vec<EisRegion>>,
 }
 
 impl WaylandBackend {
@@ -54,6 +58,7 @@ impl WaylandBackend {
             input: Input::Untried,
             portal_offered: None,
             capture: PortalCapture::new(DisplaySelector::All),
+            frame_layout: None,
         }
     }
 
@@ -105,6 +110,9 @@ impl WaylandBackend {
     }
 }
 
+const LAYOUT_CHANGED: &str = "the Wayland display layout changed since the last capture, whose pixels were \
+     mapped through the old libei layout; capture again before coordinate input";
+
 impl Backend for WaylandBackend {
     fn capabilities(&mut self) -> DesktopCapabilities {
         let input_permission = self.input_permission();
@@ -137,22 +145,38 @@ impl Backend for WaylandBackend {
         }
     }
 
+    /// Reads the layout of an already connected libei session only; capture
+    /// never opens an input session. A layout that cannot be read leaves the
+    /// geometry unproven, so the frame refuses coordinate input.
     fn capture(&mut self, target: &Target, _caps: &CaptureCaps) -> CoreResult<(RgbaImage, FrameGeometry)> {
+        let layout = match &mut self.input {
+            Input::Connected(libei) => libei.regions().ok(),
+            Input::Untried | Input::Failed(_) => None,
+        };
         let ax = &mut self.ax;
-        self.capture.capture(target, || match ax {
+        let captured = self.capture.capture(target, layout.as_deref(), || match ax {
             Ok(ax) => ax.windows(),
             Err(error) => Err(error.clone()),
-        })
+        })?;
+        self.frame_layout = layout.filter(|_| self.capture.eis_derived);
+        Ok(captured)
     }
 
     fn pointer(
         &mut self,
         target: &Target,
         ev: PointerEvent,
-        _frame: &FrameGeometry,
+        frame: &FrameGeometry,
         _mode: DeliveryMode,
     ) -> CoreResult<()> {
-        self.prepare_input(target, "pointer input")?.pointer(ev)
+        let derived_from = self.frame_layout.clone();
+        let libei = self.prepare_input(target, "pointer input")?;
+        if let Some(layout) = derived_from.filter(|_| *frame != FrameGeometry::identity_global()) {
+            if libei.regions()? != layout {
+                return Err(DesktopError::invalid_coordinate_frame(LAYOUT_CHANGED));
+            }
+        }
+        libei.pointer(ev)
     }
 
     fn type_text(&mut self, target: &Target, text: &str, _mode: DeliveryMode) -> CoreResult<()> {
@@ -208,6 +232,8 @@ mod capture_tests;
 mod eis_safety_tests;
 #[cfg(test)]
 mod eis_tests;
+#[cfg(test)]
+mod layout_tests;
 #[cfg(test)]
 mod portal_tests;
 #[cfg(test)]
