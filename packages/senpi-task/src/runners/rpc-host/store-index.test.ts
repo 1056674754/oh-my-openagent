@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 
 import { DURABLE_JSON_FS } from "./durable-json"
 import {
@@ -38,7 +38,7 @@ describe("registerStoreIndex", () => {
     // then
     expect(readTaskStoreIndex(path)).toEqual({
       version: 1,
-      stores: { "/p1/.omo/senpi-task": { first_seen: new Date(1_000).toISOString(), last_seen: new Date(1_000).toISOString() } },
+      stores: { [resolve("/p1/.omo/senpi-task")]: { first_seen: new Date(1_000).toISOString(), last_seen: new Date(1_000).toISOString() } },
     })
   })
 
@@ -124,7 +124,7 @@ describe("registerStoreIndex", () => {
 
     const [removed] = await Promise.all([prune, register])
 
-    expect(removed).toEqual(["/tmp/missing-store"])
+    expect(removed).toEqual([resolve("/tmp/missing-store")])
     expect(Object.keys(readTaskStoreIndex(path).stores)).toEqual([existingStore])
   })
 
