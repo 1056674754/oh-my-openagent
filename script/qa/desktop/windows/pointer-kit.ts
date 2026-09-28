@@ -70,7 +70,7 @@ export async function pointerHost(
   if (child.stdout === null) throw new Error("pointer-host.ps1 has no stdout")
   const lines = createInterface({ input: child.stdout })
   const ready = await hangGuard(
-    new Promise<string>((resolve) => lines.once("line", resolve)),
+    new Promise<string>((resolve) => lines.on("line", (line) => line.startsWith("ready ") && resolve(line))),
     () => "hang guard: pointer-host.ps1 never reported ready",
   )
   const match = /^ready (\d+) (\d+)$/.exec(ready.trim())

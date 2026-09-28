@@ -33,7 +33,7 @@ public static class QaPointerHost {
 Add-Type -AssemblyName System.Windows.Forms
 # Every mouse, paint, focus, activation and key message the form and its EDIT receive, stamped with the
 # QPC counter (Stopwatch.GetTimestamp), so a scenario can line the host's view up with the engine's.
-Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @'
+Add-Type -IgnoreWarnings -ReferencedAssemblies System.Windows.Forms -TypeDefinition @'
 using System;
 using System.Diagnostics;
 using System.IO;
