@@ -1,3 +1,12 @@
+## docs: engine hosts per session (rpc-host-sharding todo 18)
+
+`AGENTS.md` replaces "Shared engine host" with "Engine hosts per session": children run on their session's own
+host, `rpc.sock` stays the operator and thread-tool endpoint, and no cap limits hosts. `src/components/task/AGENTS.md`
+gains the `shard-routing.ts` / `host-execution-mode.ts` / `shard-crash-notice.ts` row (the crash notice names
+`supervisor pid N`, `1 child` is singular, and the done line gains `, C cancelled`). `src/components/thread/AGENTS.md`
+says `ensureHost()` starts one host per endpoint. `thread_read` labelling tool results as role `tool` on the live path
+(the transcript fallback already did) is recorded in the root `CHANGELOG.md`. No code changes.
+
 ## thread: tools address peer sessions across every host endpoint (rpc-host-sharding todo 11)
 
 `components/thread/live-surface.ts`: the thread tools no longer see only the legacy socket. They enumerate endpoints

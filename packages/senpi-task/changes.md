@@ -1,3 +1,11 @@
+## AGENTS: the host runner opens children on their parent session's own host
+
+`AGENTS.md` describes `RpcHostRunner` as opening a child on its parent session's own host
+(`<shardRoot>/p-<shardKey("p", rootSessionId)>.sock`, `rpc-host/shard-socket.ts`) instead of the one machine-wide
+host: new children ask `shardResolver`, a child inside a host passes `tree_key`/`shard_key` to its own children,
+revival opens only the recorded socket, and `OMO_RPC_SOCKET*` serve the operator commands and thread tools only.
+The operator surface now lists `gc` and `rollback-prepare`. No code changes.
+
 ## A host that dies inside the ensure cache window is re-ensured, not trusted
 
 `runners/rpc-host/daemon.ts`: `ensureTaskDaemon` caches a successful ensure per socket for
