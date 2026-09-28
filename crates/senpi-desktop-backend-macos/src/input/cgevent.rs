@@ -69,7 +69,9 @@ pub(super) fn point(x: f64, y: f64) -> CoreResult<CGPoint> {
 /// convention on every platform is positive `dy` scrolls down and positive `dx`
 /// scrolls right (X11 buttons 5/7, Windows `WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL`);
 /// Quartz counts a positive vertical wheel as up and a positive horizontal wheel
-/// as left, so both are negated.
+/// as left, so both are negated. Synthetic wheel events are not inverted by the
+/// natural-scrolling setting (`com.apple.swipescrolldirection`): the same deltas
+/// moved a TextEdit view the same way with the setting on and off (#9055).
 pub(super) fn quartz_wheel(dx: f64, dy: f64) -> CoreResult<(i32, i32)> {
     let vertical = finite_i32(dy, "vertical scroll delta")?;
     let horizontal = finite_i32(dx, "horizontal scroll delta")?;
