@@ -1,8 +1,12 @@
 //! Focus-guard primitives: the WindowServer front window, its restore, and the
 //! symmetric key-focus hand-back after background keyboard delivery.
 
+use std::time::{Duration, Instant};
+
 use core_graphics::window::{kCGNullWindowID, kCGWindowListOptionAll};
-use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSWorkspace};
+use objc2_app_kit::{
+    NSApplicationActivationOptions, NSRunningApplication,
+};
 use objc2_core_foundation::{
     CFArray, CFBoolean, CFDictionary, CFNumber, CFRetained, CFString, CFType,
 };
@@ -11,14 +15,15 @@ use senpi_desktop_core::types::{DesktopWindow, FrontWindow};
 
 use crate::ax;
 use crate::input::MacInput;
+use crate::front_app::current_front_pid;
 use crate::skylight;
 
 #[derive(Clone, Copy)]
-struct WindowInfo {
-    pid: u32,
-    window_number: u32,
-    layer: i32,
-    on_screen: bool,
+pub(crate) struct WindowInfo {
+    pub(crate) pid: u32,
+    pub(crate) window_number: u32,
+    pub(crate) layer: i32,
+    pub(crate) on_screen: bool,
 }
 
 #[link(name = "CoreGraphics", kind = "framework")]
@@ -69,7 +74,7 @@ pub(crate) fn front_window() -> CoreResult<Option<FrontWindow>> {
     Ok(Some(front))
 }
 
-fn window_info() -> CoreResult<Vec<WindowInfo>> {
+pub(crate) fn window_info() -> CoreResult<Vec<WindowInfo>> {
     // SAFETY: CoreGraphics returns a create-rule CFArray of immutable window
     // dictionaries; the retained wrapper owns it for the entire iteration.
     let raw = unsafe { CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID) };
@@ -117,36 +122,61 @@ fn window_info() -> CoreResult<Vec<WindowInfo>> {
         .collect())
 }
 
-/// Restores the captured process and window through SkyLight (or public
-/// activation if the foreground SPI is unavailable).
+/// How long a restored application may take to come back and stay the user's front app.
+const RESTORE_DEADLINE: Duration = Duration::from_millis(1500);
+/// How long the restored application must stay front before the restore counts.
+const RESTORE_STABLE: Duration = Duration::from_millis(250);
+/// How often the restore re-asks when another activation took the front back.
+const REACTIVATE_INTERVAL: Duration = Duration::from_millis(200);
+
+/// Restores the captured application and window: SkyLight selects the window,
+/// accessibility and AppKit activate the application, and the restore counts
+/// only once the live front app (see [`current_front_pid`]) has stayed that application for
+/// [`RESTORE_STABLE`], re-asking if a later activation takes the front back.
+///
+/// # Errors
+/// `FocusRestoreFailed`-worthy input error when the application is gone or does
+/// not become the front app within [`RESTORE_DEADLINE`].
 pub(crate) fn restore_front_window(front: &FrontWindow) -> CoreResult<()> {
     let pid = front_pid(front)?;
     let window_id = front
         .window_id
         .as_deref()
-        .and_then(|id| id.parse::<u32>().ok());
-    let restored_with_spi = skylight::psn_for_process(pid, window_id.unwrap_or(0))
-        .is_some_and(|psn| skylight::set_front_process(&psn, window_id.unwrap_or(0)));
-    if !restored_with_spi {
-        let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid).ok_or_else(
-            || {
-                DesktopError::window_not_found(format!(
-                    "application process {pid} for the previous front window is no longer running"
-                ))
-            },
-        )?;
-        #[expect(
-            deprecated,
-            reason = "restoring the prior frontmost app must override the current one"
-        )]
-        let options = NSApplicationActivationOptions::ActivateIgnoringOtherApps;
-        if !app.activateWithOptions(options) {
+        .and_then(|id| id.parse::<u32>().ok())
+        .unwrap_or(0);
+    if let Some(psn) = skylight::psn_for_process(pid, window_id) {
+        let _ = skylight::set_front_process(&psn, window_id);
+    }
+    skylight::activate_application(pid)?;
+    let started = Instant::now();
+    let mut front_since: Option<Instant> = None;
+    let mut last_request = started;
+    loop {
+        let now = Instant::now();
+        if current_front_pid() == Some(pid) {
+            let since = *front_since.get_or_insert(now);
+            if now.duration_since(since) >= RESTORE_STABLE {
+                return Ok(());
+            }
+        } else {
+            front_since = None;
+            // An activation that lands after ours (e.g. a click on another app's floating window) takes the
+            // front back asynchronously; ask again rather than trusting the first observation.
+            if now.duration_since(last_request) >= REACTIVATE_INTERVAL {
+                let _ = skylight::activate_application(pid);
+                last_request = now;
+            }
+        }
+        if now.duration_since(started) >= RESTORE_DEADLINE {
             return Err(DesktopError::input_failed(format!(
-                "restoring the previous front window of process {pid} was rejected"
+                "the previous front application (process {pid}, {}) did not stay in front for {} ms within {} ms",
+                front.app,
+                RESTORE_STABLE.as_millis(),
+                RESTORE_DEADLINE.as_millis()
             )));
         }
+        std::thread::sleep(Duration::from_millis(10));
     }
-    Ok(())
 }
 
 /// Hands key focus back to `front` after a background action that took it.
@@ -195,15 +225,6 @@ pub(crate) fn hand_back(
         _ if activated.is_some() => HandBack::Reactivate,
         _ => HandBack::AlreadyFront,
     }
-}
-
-/// WindowServer's front process, or AppKit's view when the SPI is missing.
-fn current_front_pid() -> Option<libc::pid_t> {
-    skylight::front_pid().or_else(|| {
-        NSWorkspace::sharedWorkspace()
-            .frontmostApplication()
-            .map(|app| app.processIdentifier())
-    })
 }
 
 /// The AX belt-and-braces half: mark `front`'s window main and focused.

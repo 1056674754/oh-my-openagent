@@ -1,4 +1,5 @@
 use super::{first_front_window, hand_back, HandBack, WindowInfo};
+use crate::front_app::user_front_pid;
 
 #[test]
 fn chooses_first_visible_normal_window_of_frontmost_process() {
@@ -78,4 +79,51 @@ fn hand_back_reactivates_only_while_the_engine_activation_is_front() {
     // The front application is unknown -> keep the previous behaviour.
     assert_eq!(hand_back(10, Some(20), None), HandBack::Reactivate);
     assert_eq!(hand_back(10, None, None), HandBack::AlreadyFront);
+}
+
+fn window(pid: u32, layer: i32, on_screen: bool) -> WindowInfo {
+    WindowInfo { pid, window_number: pid * 10, layer, on_screen }
+}
+
+#[test]
+fn a_regular_front_process_is_the_user_front_app() {
+    // Given: WindowServer's front process is a regular app.
+    let windows = [window(9, 0, true)];
+
+    // When
+    let front = user_front_pid(5, &windows, |pid| pid == 5 || pid == 9);
+
+    // Then
+    assert_eq!(front, Some(5));
+}
+
+#[test]
+fn an_accessory_panel_owner_in_front_yields_the_front_most_regular_window_owner() {
+    // Given (#9084): an accessory app with a floating panel is WindowServer's front process, and the user's
+    // Terminal owns the front-most normal window, ahead of TextEdit; a hidden regular window sits first.
+    let (panel, hidden, terminal, textedit) = (40_u32, 50_u32, 60_u32, 70_u32);
+    let windows = [
+        window(panel, 3, true),
+        window(hidden, 0, false),
+        window(terminal, 0, true),
+        window(textedit, 0, true),
+    ];
+
+    // When
+    let front = user_front_pid(40, &windows, |pid| pid != 40);
+
+    // Then
+    assert_eq!(front, Some(60));
+}
+
+#[test]
+fn with_no_regular_window_the_raw_front_process_is_kept() {
+    // Given: only the accessory panel is on screen.
+    let windows = [window(40, 3, true)];
+
+    // When
+    let front = user_front_pid(40, &windows, |_| false);
+
+    // Then
+    assert_eq!(front, Some(40));
 }
