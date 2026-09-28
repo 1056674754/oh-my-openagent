@@ -15,7 +15,7 @@ const SHARD = "/tmp/dh-t7/shards/p-00000000000000e1.sock"
 const LEGACY = "/tmp/dh-t7/rpc.sock"
 
 function parkingHandle(taskId: string) {
-  const listeners = new Set<(event: { readonly reason?: SuspensionReason }) => void>()
+  const listeners = new Set<(event: { readonly reason: SuspensionReason }) => void>()
   const handle: ManagedChildHandle = {
     task_id: taskId,
     kind: "host-session",
@@ -33,7 +33,7 @@ function parkingHandle(taskId: string) {
     lastAssistantText: () => undefined,
     dispose: () => Promise.resolve(),
   }
-  return { handle, park: (reason?: SuspensionReason) => { for (const listener of listeners) listener(reason === undefined ? {} : { reason }) } }
+  return { handle, listeners, park: (reason: SuspensionReason) => { for (const listener of listeners) listener({ reason }) } }
 }
 
 function trackerOver(store: ReturnType<typeof tempStore>, handle: ManagedChildHandle, forgotten: string[]) {
@@ -50,7 +50,7 @@ function trackerOver(store: ReturnType<typeof tempStore>, handle: ManagedChildHa
   })
 }
 
-describe("a daemon child that parks itself parks its record", () => {
+describe("a daemon child whose session parks parks its record", () => {
   test("#given a running child whose recorded host refused the reattach #when it parks host_incompatible #then the record is rpc_detached with that reason and the run is released", () => {
     // given
     const store = tempStore()
@@ -72,20 +72,59 @@ describe("a daemon child that parks itself parks its record", () => {
     expect(forgotten).toEqual([record.task_id])
   })
 
-  test("#given a session the HOST parked (no reason) #when the park arrives #then the record is left as it was", () => {
+  for (const cause of ["idle_evicted", "handoff_parked"] as const) {
+    test(`#given a session the HOST parked as ${cause} #when the park arrives #then the record is rpc_detached with that cause, still running, and the run is released`, () => {
+      // given
+      const store = tempStore()
+      const record = seedRecord(store, { ...hostSessionRecordInput("st_0e000002", hostSession("st_0e000002")), status: "running", host_pid: 4_242 })
+      const { handle, park } = parkingHandle(record.task_id)
+      const forgotten: string[] = []
+      trackerOver(store, handle, forgotten).trackOutcome(record.task_id, handle, record.model, record.notification.run_epoch)
+
+      // when
+      park(cause)
+
+      // then
+      expect(store.load(record.task_id)).toMatchObject({ residency_state: "rpc_detached", suspension_reason: cause, status: "running" })
+      expect(forgotten).toEqual([record.task_id])
+    })
+  }
+
+  test("#given a tracked child #when the manager releases it #then a later park touches neither the record nor the manager", () => {
     // given
     const store = tempStore()
-    const record = seedRecord(store, { ...hostSessionRecordInput("st_0e000002", hostSession("st_0e000002")), status: "running", host_pid: 4_242 })
-    const { handle, park } = parkingHandle(record.task_id)
+    const record = seedRecord(store, { ...hostSessionRecordInput("st_0e000004", hostSession("st_0e000004")), status: "running", host_pid: 4_242 })
+    const { handle, listeners, park } = parkingHandle(record.task_id)
     const forgotten: string[] = []
-    trackerOver(store, handle, forgotten).trackOutcome(record.task_id, handle, record.model, record.notification.run_epoch)
+    const tracker = trackerOver(store, handle, forgotten)
+    tracker.trackOutcome(record.task_id, handle, record.model, record.notification.run_epoch)
 
     // when
-    park()
+    tracker.release(record.task_id)
+    park("idle_evicted")
 
     // then
+    expect(listeners.size).toBe(0)
     expect(store.load(record.task_id)?.residency_state).toBe("resident")
     expect(forgotten).toEqual([])
+  })
+
+  test("#given a child tracked twice on one handle #when it parks #then the record is parked once", () => {
+    // given
+    const store = tempStore()
+    const record = seedRecord(store, { ...hostSessionRecordInput("st_0e000005", hostSession("st_0e000005")), status: "running", host_pid: 4_242 })
+    const { handle, listeners, park } = parkingHandle(record.task_id)
+    const forgotten: string[] = []
+    const tracker = trackerOver(store, handle, forgotten)
+    tracker.trackOutcome(record.task_id, handle, record.model, record.notification.run_epoch)
+    tracker.trackOutcome(record.task_id, handle, record.model, record.notification.run_epoch)
+
+    // when
+    park("handoff_parked")
+
+    // then
+    expect(listeners.size).toBe(1)
+    expect(forgotten).toEqual([record.task_id])
   })
 })
 

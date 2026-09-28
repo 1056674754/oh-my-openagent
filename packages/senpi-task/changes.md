@@ -1,3 +1,32 @@
+## A session the host parks parks its task record
+
+`manager/manager-outcome.ts`: every park of a daemon session now reaches the record, not only the ones
+the child initiates. When the HOST parks a session - its idle sweep (`session_parked`, or
+`session_closed{idle_evicted}`) or a generation handoff (`session_closed{handoff_parked}`) - the record
+parks at `rpc_detached` with `suspension_reason` naming the cause, keeps its status (a host park is
+never a failure, and a completed child keeps its result), drops `host_pid`, and the run is released
+(`forget`: lease, live handle, run stats), so `task_output`, revival and reconcile see a parked child
+instead of a resident one whose outcome never settles. The park watch is armed per task with each
+tracked run and outlives the run's outcome, so a child that stays resident after its turn is covered;
+`OutcomeTracker.release` (called from `manager.forget`) ends it.
+
+`runners/rpc-host/session-client.ts` + `exit-mapping.ts` + `handle.ts`: `HostSessionParked.reason` is
+required and carries the host's cause (`HostParkCause`: `idle_evicted` | `handoff_parked`) as well as
+the child-side `HostParkReason`s; `classifySessionExit` returns `{ disposition: "parked", cause }`.
+New suspension reasons `idle_evicted`, `handoff_parked` (`task_output` explains both). What a revived
+or resumed child does is unchanged.
+
+`manager/manager-reattach.ts`: reattaching a TERMINAL child (a `task_send` revival of a completed child)
+now restamps its identity from the reattached handle (`childIdentityOf`: `runner_kind`, `host_session`,
+`pid`), so a child a handoff parked and a newer generation reopened names that generation's
+`instance_id` and routing id instead of the old one. The host-world test fixture no longer stamps
+`host_session` itself on every start; the manager does, as in production.
+
+Tests: `runners/rpc-host-host-park.test.ts` (new: a fake host parks an attached child by idle sweep,
+by `idle_evicted` close and by handoff; a completed resident child parked by the idle sweep; revival
+after the park), `manager/host-session-park.test.ts` (host causes park the record; `release` and
+re-tracking leave one watch).
+
 ## Every task child opens on its parent session's own host; the shared-host route is gone
 
 `runners/rpc-host.ts` + `rpc-host/child-endpoint.ts`: `RpcHostRunnerOptions.shardResolver`, `storeDir`,
