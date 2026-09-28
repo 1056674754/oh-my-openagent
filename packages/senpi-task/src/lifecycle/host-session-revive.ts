@@ -3,6 +3,7 @@ import { log } from "@oh-my-opencode/utils"
 import type { TaskRecord } from "../state"
 import type { LifecycleContext } from "./context"
 import { hostSessionResumePath, isHostSessionRecord, type HostSessionRecord } from "./host-session"
+import { parkedReason, reachRecordedHost, type HostParkedReason, type RecordedHostVerdict } from "./host-endpoint-reach"
 import { markSuspensionReason, parkHostSessionRecord } from "./host-session-record"
 import { deferred, reviveClaimed } from "./reconcile-reclamation"
 import { claimResidencySlot } from "./residency"
@@ -16,7 +17,7 @@ import type { ReconcileOutcome } from "./types"
 
 export type HostSessionParkOutcome =
   | { readonly kind: "revived" }
-  | { readonly kind: "suspended"; readonly reason: "daemon_unavailable" }
+  | { readonly kind: "suspended"; readonly reason: HostParkedReason }
 
 export type HostSessionParkOptions = {
   /** Test seam: observe (and drive) the daemon between the bounded reconcile's attempts. */
@@ -24,19 +25,22 @@ export type HostSessionParkOptions = {
 }
 
 /**
- * The reconciliation branch for a daemon-hosted orphan. Liveness is `daemonAlive && sessionLive`:
- * a live session is re-attached, a parked one is reopened from its JSONL, and an unreachable daemon
- * leaves the record suspended - never `lost`, never signalled.
+ * The reconciliation branch for a daemon-hosted orphan: reach the RECORDED endpoint (re-ensuring it
+ * unless it is this session's own), then a live session is re-attached and a parked one reopened from
+ * its JSONL there. An endpoint that stays out of reach leaves the record suspended with the reason -
+ * never `lost`, never signalled, never moved.
  */
 export async function reconcileHostSessionOrphan(
   context: LifecycleContext,
   record: HostSessionRecord,
 ): Promise<ReconcileOutcome> {
-  if (!(await context.hostSessionProbe.daemonAlive(record.host_session))) {
+  const verdict = await reachRecordedHost(context, record.host_session)
+  if (verdict !== "alive") {
+    const reason = parkedReason(verdict)
     parkHostSessionRecord(context, record.task_id)
-    markSuspensionReason(context, record.task_id, "daemon_unavailable")
-    context.store.appendEvent(record.task_id, { type: "suspended", payload: { reason: "daemon_unavailable" } })
-    return deferred(record.task_id, "host_unreachable")
+    markSuspensionReason(context, record.task_id, reason)
+    context.store.appendEvent(record.task_id, { type: "suspended", payload: { reason } })
+    return deferred(record.task_id, verdict)
   }
   return await reviveClaimed(context, record, "rpc_detached", record.host_session.session_path)
 }
@@ -58,16 +62,21 @@ export async function parkHostSessionOnDaemonLoss(
   context.store.appendEvent(taskId, { type: "suspended", payload: { reason: "daemon_unavailable" } })
 
   let attempt = 0
+  let verdict: RecordedHostVerdict = "host_unreachable"
   for (const backoffMs of context.hostRetry.daemonLossBackoffMs) {
     attempt += 1
     await context.hostRetry.wait(backoffMs)
     options.beforeAttempt?.(attempt)
-    context.hostSessionProbe.refresh()
-    if (!(await context.hostSessionProbe.daemonAlive(parked.host_session))) continue
+    context.hostSessionProbe.refresh(parked.host_session.socket)
+    verdict = await reachRecordedHost(context, parked.host_session)
+    // An incompatible host will not become compatible by waiting; the session stays where it is.
+    if (verdict === "host_incompatible") break
+    if (verdict !== "alive") continue
     if (await reviveParkedHostSession(context, taskId)) return { kind: "revived" }
   }
-  markSuspensionReason(context, taskId, "daemon_unavailable")
-  return { kind: "suspended", reason: "daemon_unavailable" }
+  const reason = verdict === "alive" ? "daemon_unavailable" : parkedReason(verdict)
+  markSuspensionReason(context, taskId, reason)
+  return { kind: "suspended", reason }
 }
 
 async function reviveParkedHostSession(context: LifecycleContext, taskId: string): Promise<boolean> {
@@ -116,8 +125,8 @@ async function retryDeferredHostSession(context: LifecycleContext, taskId: strin
   for (const backoffMs of context.hostRetry.deferredRetryBackoffMs) {
     await context.hostRetry.wait(backoffMs)
     const fresh = context.store.load(taskId)
-    if (fresh === null || fresh.status !== "running" || fresh.residency_state !== "rpc_detached" || fresh.killed === true) return
-    context.hostSessionProbe.refresh()
+    if (!isHostSessionRecord(fresh) || fresh.status !== "running" || fresh.residency_state !== "rpc_detached" || fresh.killed === true) return
+    context.hostSessionProbe.refresh(fresh.host_session.socket)
     if (await reviveParkedHostSession(context, taskId)) return
   }
 }

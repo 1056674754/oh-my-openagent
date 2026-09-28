@@ -1,3 +1,300 @@
+## manager: the auto execution-mode gate admits the task store before its first ask
+
+- `manager/execution-mode.ts`: `ExecutionModeGateHooks.admit` runs before the gate's first ask, which may ensure the
+  session's task host. With `task.default_execution_mode: "auto"` both the task tool (`tools/task/execute-spec.ts`) and
+  the manager ask the gate before the host runner's own store admission, so an agent dir whose store index could not
+  be written still got a host started before the spawn failed `store_index_unavailable`. A false `admit` answers
+  `process` without asking and settles nothing: the spawn reaches the host runner, whose admission fails it exactly as
+  before (same code, same record), and the next spawn asks again. `execution-mode.test.ts` pins it (rpc-host-sharding
+  todo 14 B1; the duty chose failing over an in-process fallback because an unwritable index usually means a broken
+  agent dir, and an in-process child would lose the index that `task_output`, cancel and resume rely on).
+
+## runners: warm a task host with its `warm` command; export the store-index registration
+
+- `runners/rpc-host/host-warmup.ts`: `warmTaskHost({ socket, cwd })` sends `warm { cwd, kind: "worker", context }` with
+  the same `child`-role, temp-`state_dir`, `host_warmup` context the warm-up session carried, and answers `warmed` /
+  `already_warm`. An engine that does not know the command (a refusal outside `host_draining`, `warm_failed`,
+  `invalid_session_kind`, `invalid_session_context`, `invalid_path` - an older router answers `missing_session_id`)
+  or cannot warm (`state: "unsupported"`) gets the previous warm-up session (`warm_up_session`). A known refusal or no
+  answer rejects with `HostWarmRefusedError`. The temp directory is removed on every path. `warmHostSession` is no
+  longer exported.
+- `runners/rpc-host/host-request.ts` (new): `askHost(socket, request, timeoutMs)`, the one-connection request
+  `liveness.ts` used privately, now returning refusals too; `liveSessionPaths` keeps its answers.
+- Barrel: `registerStoreIndex`, `StoreIndexUnavailableError`, `warmTaskHost`, `HostWarmRefusedError`, `TaskHostWarmth`.
+- `__fixtures__/fake-host*.ts`: a `warm` answer option and a fixed `socketPath` option.
+
+Tests: `host-warmup.test.ts`.
+
+## runners: warm a fresh task host with one throwaway session; the auto gate can warm without deciding (rpc-host-sharding PR-A)
+
+- `runners/rpc-host/host-warmup.ts` (new): `warmHostSession({ socket, cwd })` opens one `worker` session with the
+  `child` role, a private temp `state_dir` and session file, and the `host_warmup` context key, closes it at once,
+  and removes the temp directory on every path (a refused open included). It is never retained. A host's first session
+  compiles the extensions and loads the task runtime; measured, the first child on a fresh host opened in ~0.95 s and
+  the second in ~0.15 s, and after a child-role warm-up the first child opened in ~0.12-0.3 s.
+- `session-role.ts`: `HOST_WARMUP_CONTEXT` and `isHostWarmupSession(pi)`.
+- `manager/execution-mode.ts`: `ExecutionModeGate.warm()` - a speculative ask whose success is kept like
+  `ensure()`'s and whose failure is dropped (`hooks.onWarmFailure`), so a pre-warm can never settle the session on
+  in-process; an `ensure()` during a warm joins it. `createExecutionModeGate(resolve, hooks)` gains
+  `onEnsureFailure` for the notice a failed `ensure()` owes.
+
+Tests: `host-warmup.test.ts` (new), `execution-mode.test.ts`, `execute-auto-mode-gate.test.ts`.
+
+## A store index or sidecar waiter outlasts a slow durable rewrite
+
+`store/record-lock.ts`: `withTaskRecordLockAsync` takes an optional `holderWaitMs`, the time ONE live holder
+may keep the lock before a waiter gives up (default unchanged: 1 s, sized for a record read-modify-write).
+`runners/rpc-host/durable-json.ts` exports `DURABLE_JSON_LOCK_OPTIONS` (10 s), and `store-index.ts`
+(register, prune) and `shard-sidecar.ts` (write, register store) pass it: their holders rewrite and fsync
+the whole file, and a loaded host (a windows-latest runner here) keeps a live holder on the index lock
+past 1 s, so a waiter behind it failed `store_index_unavailable`. A stalled holder still times the waiter
+out; the task record, workpool and lease locks keep the 1 s budget.
+
+Tests: `runners/rpc-host/store-index.test.ts` (a live holder that keeps the index lock for 1.5 s: the
+registration behind it waits and lands; it timed out at 1 s before). The 32-process x 25-store
+throughput case runs on POSIX only: the host runner the index serves is never used on win32 (plan U6),
+and the runner's 800 serialized fsynced rewrites take over 60 s there.
+
+## AGENTS: the host runner opens children on their parent session's own host
+
+`AGENTS.md` describes `RpcHostRunner` as opening a child on its parent session's own host
+(`<shardRoot>/p-<shardKey("p", rootSessionId)>.sock`, `rpc-host/shard-socket.ts`) instead of the one machine-wide
+host: new children ask `shardResolver`, a child inside a host passes `tree_key`/`shard_key` to its own children,
+revival opens only the recorded socket, and `OMO_RPC_SOCKET*` serve the operator commands and thread tools only.
+The operator surface now lists `gc` and `rollback-prepare`. No code changes.
+
+## A host that dies inside the ensure cache window is re-ensured, not trusted
+
+`runners/rpc-host/daemon.ts`: `ensureTaskDaemon` caches a successful ensure per socket for
+`TASK_DAEMON_CACHE_TTL_MS` (5 s), and nothing dropped the entry when its host died: a spawn in that
+window reused the dead answer, skipped the re-ensure and failed `host_unreachable`, and a live child's
+reattach did the same until the window ran out. `forgetTaskDaemon(socket, instanceId?)` drops the entry
+(kept when it already vouches for a different generation; the entry now records the generation its
+ensure learned). `runners/rpc-host/live-children.ts` calls it on every observed transport loss, before
+the reattach re-ensures. `runners/rpc-host.ts`: when the OPEN on a freshly ensured (non-recorded,
+non-attach-only) endpoint fails `host_unreachable` - no probe answer, or the transport went away during
+`open_session` - the start forgets the entry, ensures and opens once more.
+
+Tests: `runners/rpc-host-ensure-cache.test.ts` (new: a spawn right after the host died re-ensures and
+runs; a live child's reattach after its host died re-ensures instead of ending `lost`),
+`runners/rpc-host/daemon.test.ts` (a loss of the cached generation re-probes, a stale generation's loss
+does not).
+
+## The task daemon ensure releases the engine's attach hold (#9041)
+
+`runners/rpc-host/daemon.ts`: senpi #2242 makes `ensureHost()` return an attach hold - the readiness
+connection stays open and the host counts the ensuring process as attached - until `release()` is
+called. `ensureTaskDaemon` releases it once, right after its own capability probe (in a `finally`, so
+a failed probe still releases) and before it returns: its result is cached and shared by the
+single-flight, and the transient daemon would otherwise never start its idle window while omo runs.
+Every ensure path (spawn, revival, reattach, pre-warm, shard routing) goes through this one call.
+`lazy/senpi-barrel.ts`: `EnsuredSenpiHost.release` is optional, so the current engine pin (no hold)
+keeps working.
+
+Tests: `runners/rpc-host/daemon.test.ts` ("ensureTaskDaemon attach hold": a started host is released
+after its capability probe, a reused one once, a throwing probe still releases, concurrent and cached
+ensures release the one engine ensure once, a hold-less pin still ensures).
+
+## A session the host parks parks its task record
+
+`manager/manager-outcome.ts`: every park of a daemon session now reaches the record, not only the ones
+the child initiates. When the HOST parks a session - its idle sweep (`session_parked`, or
+`session_closed{idle_evicted}`) or a generation handoff (`session_closed{handoff_parked}`) - the record
+parks at `rpc_detached` with `suspension_reason` naming the cause, keeps its status (a host park is
+never a failure, and a completed child keeps its result), drops `host_pid`, and the run is released
+(`forget`: lease, live handle, run stats), so `task_output`, revival and reconcile see a parked child
+instead of a resident one whose outcome never settles. The park watch is armed per task with each
+tracked run and outlives the run's outcome, so a child that stays resident after its turn is covered;
+`OutcomeTracker.release` (called from `manager.forget`) ends it.
+
+`runners/rpc-host/session-client.ts` + `exit-mapping.ts` + `handle.ts`: `HostSessionParked.reason` is
+required and carries the host's cause (`HostParkCause`: `idle_evicted` | `handoff_parked`) as well as
+the child-side `HostParkReason`s; `classifySessionExit` returns `{ disposition: "parked", cause }`.
+New suspension reasons `idle_evicted`, `handoff_parked` (`task_output` explains both). What a revived
+or resumed child does is unchanged.
+
+`manager/manager-reattach.ts`: reattaching a TERMINAL child (a `task_send` revival of a completed child)
+now restamps its identity from the reattached handle (`childIdentityOf`: `runner_kind`, `host_session`,
+`pid`), so a child a handoff parked and a newer generation reopened names that generation's
+`instance_id` and routing id instead of the old one. The host-world test fixture no longer stamps
+`host_session` itself on every start; the manager does, as in production.
+
+Tests: `runners/rpc-host-host-park.test.ts` (new: a fake host parks an attached child by idle sweep,
+by `idle_evicted` close and by handoff; a completed resident child parked by the idle sweep; revival
+after the park), `manager/host-session-park.test.ts` (host causes park the record; `release` and
+re-tracking leave one watch).
+
+## A holder that once failed to read its own start identity tries again
+
+`store/lock-owner.ts`: the process's own start identity (written into every lock it takes so others can
+prove it dead) was read once, and a failed read was cached as `unavailable` for the process lifetime -
+every later lock of that process could then only be reaped once its pid was gone. A success is still kept
+for the lifetime; a failure is now retried after 1 s, doubling to at most one minute between reads.
+
+Tests: `store/lock-owner.test.ts` (new: retry schedule and a kept success; the interval caps at one minute).
+
+## A reaped task record lock that Windows briefly refuses to unlink is retried
+
+`store/record-lock.ts`: the reaper's unlink of a dead holder's lock threw a Windows sharing violation
+(`EPERM`/`EBUSY`, while a scanner or the dead holder's last handle closes) straight out of the
+acquisition. It now retries three times 25 ms apart, as team-core's reclaim does (#9034), and if the
+file is still refused it waits on it like a held lock, so the waiter times out on that one holder instead of
+throwing.
+
+CI: `store/record-lock.test.ts`, `store/record-lock-reap-window.test.ts` and
+`runners/rpc-host/durable-json.test.ts` join the root serial quarantine
+(`script/root-test-serial-quarantine.ts`, both shard-2 commands in `ci.yml`, `bunfig.win2.parallel.toml`), so
+the start-identity proof (kernel32 on windows-latest) and the win32 no-directory-fsync branch run in one
+uncontended process on every OS.
+
+Tests: `store/record-lock.test.ts` (one refused unlink is retried and the lock is taken; a lock that stays
+refused times the waiter out and is left in place).
+
+## A busy store index lock no longer fails an admission
+
+`runners/rpc-host/store-index.ts`: registering a store that the index already lists is a read under the
+lock and nothing else - no rewrite, no fsync, the file keeps its inode and mtime. A new entry writes
+`last_seen` equal to `first_seen` (the field stays for version 1 readers; nothing consumes it).
+
+`store/record-lock.ts`: a waiter now gives up only when ONE holder keeps the lock for the whole wait
+budget (1 s), instead of after 1 s in total. Holders that each finish promptly hand the lock on, and a
+waiter queued behind any number of them keeps waiting, so heavy contention no longer surfaces as
+`store_index_unavailable` (32 processes x 100 new stores: 12-15 of 32 processes failed per run before,
+none after); a holder that stops making progress still times the waiter out, and is never reaped while
+it is alive. This applies to every task record, workpool, lease, sidecar and index lock.
+
+Tests: `runners/rpc-host/store-index.test.ts` (a registered store is not rewritten; 32 processes x 25 stores
+all present), `store/record-lock.test.ts` (a waiter behind live holders handing over every 100 ms for 1.5 s
+acquires).
+
+## The store index and shard sidecars survive a crash right after they are written
+
+`runners/rpc-host/durable-json.ts`: `writeTextDurably` fsynced the staged file and renamed it over the old
+one, but never fsynced the parent directory, so a crash right after the rename could lose the new name -
+an admission whose store index entry had already read back could come back without it. The directory is
+now fsynced after the rename (skipped on win32, which cannot open a directory for fsync; a filesystem that
+answers EINVAL/ENOTSUP for a directory fsync is accepted as is).
+
+Tests: `runners/rpc-host/durable-json.test.ts` (new: file fsync, rename, then directory fsync).
+
+## A task record lock is reaped only after its owner is proven dead
+
+`store/record-lock.ts` + `store/lock-owner.ts` (new) + `lifecycle/pid-liveness.ts` (new): the lock body now
+also carries the holder's process start identity and hostname (after the pid, time and token lines every
+earlier build wrote and still reads). A lock is removed by anyone but its holder only when that holder is
+PROVEN dead - its pid is gone, or a live pid's start identity contradicts the recorded one (the pid was
+recycled) - read synchronously (`/proc` on Linux, libproc and kernel32 through `bun:ffi`, no process
+spawn). Age no longer expires a lock: a live holder keeps it however old it is (an unknown liveness,
+another host, a legacy lock without an identity on a live pid all keep it), and a dead holder's lock is
+reaped at once instead of after five seconds. The only age rule left is for a lock with no parseable
+owner (its writer died between create and write). Reapers serialize on `<lock>.recovery` and unlink the
+primary only while it is still the very lock they judged dead, which closes the window where a fresh
+holder published between the judgement and the rename, plus a contender between rename and link-back,
+could give two holders; a recovery lock left by a dead reaper is reclaimed on the same proof and fenced
+by its token. The async holder still refreshes the mtime so older builds, which expire locks by age,
+leave a long-held lock alone.
+
+Tests: `store/record-lock.test.ts` (dead holder reaped fresh or old; a live pid's old lock - current or
+legacy format - is never reaped; a recycled pid is; another host's is not; an empty lock only once stale;
+a dead reaper's recovery lock is recovered).
+
+## One revival selector: `selectRevivalBatch`
+
+`lifecycle/revival-selection.ts` (new, exported as `selectRevivalBatch` / `RevivalSelection`) is the ONE
+definition of which suspended children a resumed session revives and in what order: parent match,
+`persisted_only` / `rpc_detached`, `pending` / `running` / `interrupted`, not killed; non-terminal first,
+then most recently updated, tie-break task id; `residency_max_children` minus current residents
+("unlimited" / 0 unbounded). `admitSuspendedBatch` (`residency.ts`) and the scoped revival
+(`reconcile-revival.ts`) now use it instead of their own copies, and omo's host pre-warm asks it which
+hosts the reconcile will actually need. No behavior change in the lifecycle.
+
+## Every task child opens on its parent session's own host; the shared-host route is gone
+
+`runners/rpc-host.ts` + `rpc-host/child-endpoint.ts`: `RpcHostRunnerOptions.shardResolver`, `storeDir`,
+`ownHostSocket` and `onNotice` are REQUIRED. A new child always opens on the socket the resolver names;
+the branch that let a runner without a resolver ensure the machine-wide `rpc.sock` (or whatever
+`OMO_RPC_SOCKET*` named) is deleted - a JavaScript caller that still omits the resolver fails
+`shard_identity_missing` before anything is ensured. `ensureTaskDaemon` without a `socket` remains for
+the operator commands only. Each open stamps `tree_key` / `shard_key` (the shard key; parsed back from a
+recorded `p-*` socket on revival) into the child's session context, so the child's own children reuse
+the host it lives on.
+
+A resolution marked `inherited` (a child inside its tree's host) or naming the session's own endpoint is
+ATTACH-ONLY: `attachOwnEndpoint` sends one `get_protocol_info` (`probeHost`, injectable) and accepts any
+generation that speaks this build's protocol - H1, or H2 after a handoff moved the public path - then opens
+there. A silent endpoint or a protocol mismatch is `own_host_unreachable`; no ensure, no start, no
+handoff, no per-child fallback. `createHostEndpointPort` now requires `ownHostSocket` and `onNotice`.
+New start-failure reasons: `own_host_unreachable`, `shard_identity_missing`.
+
+`tools/task/execute-spec.ts`: `ensureAutoExecutionMode(deps, targets)` skips the `auto` check when every
+target of the call already runs in-process without it (an agent configured in-process, e.g. `explore`),
+so such a call never ensures the session's host (IS-9). The kernel-tool grant path shares the skip; an
+unsettled `auto` still reads as in-process, so no grant widens. A call with any unsettled or `process`
+target settles the check once, before any spec, as before.
+
+Tests: `rpc-host-own-endpoint.test.ts` (new: inherited attach on H1/H2, silent and mismatched probes,
+foreign `host_socket`, tree/shard keys on the wire, missing resolver), `tools/task/execute-auto-mode-gate.test.ts`
+(new), runner fixtures carry the required routing.
+
+## The task record lock never deletes a lock another process holds
+
+`store/record-lock.ts`: a waiter that found the lock file gone (released between its failed create and its
+stat) treated it as stale and deleted the path - by then often a lock another process had just taken, so
+two writers ran the read-modify-write at once and one's update was lost (16 processes registering 25
+stores each in the store index lost up to 17 entries). A missing lock now just retries the create. An
+expired lock (mtime older than `LOCK_STALE_MS`) is renamed away and removed only when the renamed file is
+still the lock that was judged expired (device, inode, mtime and body); a lock a fresh holder published in
+between is linked back. Each acquisition writes a token, and release removes the lock only while it still
+carries that token, so a holder whose lock expired never deletes its successor's. The lock guards every
+task record, workpool, admission lease, store index and sidecar write.
+
+Tests: `store/record-lock.test.ts` (new), `rpc-host/store-index.test.ts` (16 writer processes x 25
+stores, `rpc-host/__fixtures__/register-stores.ts`).
+
+## A daemon child opens, reattaches and revives only on the endpoint its record names
+
+`runners/rpc-host/daemon.ts`: `ensureTaskDaemon` takes an explicit `socket` (the operator commands keep
+`resolveTaskHostSocket` when it is absent) and an `owner`; the ensured-host cache is keyed per socket; a
+`start` on a `p-*`/`i-*` shard writes its `.meta.json` sidecar (`shard-sidecar.ts`, stores a previous
+generation recorded are kept). An engine refusal naming `protocol`, `capability` or `legacy_host` stays
+that reason (`isHostIncompatible`) instead of collapsing to `ensure_failed`.
+
+`runners/rpc-host/store-index.ts` (new): `<agentDir>/rpc/task-stores.json` lists every task store that
+opened a child on a host of that agent dir. It is append-only, written under its own lock (staging file,
+fsync, rename) and read back; registering it is an admission precondition, so a failure is a typed
+`store_index_unavailable` before any ensure or open. The sidecar's `stores` copy is best-effort
+(`host_notice:store_register_failed`, once).
+
+`runners/rpc-host.ts` + `child-endpoint.ts` + `reattach-port.ts` (new): `RpcHostRunnerOptions` gains
+`shardResolver` (asked at every start), `storeDir`, `ownHostSocket` and `onNotice` (once per token and
+endpoint). A spec's `hostSocket` (the recorded endpoint) wins over the resolver and never falls back to the
+per-child runner: a host refusal there, whether the ensure or the OPEN answers it (a missing capability
+at open is the only check the own endpoint gets), parks the revival `host_incompatible` or fails it
+closed with its own reason, instead of reopening the retained session in a child process. A lost transport re-ensures only the recorded socket: an incompatible answer parks the
+child `host_incompatible` (never reopened elsewhere), and the session's own endpoint
+(`readOwnHostSocket(pi)`, `isOwnEndpoint`) is re-opened but never ensured - silent, the child parks
+`own_host_unreachable`. `isOwnEndpoint` canonicalises both sockets the way the host stamps `host_socket`
+(senpi #2245: the directory through its deepest existing ancestor, the missing tail re-appended), so a
+shard whose `rpc/shards/` does not exist yet still matches across `/tmp` vs `/private/tmp` spellings.
+`manager/manager-outcome.ts` parks the record (`rpc_detached` + the reason) when
+the child parks itself; a host-driven park is unchanged.
+
+`lifecycle/host-endpoint-reach.ts` (new): revival (`reviveClaimed`, `reconcileHostSessionOrphan`,
+`parkHostSessionOnDaemonLoss`) ensures a silent RECORDED socket through `LifecycleDeps.hostEndpoint`
+(`createHostEndpointPort`), outside the admission lease, and never the session's own endpoint.
+`manager/manager-respawn.ts` hands the runner `record.host_session.socket`, so a pre-migration child
+keeps living on `rpc/rpc.sock`. New suspension reasons `host_incompatible`, `own_host_unreachable`,
+`store_index_unavailable`; new start-failure reasons `legacy_host`, `host_incompatible`,
+`store_index_unavailable`. The omo-senpi task component wires these in a later change.
+
+Audit: `host_session.daemon_pid` has no reader outside the record parser round-trip
+(`store/record-blocks-parse.ts`) and no writer; `reconcile-crashed-resident.ts` and `dag/recovery.ts` read
+the PARENT `host_pid`. No single-daemon reader needed changing.
+
+Tests: `rpc-host-endpoint.test.ts`, `lifecycle/host-session-endpoint.test.ts`,
+`manager/host-session-park.test.ts`, `rpc-host/daemon-shard.test.ts`, `rpc-host/store-index.test.ts`,
+`rpc-host/own-endpoint.test.ts`.
+
 ## 2026-09-29 - Runtime fallback tries another provider first after an account-wide usage limit (#8296)
 
 A task child that died on a usage limit (a Claude session or weekly limit, a monthly quota, a Codex usage limit) was handed to the next rung in list order, so a chain like `claude-fable-5-1 -> claude-opus-5-5 -> kimi-k3` on one Claude account spent a child start on Opus, which fails the same way, before reaching Kimi. `manager/credential-failure.ts` adds `usageLimitScope`: a limit that names a model, a model family or premium models is `model`-scoped and keeps list order, so a Fable-only weekly cap continues on Opus; any other usage limit is `account`-scoped and moves the spent provider's rungs behind every other provider's, keeping them as the last resort instead of dropping them. `runtimeFallbackCandidates` reports the scope as `limit`, and the `task_model_fallback` event records it as `usage_limit`. Credential rejections keep dropping the provider's rungs as before. The runtime-fallback QA driver gains `limit-account` and `limit-model` scenarios on a two-provider chain.

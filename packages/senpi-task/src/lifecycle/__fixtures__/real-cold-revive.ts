@@ -22,6 +22,7 @@ import { livenessDetails } from "../../../../omo-senpi/src/components/task/membe
 import { createManagerResidencyRegistry } from "../../../../omo-senpi/src/components/task/residency-registry"
 import { runTaskSend } from "../../tools/control/send"
 import type { ColdReviveTrace } from "./cold-revive-trace"
+import { NO_HOST_ENDPOINT } from "../host-session"
 
 // A source-graph Bun child started in a sandbox writes Bun's runtime transpiler cache into a cold
 // location. On Windows those writes block the child for seconds (measured: 13-14 s with ~2.4 s CPU, 2 of 20
@@ -119,7 +120,7 @@ export async function realColdRevive(mode: "in-process" | "process", misleading 
     planner: () => { throw new Error("cold revival must not replan") },
     destruction: { destroyResidentTask: (id, cause) => lifecycle.destroyResidentTask(id, cause) },
   })
-  const lifecycle = createTaskLifecycle({ store, config, registry: createManagerResidencyRegistry(() => manager), now: () => now,
+  const lifecycle = createTaskLifecycle({ hostEndpoint: NO_HOST_ENDPOINT, store, config, registry: createManagerResidencyRegistry(() => manager), now: () => now,
     idleReclaimerScheduler: { setInterval: (callback, ms) => { tick = callback; cadenceMs = ms; return { unref: () => { unrefs += 1 } } }, clearInterval: () => undefined },
   })
   try {

@@ -1,3 +1,41 @@
+## 2026-09-28 - The compiled binary enters a shard supervisor without the engine CLI graph
+
+`compile-entry.ts` routes an `--internal-rpc-host-supervisor` launch through `supervisor-fast-path.ts`, which applies
+the engine CLI's pre-`main()` process setup (deleted-cwd guard, process title, agent markers, silenced warnings) and
+imports the engine's own `modes/rpc/supervisor-route.js` instead of `dist/cli.js`. The supervisor of every task shard
+and Desktop thread host therefore no longer evaluates the engine's `main.js` graph. An argv the engine declines falls
+through to the full CLI as before. Measured on the compiled binary (1 parent x 4 children): supervisor physical
+footprint 70.7 -> 49.4 MB, RSS 123.3 -> 102.9 MB; children, host and topology unchanged.
+
+## 2026-09-28 - `omo daemon run --foreground` exits 2; `--persistent` is accepted and ignored
+
+`bin/lib/daemon.js`: `--foreground` on any `omo daemon` subcommand exits 2 with "the engine host always
+detaches", before the engine is called. `--persistent` is still accepted but no longer passed to the engine; the
+launch spec's `coldStart` tunable decides. `docs/reference/omo-daemon.md` documents both, lists the exit-3 cases of
+`stop --all`, `handoff` and `rollback-prepare`, and carries the rollback runbook built on `stop --drain --all --wait`
+and `rollback-prepare`.
+
+## 2026-09-28 - Native daemon commands cover every session host
+
+`omo daemon status` and `omo doctor` now enumerate the operator daemon, task
+shards, Desktop thread hosts, and other discovered endpoints in one read-only
+engine sweep. Text output joins shard owner sidecars, reports concurrent
+generations, memory, descriptors and crash counts, and ends with a machine
+aggregate; JSON preserves the engine rows and adds owner and aggregate fields.
+
+`omo daemon gc` reaps only endpoint state the engine proves dead, `handoff` walks
+every live endpoint through the engine's upgrade gate, and `stop --all` applies
+the existing refusal and drain rules per endpoint. `stop --drain --all --wait`
+waits for both generation pids and live session-path claims before authorizing a
+downgrade. `rollback-prepare` discovers every durable task store, refuses partial
+coverage or a live endpoint, and migrates retained host-session records back to
+`rpc.sock` through the locked task-store mutation path.
+
+The focused Native and senpi-task suites cover endpoint rendering and JSON
+preservation, gc sidecar ownership, upgrade/refusal fan-out, drain completion and
+timeout, rollback preflight and record events, plus shard naming parity with the
+adopted engine.
+
 ## 2026-09-28 - omo app-server loads the OmO plugin (#9117)
 
 ### What changed

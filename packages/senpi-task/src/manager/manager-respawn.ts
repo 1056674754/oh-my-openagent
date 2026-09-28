@@ -1,4 +1,5 @@
-import { join } from "node:path"
+import { existsSync } from "node:fs"
+import { dirname, join } from "node:path"
 
 import { log } from "@oh-my-opencode/utils"
 
@@ -76,6 +77,8 @@ async function respawnFresh(input: {
     if (isTeamRuntimeUnavailable(error)) {
       return failure("retryable", "team_inactive", "team runtime is not active")
     }
+    const refused = hostRefusal(error)
+    if (refused !== undefined) return refused
     log("senpi-task fresh rpc respawn failed", { taskId: input.record.task_id, error: String(error) })
     return failure("retryable", "respawn_failed", "rpc respawn failed")
   }
@@ -126,6 +129,10 @@ async function respawnProcess(input: {
   // A daemon-hosted child resumes the session path its RECORD carries: the daemon owns that
   // transcript, so the newest file in the child's session dir can be the wrong one (or missing).
   const sessionPath = hostSessionResumePath(input.record) ?? input.sessionPath
+  // The client owns the session directory (a session whose first reply never landed has one but no
+  // JSONL yet). Read it BEFORE the open: a reopening host recreates it for its holder record and
+  // starts a fresh, empty session there, which a continuation would then "finish".
+  const sessionDirPresent = existsSync(dirname(sessionPath))
   let handle: RpcChildHandle | undefined
   try {
     const trusted = input.trustedLaunch === undefined ? undefined : await input.trustedLaunch(input.record)
@@ -136,6 +143,8 @@ async function respawnProcess(input: {
       state_dir: join(input.stateDir, "children", input.record.task_id),
       prompt: "",
       resumeSessionPath: sessionPath,
+      // The recorded endpoint, never a re-derived one: a pre-migration child keeps living where it was.
+      ...(input.record.host_session === undefined ? {} : { hostSocket: input.record.host_session.socket }),
       model: input.record.model,
       ...(input.record.resolved_model?.variant === undefined ? {} : { variant: input.record.resolved_model.variant }),
       ...(trusted?.extensions === undefined ? {} : { extensions: trusted.extensions }),
@@ -147,6 +156,12 @@ async function respawnProcess(input: {
     // reopen what is already open, and a continuation nudge would inject a second prompt into a
     // turn that never stopped. A session the host reopened from its JSONL still gets both.
     if (joinedLiveHostSession(handle)) return { ok: true, handle: adaptRpcHandle(handle) }
+    // A host session with nothing live to re-join and its session directory gone lost its work:
+    // report that child by itself instead of resuming an empty session under its task id.
+    if (isHostSessionHandle(handle) && !sessionDirPresent) {
+      const reason = `recorded session transcript is missing: ${dirname(sessionPath)} no longer exists`
+      return failure("unrecoverable", "session_unavailable", await disposeRpc(handle) ? reason : RESPAWN_CLEANUP_FAILURE_REASON)
+    }
     if (handle.switchSession === undefined) return cleanupFailure(handle, "respawned RPC handle cannot switch sessions")
     const switched = await handle.switchSession(sessionPath)
     if (switched.cancelled) return cleanupFailure(handle, "switch_session was cancelled")
@@ -170,9 +185,15 @@ async function respawnProcess(input: {
         ...(hold.retryAfterMs === undefined ? {} : { retryAfterMs: hold.retryAfterMs }),
       }
     }
+    const refused = hostRefusal(error)
+    if (refused !== undefined) return refused
     log("senpi-task rpc respawn failed", { taskId: input.record.task_id, error: String(error) })
     return failure("retryable", "respawn_failed", cleaned ? "rpc respawn failed" : RESPAWN_CLEANUP_FAILURE_REASON)
   }
+}
+
+function isHostSessionHandle(handle: RpcChildHandle): boolean {
+  return "kind" in handle && handle.kind === "host-session"
 }
 
 /**
@@ -233,6 +254,15 @@ function classifyResumeFailure(error: unknown): RespawnResult {
     }
   }
   return failure("retryable", "respawn_failed", "in-process respawn failed")
+}
+
+// Both are waits the next reconcile retries: the store index could not be written (nothing was
+// opened), or the recorded endpoint answers incompatibly (the session is never opened elsewhere).
+function hostRefusal(error: unknown): RespawnResult | undefined {
+  if (!RunnerError.is(error) || error.failure.kind !== "host_unavailable") return undefined
+  const { reason, message } = error.failure
+  if (reason !== "store_index_unavailable" && reason !== "host_incompatible") return undefined
+  return failure("retryable", reason, message)
 }
 
 function isTeamRuntimeUnavailable(error: unknown): boolean {

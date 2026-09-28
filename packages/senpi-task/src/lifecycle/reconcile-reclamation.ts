@@ -4,6 +4,7 @@ import { nowIso, TERMINAL_STATUSES, type LifecycleContext } from "./context"
 import { destroyResidentTask } from "./destroy"
 import { endClosingFallbackChild } from "./fallback-closing-child"
 import { isFallbackHandoff } from "./fallback-handoff"
+import { parkedReason, reachRecordedHost } from "./host-endpoint-reach"
 import { hostSessionResumePath, isHostSessionRecord } from "./host-session"
 import { clearSuspensionReason, markSuspensionReason } from "./host-session-record"
 import { detachTerminalResident } from "./reconcile-terminal"
@@ -129,9 +130,10 @@ export async function reviveClaimed(
   // Everything above awaited: a stop or another owner that landed meanwhile ends this revival here.
   if (!isSameClaim(context, fresh)) return rollbackOrDeferred(context, fresh.task_id, rollbackResidency, "foreign_live_owner", fresh)
 
-  if (isHostSessionRecord(fresh) && !(await context.hostSessionProbe.daemonAlive(fresh.host_session))) {
-    const outcome = rollbackOrDeferred(context, fresh.task_id, rollbackResidency, "host_unreachable", fresh)
-    markSuspensionReason(context, fresh.task_id, "daemon_unavailable")
+  const reached = isHostSessionRecord(fresh) ? await reachRecordedHost(context, fresh.host_session) : "alive"
+  if (reached !== "alive") {
+    const outcome = rollbackOrDeferred(context, fresh.task_id, rollbackResidency, reached, fresh)
+    markSuspensionReason(context, fresh.task_id, parkedReason(reached))
     return outcome
   }
 
@@ -169,7 +171,7 @@ export async function reviveClaimed(
     reservation.release()
     if (respawned.disposition === "retryable") {
       const outcome = rollbackOrDeferred(context, fresh.task_id, rollbackResidency, deferredCode(respawned.code), fresh)
-      if (respawned.code === "host_draining") markSuspensionReason(context, fresh.task_id, "host_draining")
+      if (isSuspendingCode(respawned.code)) markSuspensionReason(context, fresh.task_id, respawned.code)
       return outcome
     }
     if (TERMINAL_STATUSES.has(fresh.status) && options.rollbackTerminalFailure !== true) {
@@ -254,6 +256,10 @@ export function isClaimHeld(
 
 function isSpawnSpecV1Record(record: TaskRecord): boolean {
   return record.spawn_spec !== undefined && isSpawnSpecV1(record.spawn_spec)
+}
+
+function isSuspendingCode(code: RespawnFailureCode): code is "host_draining" | "host_incompatible" | "store_index_unavailable" {
+  return code === "host_draining" || code === "host_incompatible" || code === "store_index_unavailable"
 }
 
 function deferredCode(code: RespawnFailureCode): ReconcileDeferredReason {

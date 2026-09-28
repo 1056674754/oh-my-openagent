@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// omo-codex-install:b9d191455f51ef378c5201a64f2f635add28e3674b310a6c023afe2078a8d7ae:c91b7a106107d893ab54d3e73fd8f13083a16bbdb540770fe430c20aae9a113c
+// omo-codex-install:11f49d17a88a9c7a4cafd4c2cb821638b15233582dbc86d98e6cda4afdde2a4f:81daca1bad67d1774758e83270090316e2c45583690aeb4ae80c379a1f48cc6b
 var __esm = (fn, res, err) => () => {
   if (fn)
     try {
@@ -16822,6 +16822,7 @@ var OmoTaskSettingsSchema = object({
   process_runner: _enum(["host", "child-process"]).default("host"),
   host_engine_policy: _enum(["upgrade", "fallback"]).default("upgrade"),
   host_idle_exit_ms: number2().int().positive().optional(),
+  host_shard_prewarm: _enum(["off", "first-turn", "session-start"]).default("first-turn"),
   default_concurrency: number2().int().nonnegative().default(5),
   global_concurrency: number2().int().nonnegative().default(8),
   provider_concurrency: record(string2(), number2().int().nonnegative()).optional(),
@@ -16871,6 +16872,7 @@ var OmoTaskSettingsLayerSchema = object({
   process_runner: _enum(["host", "child-process"]).optional(),
   host_engine_policy: _enum(["upgrade", "fallback"]).optional(),
   host_idle_exit_ms: number2().int().positive().optional(),
+  host_shard_prewarm: _enum(["off", "first-turn", "session-start"]).optional(),
   default_concurrency: number2().int().nonnegative().optional(),
   global_concurrency: number2().int().nonnegative().optional(),
   provider_concurrency: record(string2(), number2().int().nonnegative()).optional(),

@@ -594,6 +594,7 @@ class TaskManagerImpl implements TaskManager {
     // The outcome tracker stops settling a handle once it is forgotten, so a run suspended here
     // never reaches its own release: free its lane now or every suspension leaks a slot (#8973).
     this.#releaseSlotForTask(taskId)
+    this.#outcome.release(taskId)
     this.#live.get(taskId)?.unsubscribe()
     this.#live.delete(taskId)
     const subscribers = this.#childSubscribers.get(taskId)

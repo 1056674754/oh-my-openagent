@@ -23,7 +23,7 @@ let sharedBuildPromise = null
 // A focused run builds the six artifacts twice in ~14s, while the package suite shares CPU and disk
 // with other build/staging files. Keep the test bounded, but give the real two-build workload enough
 // headroom under suite contention instead of timing out before the freshness assertion runs.
-setDefaultTimeout(60_000)
+setDefaultTimeout(90_000)
 
 afterEach(async () => {
   await Promise.all(perTestRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
@@ -43,6 +43,7 @@ function outputPathsIn(root) {
     supervisorOutputPath: join(root, "memory-run-supervisor.mjs"),
     advisorRuntimeOutputPath: join(root, "omo-init-deep-advisor.js"),
     toolkitSdkOutputPath: join(root, "runtime", "agent-toolkit-sdk", "sdk.js"),
+    rollbackRuntimeOutputPath: join(root, "runtime", "rollback-migrate.js"),
     computerUseOutputPath: join(root, "omo-computer-use.js"),
   }
 }
@@ -83,6 +84,12 @@ describe("checkExtensionCurrent", () => {
     const outputs = await mutableOutputs()
     await rm(outputs.toolkitSdkOutputPath)
     expect(await checkExtensionCurrent(outputs)).toMatchObject({ ok: false, reason: "missing-output", output: outputs.toolkitSdkOutputPath })
+  })
+
+  test("#given the rollback migration runtime #when built #then its store entry and migration event are present", async () => {
+    const outputs = await sharedOutputs()
+    expect(outputs.rollbackRuntimeInputs.some(input => input.endsWith("src/extension/rollback-migrate-runtime.ts"))).toBe(true)
+    expect(await readFile(outputs.rollbackRuntimeOutputPath, "utf8")).toContain("host_session_migrated")
   })
 
   test("#given the host platform #when resolving the Bun executable #then Windows bypasses the command shell", () => {
