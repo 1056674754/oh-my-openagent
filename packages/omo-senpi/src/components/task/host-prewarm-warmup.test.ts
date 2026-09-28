@@ -4,8 +4,14 @@ import { world, sockets, removeWorldDirs } from "./host-prewarm.test-support"
 
 afterEach(removeWorldDirs)
 
+
+// The warm-up session follows the session's own-shard pre-warm, which is POSIX-only by the plan (todo 9:
+// "platform is not win32"): these cases resolve the shard through the POSIX socket layout (sun_path limit,
+// owner-checked /tmp alternate root), which a win32 filesystem cannot host.
+const posixWarmUpTest = test.skipIf(process.platform === "win32")
+
 describe("the pre-warm opens one warm-up session on the host it warmed", () => {
-  test("#given the default settings #when the first prompt warms the host #then one warm-up session opens on the session's own shard, in its cwd", async () => {
+  posixWarmUpTest("#given the default settings #when the first prompt warms the host #then one warm-up session opens on the session's own shard, in its cwd", async () => {
     // given
     const w = world({ prewarm: "default" })
     const seen = w.warmUpSeen()
@@ -20,7 +26,7 @@ describe("the pre-warm opens one warm-up session on the host it warmed", () => {
     expect(w.warmUps).toEqual([{ socket: w.host.shardSocket(), cwd: w.root }])
   })
 
-  test("#given session-start #when session_start warms the host #then the warm-up session follows the ensure", async () => {
+  posixWarmUpTest("#given session-start #when session_start warms the host #then the warm-up session follows the ensure", async () => {
     // given
     const w = world({ prewarm: "session-start" })
     const seen = w.warmUpSeen()
@@ -34,7 +40,7 @@ describe("the pre-warm opens one warm-up session on the host it warmed", () => {
     expect(w.warmUps.map((entry) => entry.socket)).toEqual([w.host.shardSocket()])
   })
 
-  test("#given a host that could not be ensured #when the pre-warm runs #then no warm-up session is attempted", async () => {
+  posixWarmUpTest("#given a host that could not be ensured #when the pre-warm runs #then no warm-up session is attempted", async () => {
     // given
     const w = world({ prewarm: "session-start", ensure: "reject" })
 
@@ -47,7 +53,7 @@ describe("the pre-warm opens one warm-up session on the host it warmed", () => {
     expect(w.warmUps).toEqual([])
   })
 
-  test("#given a warm-up session that fails #when the pre-warm runs #then nothing escapes and the first child still routes to the host", async () => {
+  posixWarmUpTest("#given a warm-up session that fails #when the pre-warm runs #then nothing escapes and the first child still routes to the host", async () => {
     // given
     const w = world({ prewarm: "first-turn", warmSession: "reject" })
     const seen = w.warmUpSeen()

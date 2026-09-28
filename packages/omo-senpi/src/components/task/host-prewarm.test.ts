@@ -4,8 +4,14 @@ import { world, countingGateWorld, sockets, suspendedChild, removeWorldDirs } fr
 
 afterEach(removeWorldDirs)
 
+// The session's own-shard pre-warm is POSIX-only by the rpc-host-sharding plan (todo 9: "platform is not
+// win32"; Must NOT: "pre-warm on win32"): these cases resolve the session's shard through the POSIX socket
+// layout (sun_path limit, owner-checked /tmp alternate root), which a win32 filesystem cannot host. The
+// win32 case below still runs everywhere and pins that nothing is ensured there.
+const posixPrewarmTest = test.skipIf(process.platform === "win32")
+
 describe("task.host_shard_prewarm warms the session's own host", () => {
-  test("#given session-start #when session_start fires #then the session's shard is ensured once, before any spawn", async () => {
+  posixPrewarmTest("#given session-start #when session_start fires #then the session's shard is ensured once, before any spawn", async () => {
     // given
     const w = world({ prewarm: "session-start" })
 
@@ -19,7 +25,7 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
     expect(w.ensures).toHaveLength(1)
   })
 
-  test("#given first-turn #when session_start then two prompts fire #then nothing at session_start and exactly one ensure on the first prompt", async () => {
+  posixPrewarmTest("#given first-turn #when session_start then two prompts fire #then nothing at session_start and exactly one ensure on the first prompt", async () => {
     // given
     const w = world({ prewarm: "first-turn" })
 
@@ -38,7 +44,7 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
     expect(sockets(w.ensures)).toEqual([w.host.shardSocket()])
   })
 
-  test("#given the default settings #when a top-level session starts and then prompts #then its host warms on the first prompt, not at session_start", async () => {
+  posixPrewarmTest("#given the default settings #when a top-level session starts and then prompts #then its host warms on the first prompt, not at session_start", async () => {
     // given
     const w = world({ prewarm: "default" })
 
@@ -52,7 +58,7 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
     expect(sockets(w.ensures)).toEqual([w.host.shardSocket()])
   })
 
-  test("#given first-turn and a turn that skips input #when before_agent_start fires #then that turn warms the host", async () => {
+  posixPrewarmTest("#given first-turn and a turn that skips input #when before_agent_start fires #then that turn warms the host", async () => {
     // given
     const w = world({ prewarm: "first-turn" })
     await w.sessionStart("root-1")
@@ -163,7 +169,7 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
     }
   })
 
-  test("#given an ensure that rejects #when session-start warms #then no unhandled rejection escapes, the warm adds no notice, and the spawn's own ensure reports it", async () => {
+  posixPrewarmTest("#given an ensure that rejects #when session-start warms #then no unhandled rejection escapes, the warm adds no notice, and the spawn's own ensure reports it", async () => {
     // given
     const w = world({ prewarm: "session-start", ensure: "reject" })
     const unhandled: unknown[] = []
@@ -190,7 +196,7 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
     }
   })
 
-  test("#given a warm whose ensure fails once #when the first child's ensure runs #then it asks the host again and routes to process", async () => {
+  posixPrewarmTest("#given a warm whose ensure fails once #when the first child's ensure runs #then it asks the host again and routes to process", async () => {
     // given
     const w = world({ prewarm: "session-start", ensure: "reject-once" })
     await w.sessionStart("root-1")
@@ -237,7 +243,7 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
     }
   })
 
-  test("#given default_execution_mode process #when session-start warms #then the session's shard is ensured", async () => {
+  posixPrewarmTest("#given default_execution_mode process #when session-start warms #then the session's shard is ensured", async () => {
     // given
     const w = world({ prewarm: "session-start", defaultExecutionMode: "process" })
 
