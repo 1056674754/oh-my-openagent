@@ -57,7 +57,8 @@ public class QaMessageLog : NativeWindow {
 $box = New-Object System.Windows.Forms.TextBox -Property @{
 	Multiline = $true; ReadOnly = $true; WordWrap = $false; ScrollBars = 'Vertical'; Dock = 'Fill'; HideSelection = $false
 }
-$box.Lines = [string[]](1..$Lines | ForEach-Object { 'line {0:D3} of the omo pointer host' -f $_ })
+# Lines wider than the EDIT, so a drag anywhere across it selects text instead of clamping to a line end.
+$box.Lines = [string[]](1..$Lines | ForEach-Object { 'line {0:D3} of the omo pointer host, long enough to run past the right edge of the edit control' -f $_ })
 $form = New-Object System.Windows.Forms.Form -Property @{
 	Text = $Title; StartPosition = 'Manual'; Left = $Left; Top = $Top; Width = $Width; Height = $Height
 }
