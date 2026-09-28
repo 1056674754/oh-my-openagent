@@ -1,3 +1,18 @@
+## The task daemon ensure releases the engine's attach hold (#9041)
+
+`runners/rpc-host/daemon.ts`: senpi #2242 makes `ensureHost()` return an attach hold - the readiness
+connection stays open and the host counts the ensuring process as attached - until `release()` is
+called. `ensureTaskDaemon` releases it once, right after its own capability probe (in a `finally`, so
+a failed probe still releases) and before it returns: its result is cached and shared by the
+single-flight, and the transient daemon would otherwise never start its idle window while omo runs.
+Every ensure path (spawn, revival, reattach, pre-warm) goes through this one call.
+`lazy/senpi-barrel.ts`: `EnsuredSenpiHost.release` is optional, so the current engine pin (no hold)
+keeps working.
+
+Tests: `runners/rpc-host/daemon.test.ts` ("ensureTaskDaemon attach hold": a started host is released
+after its capability probe, a reused one once, a throwing probe still releases, concurrent and cached
+ensures release the one engine ensure once, a hold-less pin still ensures).
+
 ## A task record follows the child session, not the first agent_end (#9069)
 
 `src/runners/rpc/turn-settlement.ts` (new) is shared by both process runners (`runners/rpc/handle.ts`, `runners/rpc-host/handle.ts`): the outcome of a non-retrying `agent_end` is held until senpi's `agent_idle` (emitted only when no settle-time continuation started and no session work is pending), dropped when another run starts (`agent_start`), and a user abort still settles at once as cancelled. A child exit settles any held outcome. A TTSR interrupt followed by its corrective nudge therefore ends with the continuation's result instead of `error: This operation was aborted` (`runners/rpc-host/handle-continuation.test.ts`, RED on the old handle).
