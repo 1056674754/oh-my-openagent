@@ -1,3 +1,19 @@
+## runners: warm a task host with its `warm` command; export the store-index registration
+
+- `runners/rpc-host/host-warmup.ts`: `warmTaskHost({ socket, cwd })` sends `warm { cwd, kind: "worker", context }` with
+  the same `child`-role, temp-`state_dir`, `host_warmup` context the warm-up session carried, and answers `warmed` /
+  `already_warm`. An engine that does not know the command (a refusal outside `host_draining`, `warm_failed`,
+  `invalid_session_kind`, `invalid_session_context`, `invalid_path` - an older router answers `missing_session_id`)
+  or cannot warm (`state: "unsupported"`) gets the previous warm-up session (`warm_up_session`). A known refusal or no
+  answer rejects with `HostWarmRefusedError`. The temp directory is removed on every path. `warmHostSession` is no
+  longer exported.
+- `runners/rpc-host/host-request.ts` (new): `askHost(socket, request, timeoutMs)`, the one-connection request
+  `liveness.ts` used privately, now returning refusals too; `liveSessionPaths` keeps its answers.
+- Barrel: `registerStoreIndex`, `StoreIndexUnavailableError`, `warmTaskHost`, `HostWarmRefusedError`, `TaskHostWarmth`.
+- `__fixtures__/fake-host*.ts`: a `warm` answer option and a fixed `socketPath` option.
+
+Tests: `host-warmup.test.ts`.
+
 ## runners: warm a fresh task host with one throwaway session; the auto gate can warm without deciding (rpc-host-sharding PR-A)
 
 - `runners/rpc-host/host-warmup.ts` (new): `warmHostSession({ socket, cwd })` opens one `worker` session with the

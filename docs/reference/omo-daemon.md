@@ -349,20 +349,29 @@ child does not wait for a host to boot. `task.host_shard_prewarm` picks when:
 
 - `first-turn` (default): on the session's first prompt (`input`, or
   `before_agent_start` for a turn that skips it), so the boot overlaps the first model
-  call. A session that is opened and never prompted starts no host.
+  call. A session that is opened and never prompted starts no host. A session running
+  inside a Desktop thread host (an `i-*` endpoint) warms on its first delegation intent
+  instead: the moment the model starts streaming a `task` or `task_send` call, before
+  its arguments arrive.
 - `session-start`: at `session_start`, also for sessions that never prompt.
 - `off`: the host boots at the first `process` child, as before.
 
-Warming is two fire-and-forget steps: the execution-mode gate ensures the session's host
-(`warm()`: a success is kept exactly as the first spawn's `ensure()` would keep it; a
-failure is only logged and settles nothing, so the first spawn asks again and reports
-its own `host_unavailable:*` notice), then one throwaway child-shaped session is opened
-and closed on that host. A host pays for its first session (the extensions compile and
-the task runtime loads there): without it a pre-warmed host's first child still waited
-about 0.2-0.3 s longer than the same child on an already-used host. The warm-up session
-carries the `child` role, a private temp state directory and session file that are
-removed afterwards, and the `host_warmup` context key that keeps it out of telemetry;
-it is never retained, so the host's idle exit counts from its close. Its failure is
+Warming is admitted like a spawn: the session's task store is registered in the
+agent-dir store index (`rpc/task-stores.json`) first, and when that fails nothing is
+ensured or warmed and nothing is reported (the first spawn fails
+`store_index_unavailable` on its own). Then two fire-and-forget steps: the
+execution-mode gate ensures the session's host (`warm()`: a success is kept exactly as
+the first spawn's `ensure()` would keep it; a failure is only logged and settles
+nothing, so the first spawn asks again and reports its own `host_unavailable:*`
+notice), then the host's `warm` command loads what a child's session needs (the
+extension graph and the runtimes a `worker`/`child` session loads) without opening a
+session. A host pays for its first session (the extensions compile and the task runtime
+loads there): without it a pre-warmed host's first child still waited about 0.2-0.3 s
+longer than the same child on an already-used host. The warm carries the `child` role,
+a private temp state directory that is removed afterwards, and the `host_warmup`
+context key; it holds no session, so the host's idle exit is unaffected. An engine from
+before the `warm` command (or a host that cannot warm) gets one throwaway child-shaped
+session instead, opened and closed at once and never retained. A failure of either is
 logged and changes nothing for the first child.
 
 Measured on the compiled binary (a fresh session, its first turn, a mock model answering

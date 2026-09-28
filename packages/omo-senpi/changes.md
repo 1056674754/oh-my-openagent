@@ -1,3 +1,25 @@
+## 2026-09-29 — task: the pre-warm sends the host's `warm` command, registers the store first, and warms Desktop threads on the first delegation intent
+
+`components/task/host-prewarm.ts`:
+
+- The warm is admitted exactly like a spawn (`admitChildStore`): the session's task store is registered in the
+  agent-dir store index before the gate ensures anything. When the index cannot be written, nothing is ensured or
+  warmed, nothing is noticed, and the first spawn fails `store_index_unavailable` on its own. Before this, the
+  pre-warm started a `p-*` endpoint that the store index did not list (the `store_index_registration_precondition`
+  live row failed 2/2 with the default `first-turn`).
+- Once the gate answers `process`, the host's `warm` command (senpi 2026.9.28-7) loads the child session's services
+  on the session's shard (senpi-task `warmTaskHost`), in place of a throwaway warm-up session; an engine from before
+  the command still gets the warm-up session. Its failure is logged and changes nothing for the first child.
+- A session running inside a Desktop thread host (its session context's `host_socket` is an `i-*` endpoint) does not
+  warm on its first prompt under `first-turn`: it warms when the model starts streaming a `task` or `task_send` call
+  (`message_update` with a `toolcall_start` event, `host-prewarm-intent.ts`), once per session id. Terminal
+  sessions keep `first-turn`; `session-start` and `off` are unchanged for both.
+- `wireHostPrewarm` returns `{ settled(sessionId) }`, the session's warm in flight (never rejects).
+
+Tests: `host-prewarm-warmup.test.ts` (warm command against a fake host at the shard socket, old-engine fallback,
+refusal), `host-prewarm-store-index.test.ts` (new), `host-prewarm-intent.test.ts` (new), `host-prewarm.test.ts`
+(awaits the warm instead of reading ensures synchronously).
+
 ## 2026-09-29 — Task-host crash lines read in one word and count only what came back
 
 The `host_shard_crash_done:<key>` closing line now reads `N subagent(s) reattached, 0 lost`, or, when anything was lost, `N subagent(s) lost (reattach failed), M reattached` (`, C cancelled` as before). "Reattached" counts only children that actually came back (attached, resumed, continued); the old first number counted lost ones too, so a lost case read "1 reattached: 0 continued mid-turn, 1 lost". The `host_shard_crash:<key>` warning says "reattaching N subagent(s)..." instead of "child/children". Both tokens are unchanged; the Desktop's parser moves to this shape in the same release. `shard-crash-notice.test.ts` pins both shapes.

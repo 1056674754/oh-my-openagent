@@ -1,3 +1,11 @@
+## 2026-09-29 - Docs and schema: the task-host pre-warm uses the host's `warm` command, is admitted like a spawn, and warms Desktop threads on intent
+
+`docs/reference/omo-daemon.md` (Pre-warm): the warm registers the session's task store in `rpc/task-stores.json`
+before any host is ensured and does nothing when that fails; it then sends the host's `warm` command instead of opening
+a throwaway session (an engine from before the command still gets the warm-up session); and a session inside a Desktop
+thread host (`i-*`) warms on the first streamed `task`/`task_send` call instead of its first prompt.
+`packages/omo-config-core/src/schema/task.ts`: the `host_shard_prewarm` comment says the same about Desktop threads.
+
 ## 2026-09-28 - Docs: engine hosts per session, the price of isolation, migration and rollback (#9003)
 
 `docs/reference/omo-daemon.md` is now "omo daemon - engine hosts per session". It documents how a session's

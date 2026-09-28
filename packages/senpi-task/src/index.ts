@@ -165,6 +165,7 @@ export type {
   RunnerOutcome,
   SharedToolFilterOptions,
   SubagentPromptInput,
+  TaskHostWarmth,
   WarmHostSessionInput,
 } from "./runners"
 export {
@@ -184,6 +185,8 @@ export {
   isOwnEndpoint,
   readOwnHostSocket,
   readTaskStoreIndex,
+  registerStoreIndex,
+  StoreIndexUnavailableError,
   taskStoreIndexPath,
   readMemberSessionIdentity,
   readSessionAncestry,
@@ -192,7 +195,8 @@ export {
   HOST_WARMUP_CONTEXT,
   HOST_WARMUP_TASK_ID,
   isHostWarmupSession,
-  warmHostSession,
+  HostWarmRefusedError,
+  warmTaskHost,
   resolveTaskHostSocket,
   RpcCommandError,
   RpcHostRunner,
