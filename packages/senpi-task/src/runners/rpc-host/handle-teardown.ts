@@ -14,6 +14,7 @@ export interface HostTeardownInput {
 
 export interface HandleTeardownHost extends HostTeardownInput {
   exited(): boolean
+  intent(): SessionCloseIntent
   markIntent(intent: SessionCloseIntent): void
   markDetached(): void
   clearActive(): void
@@ -35,7 +36,7 @@ export function createHandleTeardown(host: HandleTeardownHost): HandleTeardown {
     host.stopHeartbeat()
     await endSessionOnHost(host, next)
     const reason = next === "terminated" ? "terminated" : "client_close"
-    host.settle(classifySessionExit({ cause: { kind: "session_closed", reason }, intent: next }))
+    host.settle(classifySessionExit({ cause: { kind: "session_closed", reason }, intent: host.intent() }))
   }
 
   return {

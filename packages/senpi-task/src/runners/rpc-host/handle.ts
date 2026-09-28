@@ -205,6 +205,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     closeGraceMs,
     port: () => client,
     exited: () => outcome !== undefined,
+    intent: () => intent,
     markIntent: (next) => { intent = next },
     markDetached: () => { detached = true },
     clearActive: listeners.clearActive,
