@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// omo-codex-install:9025ac0be1d4a629f0cbbdfed4923a3844d4aad679ac805d9b9ba2ed3bc41243:7b8a7cb7c4fbc88421ae065df8a36278ced214d3248befd23e6c8b0fefb7c624
+// omo-codex-install:11f49d17a88a9c7a4cafd4c2cb821638b15233582dbc86d98e6cda4afdde2a4f:81daca1bad67d1774758e83270090316e2c45583690aeb4ae80c379a1f48cc6b
 var __esm = (fn, res, err) => () => {
   if (fn)
     try {
@@ -9984,7 +9984,7 @@ var package_default;
 var init_package = __esm(() => {
   package_default = {
     name: "@oh-my-opencode/omo-codex",
-    version: "5.0.1",
+    version: "5.1.0",
     type: "module",
     private: true,
     description: "Codex harness adapter for oh-my-openagent. Vendored Codex plugin namespace (omo) + TypeScript installer + telemetry.",
@@ -16506,7 +16506,7 @@ var OmoCategoriesConfigSchema = record(string2(), OmoCategoryConfigSchema);
 var positiveInteger = number2().int().positive();
 var nonNegativeInteger = number2().int().nonnegative();
 var OmoComputerSettingsLayerSchema = object({
-  enabled: boolean2(),
+  enabled: boolean2().describe("Experimental: register the computer tool in OmO Native sessions (default: on where the host is supported; false leaves it unregistered)"),
   display: string2().min(1),
   max_width: positiveInteger,
   max_height: positiveInteger,
@@ -16518,7 +16518,7 @@ var OmoComputerSettingsLayerSchema = object({
   screenshot_gc: object({ enabled: boolean2(), stale_ms: nonNegativeInteger, scan_interval_ms: nonNegativeInteger }).partial().strict(),
   engine_path: string2().min(1),
   cua_adapter: boolean2()
-}).partial().strict();
+}).partial().strict().describe("Experimental computer use in OmO Native: screenshots, windows, accessibility trees and native mouse and keyboard input. Every key is optional; defaults depend on the host.");
 var OmoComputerSettingsSchema = OmoComputerSettingsLayerSchema;
 
 // packages/omo-config-core/src/schema/git-master.ts
