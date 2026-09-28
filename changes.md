@@ -1,6 +1,6 @@
 ## 2026-09-28 - Computer use scrolls the same direction on every OS (#9055)
 
-A positive `dy` scrolled up on macOS but down on X11 and Windows, so the same `scroll(x, y, { dy })` call, and every `computer_actions` scroll from an OpenAI computer-use model (`scroll_y`), went the wrong way on macOS; at the top of a document it did nothing. The macOS backend now negates Quartz's wheel deltas, so on every OS a positive `dy` scrolls down and a positive `dx` scrolls right. The model-facing docs, the declarations and the `computer_actions` schema state the convention.
+A positive `dy` scrolled up on macOS but down on X11 and Windows, so the same `scroll(x, y, { dy })` call, and every `computer_actions` scroll from an OpenAI computer-use model (`scroll_y`), went the wrong way on macOS; at the top of a document it did nothing. The macOS backend now negates Quartz's wheel deltas, so on every OS a positive `dy` scrolls down and a positive `dx` scrolls right. The model-facing docs, the declarations and the `computer_actions` schema state the convention. The Windows and Linux (X11) desktop QA jobs now scroll a long document in a task-owned window both ways, with background and foreground delivery, and read its top line (and on X11 its left column) from the window itself rather than from the engine.
 
 ## 2026-09-28 - Windows desktop QA teardown no longer kills or reports recycled pids (#9087)
 

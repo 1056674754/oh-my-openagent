@@ -21,6 +21,7 @@ import {
 } from "./windows/scenarios-delivery"
 import { elevatedWindowRefused, hotkeyLatches } from "./windows/scenarios-guard"
 import { capturePrimary, uiaSnapshotNotepad } from "./windows/scenarios-read"
+import { scrollDirectionBackground, scrollDirectionForeground } from "./windows/scenarios-scroll"
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
 const DEFAULT_ENGINE = join(REPO_ROOT, "target", "x86_64-pc-windows-msvc", "release", "senpi-desktop-engine.exe")
@@ -33,6 +34,8 @@ const SCENARIOS: readonly Scenario[] = [
   elevatedWindowRefused,
   uiaSnapshotNotepad,
   hotkeyLatches,
+  scrollDirectionBackground,
+  scrollDirectionForeground,
 ]
 
 const USAGE = `usage: windows.ts (--all | --scenario <name>...) [--json] [--engine <exe>] [--out <file>] [--sabotage <mode>]

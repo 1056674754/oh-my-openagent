@@ -27,12 +27,13 @@ public static class QaObserver {
 	[DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, ChildProc proc, IntPtr lParam);
 	[DllImport("user32.dll", EntryPoint = "SendMessageTimeoutW")] static extern IntPtr SendLength(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
 	[DllImport("user32.dll", EntryPoint = "SendMessageTimeoutW", CharSet = CharSet.Unicode)] static extern IntPtr SendText(IntPtr hwnd, uint msg, IntPtr wParam, StringBuilder lParam, uint flags, uint timeout, out IntPtr result);
-	// First descendant window of class Edit or RichEdit*; IntPtr.Zero when there is none.
+	// First descendant window of class Edit, RichEdit*, or a WinForms EDIT (`WindowsForms10.EDIT.*`);
+	// IntPtr.Zero when there is none.
 	public static IntPtr EditChild(IntPtr parent) {
 		IntPtr found = IntPtr.Zero;
 		EnumChildWindows(parent, (hwnd, unused) => {
 			string name = ClassName(hwnd);
-			if (name == "Edit" || name.StartsWith("RichEdit")) { found = hwnd; return false; }
+			if (name == "Edit" || name.StartsWith("RichEdit") || name.Contains(".EDIT.")) { found = hwnd; return false; }
 			return true;
 		}, IntPtr.Zero);
 		return found;
@@ -46,6 +47,15 @@ public static class QaObserver {
 		IntPtr copied;
 		if (SendText(hwnd, 0x000D, (IntPtr)text.Capacity, text, 0x0002, 2000, out copied) == IntPtr.Zero) return null;
 		return text.ToString();
+	}
+	// EM_GETFIRSTVISIBLELINE of the window's edit child: the zero-based line at the top of its view;
+	// -1 when there is no edit child or it does not answer.
+	public static long FirstVisibleLine(IntPtr parent) {
+		IntPtr edit = EditChild(parent);
+		if (edit == IntPtr.Zero) return -1;
+		IntPtr line;
+		if (SendLength(edit, 0x00CE, IntPtr.Zero, IntPtr.Zero, 0x0002, 2000, out line) == IntPtr.Zero) return -1;
+		return line.ToInt64();
 	}
 	public static string ClassName(IntPtr hwnd) { var name = new StringBuilder(256); GetClassNameW(hwnd, name, name.Capacity); return name.ToString(); }
 	public static uint ProcessId(IntPtr hwnd) { uint pid; GetWindowThreadProcessId(hwnd, out pid); return pid; }
@@ -144,6 +154,7 @@ foreach ($id in ($Hwnds -split ',' | Where-Object { $_ -ne '' })) {
 		class = [QaObserver]::ClassName($hwnd)
 		pid = $ownerPid
 		processName = if ($null -eq $process) { $null } else { $process.ProcessName }
+		firstVisibleLine = [QaObserver]::FirstVisibleLine($hwnd)
 	}
 	try {
 		$read = Read-EditableText $hwnd
