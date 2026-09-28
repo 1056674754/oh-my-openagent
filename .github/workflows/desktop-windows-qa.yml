@@ -94,7 +94,7 @@ jobs:
           OMO_QA_MOUSE_TRACE: "0"
         run: |
           New-Item -ItemType Directory -Force -Path $env:QA_DIR | Out-Null
-          foreach ($variant in @('baseline', 'barrier', 'setcursorpos', 'one-call', 'sleep50', 'sleep200')) {
+          foreach ($variant in @('baseline', 'dwmflush', 'dwmflush2', 'dwmflush-move', 'activate-sleep50', 'sleep16', 'sleep5')) {
             foreach ($run in 1..3) {
               $env:OMO_9095_VARIANT = $variant
               Write-Output "DIAG9095-VARIANT $variant run $run"

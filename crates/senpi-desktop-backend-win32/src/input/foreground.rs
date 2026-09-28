@@ -42,6 +42,20 @@ impl Win32Input {
         super::diag_timeline::mark("activate-begin", None);
         activate(id, target)?;
         super::diag_timeline::mark("activated", None);
+        match std::env::var("OMO_9095_VARIANT").unwrap_or_default().as_str() {
+            "dwmflush" => {
+                // SAFETY: [FFI] no arguments; blocks until the next DWM present.
+                let flushed = unsafe { windows_sys::Win32::Graphics::Dwm::DwmFlush() };
+                super::diag_timeline::mark(&format!("dwmflush hr={flushed:#x}"), None);
+            }
+            "dwmflush2" => {
+                // SAFETY: [FFI] no arguments; blocks until the next DWM present.
+                let flushed = unsafe { (windows_sys::Win32::Graphics::Dwm::DwmFlush(), windows_sys::Win32::Graphics::Dwm::DwmFlush()) };
+                super::diag_timeline::mark(&format!("dwmflush2 hr={flushed:?}"), None);
+            }
+            "activate-sleep50" => thread::sleep(Duration::from_millis(50)),
+            _ => {}
+        }
         let result = body(self, target);
         super::diag_timeline::mark("body-done", None);
         let delivered = barrier::delivered(target);

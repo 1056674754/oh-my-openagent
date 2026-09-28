@@ -33,6 +33,13 @@ fn diag_move(point: (i32, i32), target: Option<Window>) -> CoreResult<()> {
             }
         }
         "sleep50" => std::thread::sleep(std::time::Duration::from_millis(50)),
+        "sleep16" => std::thread::sleep(std::time::Duration::from_millis(16)),
+        "sleep5" => std::thread::sleep(std::time::Duration::from_millis(5)),
+        "dwmflush-move" => {
+            // SAFETY: [FFI] no arguments; blocks until the next DWM present.
+            let flushed = unsafe { windows_sys::Win32::Graphics::Dwm::DwmFlush() };
+            super::diag_timeline::mark(&format!("dwmflush-move hr={flushed:#x}"), None);
+        }
         "sleep200" => std::thread::sleep(std::time::Duration::from_millis(200)),
         _ => {}
     }
