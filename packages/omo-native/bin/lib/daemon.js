@@ -14,9 +14,12 @@ import { runRollbackPrepare } from "./daemon-rollback.js"
 import { formatDoctorLines } from "./daemon-status.js"
 
 /**
- * `omo daemon` - the operator's view of the one machine-wide engine host.
+ * `omo daemon` - the operator's view of every engine host in one agent dir: the operator daemon on
+ * `rpc.sock` (the only endpoint `run` and `attach` ensure), each session's task host (`p-*`), each
+ * Desktop thread host (`i-*`), and any other endpoint the engine enumerates. `status`, `gc`,
+ * `handoff`, `stop --all` and `rollback-prepare` cover all of them.
  *
- * Everything that decides WHO serves the socket lives in the engine (`senpi host`): probing an
+ * Everything that decides WHO serves a socket lives in the engine (`senpi host`): probing an
  * existing host, comparing build ordinals, handing a generation over, refusing when the two sides
  * cannot agree. This wrapper owns three much smaller things, and deliberately nothing else:
  * omo's launch spec is the argv source, omo.json is where the policy comes from, and the caller
