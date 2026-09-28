@@ -166,6 +166,6 @@ export function runPythonFacade(script: string): PythonRun {
 			})}`,
 		);
 	}
-	if (result.status !== 0) throw new Error(`python3 exited ${result.status}: ${result.stderr}`);
+	if (result.status !== 0) throw new Error(`${PYTHON_COMMAND} exited ${result.status}: ${result.error?.message ?? result.stderr}`);
 	return JSON.parse(result.stdout);
 }
