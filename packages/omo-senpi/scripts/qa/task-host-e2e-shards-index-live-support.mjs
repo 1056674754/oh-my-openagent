@@ -92,7 +92,7 @@ export const storeIndexPreconditionPassed = (value) =>
   value.endpoints_before_retry.length === 0 && value.endpoint_state_before_retry.length === 0 && value.index_absent_after_failure &&
   value.registration_first_observation?.index_exists && value.registration_first_observation.sockets.length === 0 &&
   value.index_mtime_ms <= value.endpoint_birthtime_ms &&
-  typeof value.retry_socket === "string" && value.store_registered_before_open
+  typeof value.retry_socket === "string" && value.retry_socket_in_agent_dir === true && value.store_registered_before_open
 
 function cleanupPassed(cleanup) {
   return cleanup?.removed === true && cleanup.parentsAlive?.length === 0 &&

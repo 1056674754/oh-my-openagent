@@ -1,4 +1,4 @@
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, realpathSync } from "node:fs"
 import { dirname, join } from "node:path"
 
 import { startMockCompletionsServer } from "./mock-completions-server.mjs"
@@ -207,7 +207,9 @@ export async function runIdleGcIndexResume(current, beforeBin, artifacts) {
 export async function runStoreIndexRegistrationPrecondition(current, artifacts, executionMode = "process") {
   const rowId = executionMode === "auto" ? "store_index_registration_precondition_auto" : "store_index_registration_precondition"
   const firstScript = taskScript("index-fail", "index failure child", [{ type: "text", text: "must not run" }])
-  const sandbox = newSandbox(current, `index-precondition-${executionMode}`, {
+  // The name is part of the agent dir path: a long one pushes the session's shard socket past
+  // sun_path into a /tmp/omo-rpc-* fallback root that this row neither records nor removes.
+  const sandbox = newSandbox(current, executionMode === "auto" ? "idx-auto" : "idx-proc", {
     omoConfig: taskConfig({ default_execution_mode: executionMode }), script: firstScript,
   })
   const project = mainProject(sandbox, firstScript)
@@ -262,6 +264,8 @@ export async function runStoreIndexRegistrationPrecondition(current, artifacts, 
       endpoint_birthtime_ms: socketStat.birthtimeMs,
       retry_status: opened?.status ?? null,
       retry_socket: opened?.host_session?.socket ?? null,
+      retry_socket_in_agent_dir: typeof opened?.host_session?.socket === "string" &&
+        realpathSync(opened.host_session.socket).startsWith(`${realpathSync(sandbox.agentDir)}/`),
       store_registered_before_open: project.stateDir in (index.stores ?? {}),
     }
   } catch (caught) {
