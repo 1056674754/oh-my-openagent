@@ -31,8 +31,10 @@ done
 const HOLDER_SCRIPT = "stty -echo; while IFS= read -r _; do :; done";
 
 // A long, wide, read-only document opened mid-content both ways. Every view change rewrites the
-// report file (atomically) with the text index at the view's top-left pixel: `<line>.<column>`.
+// report file (atomically) with the text index at the view's top-left pixel and the widget's own
+// line height in pixels (0 until measured): `<line>.<column> <lineHeight>`.
 const SCROLL_SCRIPT = `set report [lindex $argv 0]
+set lineHeight 0
 wm title . ${SCROLL_TITLE}
 wm geometry . +40+300
 text .t -wrap none -width 40 -height 10 -yscrollcommand record -xscrollcommand record
@@ -45,15 +47,17 @@ for {set i 1} {$i <= 200} {incr i} {
 bind .t <6> {%W xview scroll -4 units}
 bind .t <7> {%W xview scroll 4 units}
 proc record args {
-	global report
+	global report lineHeight
 	set f [open $report.tmp w]
-	puts $f [.t index @0,0]
+	puts $f "[.t index @0,0] $lineHeight"
 	close $f
 	file rename -force $report.tmp $report
 }
 .t yview scroll 100 units
 .t xview scroll 40 units
 update
+# The height of the display line at the top of the view, as laid out by the widget itself.
+set lineHeight [lindex [.t dlineinfo @0,0] 3]
 record
 `;
 
@@ -66,8 +70,8 @@ export interface X11Stage {
 }
 
 export type Pastes = { readonly count: number; readonly last: string };
-/** The scroll fixture's top-left text index; line 0 before it reported. */
-export type ScrollView = { readonly line: number; readonly column: number };
+/** The scroll fixture's top-left text index and line height in pixels; zeros before it reported. */
+export type ScrollView = { readonly line: number; readonly column: number; readonly lineHeight: number };
 
 function freeDisplay(): number {
 	for (let display = 140; display < 240; display++) {
@@ -120,10 +124,12 @@ export class X11Observer {
 	/** What the scroll fixture reported about its own view. */
 	scrollView(): ScrollView {
 		try {
-			const match = /^(\d+)\.(\d+)$/.exec(readFileSync(this.scrollFile, "utf8").trim());
-			return match === null ? { line: 0, column: 0 } : { line: Number(match[1]), column: Number(match[2]) };
+			const match = /^(\d+)\.(\d+) (\d+)$/.exec(readFileSync(this.scrollFile, "utf8").trim());
+			return match === null
+				? { line: 0, column: 0, lineHeight: 0 }
+				: { line: Number(match[1]), column: Number(match[2]), lineHeight: Number(match[3]) };
 		} catch {
-			return { line: 0, column: 0 };
+			return { line: 0, column: 0, lineHeight: 0 };
 		}
 	}
 
@@ -202,6 +208,9 @@ export async function startX11(procs: Processes, runDir: string): Promise<{ stag
 	});
 	const [targetWindow = "", otherWindow = "", scrollWindow = ""] = windows;
 	await until(() => observe.pastes().count === 0, "the target xterm script to start");
-	await until(() => observe.scrollView().line > 0, "the scroll fixture to report its view");
+	await until(() => {
+		const view = observe.scrollView();
+		return view.line > 0 && view.lineHeight > 0;
+	}, "the scroll fixture to report its view and line height");
 	return { stage: { display, target: targetWindow, other: otherWindow, scroll: scrollWindow, env }, observe };
 }
