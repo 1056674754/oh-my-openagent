@@ -9,6 +9,8 @@ pub mod held;
 pub mod keys;
 pub mod messages;
 #[cfg(any(test, target_os = "windows"))]
+mod cursor_placement;
+#[cfg(any(test, target_os = "windows"))]
 mod focus_policy;
 #[cfg(any(test, target_os = "windows"))]
 mod events;
@@ -25,6 +27,8 @@ mod background_pointer;
 mod barrier;
 #[cfg(target_os = "windows")]
 mod char_sink;
+#[cfg(target_os = "windows")]
+mod compositor;
 #[cfg(target_os = "windows")]
 mod dispatch;
 #[cfg(target_os = "windows")]
