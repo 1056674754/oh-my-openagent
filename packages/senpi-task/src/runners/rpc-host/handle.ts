@@ -198,9 +198,17 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
         giveUp: () => endSession({ kind: "transport_gone" }),
       },
       reattach,
-    ).finally(() => {
-      reattaching = undefined
-    })
+    )
+      .catch((error: unknown) => {
+        // The continuation that re-drives the in-flight turn was not delivered (omo#9093). A lost
+        // transport is the next recovery's to handle; anything else fails the turn exactly like an
+        // undelivered prompt, instead of escaping as an unhandled rejection.
+        log("senpi-task host session reattach continuation failed", { taskId, error: String(error) })
+        if (!isTransportLossError(error)) settleTurn(promptFailureOutcome(error))
+      })
+      .finally(() => {
+        reattaching = undefined
+      })
   }
 
   const bindClient = (port: HostSessionPort): void => {

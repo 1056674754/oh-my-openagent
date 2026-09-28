@@ -1,3 +1,7 @@
+## A reattach continuation that is not delivered fails the turn (#9093)
+
+`runners/rpc-host/handle.ts` `onTransportGone`: the `recoverLostTransport` chain now ends in a `.catch`. Its last step re-prompts the in-flight turn on the adopted port (`continueTurn`), and nothing awaited that promise unless a delivery was in flight, so a rejected continuation (`Timeout waiting for response to prompt` from a host that answered past the RPC deadline) escaped as an unhandled rejection that Bun printed over the parent TUI, while the turn stayed pending. The rejection is logged; a transport-loss error is left to the next recovery, and any other failure settles the turn with `promptFailureOutcome`, the same outcome `runPrompt` gives an undelivered prompt. `runners/rpc-host-recovery.test.ts` covers it with a host whose post-restart client rejects the prompt.
+
 ## The task daemon ensure releases the engine's attach hold (#9041)
 
 `runners/rpc-host/daemon.ts`: senpi #2242 makes `ensureHost()` return an attach hold - the readiness
