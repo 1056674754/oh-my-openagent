@@ -15,7 +15,6 @@ mod live_tests;
 pub mod pipewire;
 pub mod screenshot_portal;
 
-use std::slice;
 
 use image::RgbaImage;
 use senpi_desktop_core::error::{CoreResult, DesktopError};
@@ -155,7 +154,10 @@ impl PortalCapture {
         })?;
         self.probe = Probe::Granted;
         let display = portal_display(image.width(), image.height());
-        let frame = FrameGeometry::for_displays(slice::from_ref(&display));
+        // The Screenshot portal returns physical pixels and no display geometry,
+        // so on a scaled output (e.g. 200%) pixel != logical: show the frame but
+        // refuse coordinate input against it instead of guessing scale 1.
+        let frame = FrameGeometry::pixels_only(image.width(), image.height(), SCREENSHOT_GEOMETRY_UNKNOWN);
         self.displays = vec![display];
         Ok((image, frame))
     }
@@ -174,6 +176,10 @@ impl PortalCapture {
         }
     }
 }
+
+/// Why a Screenshot-portal frame refuses coordinate input.
+pub const SCREENSHOT_GEOMETRY_UNKNOWN: &str =
+    "the Wayland Screenshot portal fallback does not report display scale or layout; allow the ScreenCast portal for coordinate input";
 
 /// The screenshot as one display at scale 1, logical size = pixel size.
 fn portal_display(width: u32, height: u32) -> DesktopDisplay {

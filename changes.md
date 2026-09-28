@@ -1,3 +1,7 @@
+## 2026-09-28 - Wayland Screenshot-portal fallback frames refuse coordinate input (#8957)
+
+When the ScreenCast portal is unavailable, Wayland capture falls back to the Screenshot portal, which returns physical pixels and no display scale or layout. The frame was treated as scale 1, so on a scaled output (a 200% display returned 1280x720 pixels for a 640x360 logical desktop) a click at a screenshot pixel landed at the wrong place. The fallback screenshot is still returned, but coordinate input and hit tests against it are refused with a reason pointing to accessibility actions or the ScreenCast portal.
+
 ## 2026-09-28 - macOS computer use keeps the user's newer front app (#9056)
 
 After a background `type` or `press`, the macOS engine handed key focus back to the application that was front before the action, even when the user had switched to another application in the meantime. It read the front application from `NSWorkspace.frontmostApplication`, which in the engine (no AppKit run loop) can keep reporting an application the user already left. The front application now comes from WindowServer (`_SLPSGetFrontProcess`), with AppKit only as a fallback, and the hand-back leaves the front alone when a third application is front: the user's newer choice wins, as on X11 and Windows. Without a user switch the previous application is still restored.
