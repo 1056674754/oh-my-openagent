@@ -27,8 +27,8 @@ omo daemon rollback-prepare [--store <dir>]... [--allow-missing-index] [--dry-ru
 
 Bare `omo` never ensures the operator daemon on `rpc.sock`. Only `run`, `attach` and
 `handoff` can bring it into existence (per-session hosts are started by the task
-engine when a session spawns its first child, or earlier when `task.host_shard_prewarm`
-is `first-turn` or `session-start`, never by bare `omo` itself); `status`, `gc` and `stop` work on an install whose plugin payload was
+engine ahead of a session's first child: on its first prompt by default, at session start or
+only at the first spawn per `task.host_shard_prewarm`, never by bare `omo` itself); `status`, `gc` and `stop` work on an install whose plugin payload was
 never built. `--persistent` is still accepted and does nothing; `--foreground` exits 2,
 because the engine host always detaches.
 
@@ -249,7 +249,7 @@ rebuilding the plugin, not by hand.
 | --- | --- | --- |
 | `task.host_engine_policy` | `upgrade` (default) · `fallback` | what `run` may do when a host from another build already serves the socket |
 | `task.host_idle_exit_ms` | milliseconds | a host exits after this long with no sessions (default 15 minutes, from the launch spec) |
-| `task.host_shard_prewarm` | `off` (default) · `first-turn` · `session-start` | when to warm this session's derived task host; resumed sessions with suspended host children always warm their recorded hosts |
+| `task.host_shard_prewarm` | `first-turn` (default) · `session-start` · `off` | when to warm this session's derived task host; resumed sessions with suspended host children always warm their recorded hosts |
 | `task.default_execution_mode` | `auto` · `in-process` · `process` | see *Execution mode* below |
 | `task.process_runner` | `host` · `child-process` | which runner a `process` child gets |
 
@@ -344,11 +344,51 @@ records. This revival pre-warm is always on, warms only the hosts of the childre
 reconcile will revive, and never warms the session's own endpoint. It does nothing when
 `resume_children` or `reattach_on_reconcile` is off.
 
-Warming the session's own task host before its first child is opt-in through
-`task.host_shard_prewarm`: `session-start` at session start, `first-turn` on the
-session's first prompt, `off` (the default) never. A failed warm-up surfaces as the
-`host_unavailable:*` notice, never as a turn error. Pre-warm runs only for the POSIX
-`host` runner, at most once per session id, and never blocks the session.
+A session's own task host is warmed before its first child by default, so the first
+child does not wait for a host to boot. `task.host_shard_prewarm` picks when:
+
+- `first-turn` (default): on the session's first prompt (`input`, or
+  `before_agent_start` for a turn that skips it), so the boot overlaps the first model
+  call. A session that is opened and never prompted starts no host.
+- `session-start`: at `session_start`, also for sessions that never prompt.
+- `off`: the host boots at the first `process` child, as before.
+
+Warming is two fire-and-forget steps: the execution-mode gate ensures the session's host
+(`warm()`: a success is kept exactly as the first spawn's `ensure()` would keep it; a
+failure is only logged and settles nothing, so the first spawn asks again and reports
+its own `host_unavailable:*` notice), then one throwaway child-shaped session is opened
+and closed on that host. A host pays for its first session (the extensions compile and
+the task runtime loads there): without it a pre-warmed host's first child still waited
+about 0.2-0.3 s longer than the same child on an already-used host. The warm-up session
+carries the `child` role, a private temp state directory and session file that are
+removed afterwards, and the `host_warmup` context key that keeps it out of telemetry;
+it is never retained, so the host's idle exit counts from its close. Its failure is
+logged and changes nothing for the first child.
+
+Measured on the compiled binary (a fresh session, its first turn, a mock model answering
+after 1-3 s with a `task` call; time from the parent's `task` call to the child's first
+model request; 60 samples per configuration over two runs, interleaved with a control on
+an already-running shared host of the previous release):
+
+| configuration | p50 | p95 |
+| --- | --- | --- |
+| `off` (host boots at the first child; 20 samples) | 1666 ms | 3280 ms |
+| `first-turn` (default) | 1116 ms | 1678 ms |
+| `session-start` | 1115 ms | 1648 ms |
+| previous release, shared host already running | 979 ms | 1593 ms |
+
+The pre-warm removes the host boot from the first child's wait; what remains, about
+0.1 s at p50, is the new host's first turn. `first-turn` is the default because it
+matches `session-start` on latency and starts no host for a session that is never
+prompted. A pre-warmed host of a session that never spawns a child costs 169 MB of
+physical footprint (`first-turn`; 201 MB for `session-start`) until its idle exit.
+
+Pre-warm runs only for the POSIX `host` runner, at most once per session id, only for
+the root of a session tree (a child session is already served by its tree's host), never
+when `task.default_execution_mode` is `in-process`, and never blocks the session or a
+turn. It does not run on Windows: task children there run in-process or as their own
+processes, never on a task host, so there is nothing to warm (the named-pipe host serves
+Desktop threads, which open their own host).
 
 There is no warm spare host. A host's socket is derived from the session that owns it,
 so a spare started before the session exists could not be adopted by it, and it would

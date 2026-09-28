@@ -1,5 +1,13 @@
 import type { OmoTaskSettings } from "@oh-my-opencode/omo-config-core"
-import { selectRevivalBatch, type ExecutionModeGate, type HostEndpointPort, type TaskManager } from "@oh-my-opencode/senpi-task"
+import {
+  readSessionRole,
+  selectRevivalBatch,
+  warmHostSession,
+  type ExecutionModeGate,
+  type HostEndpointPort,
+  type TaskManager,
+} from "@oh-my-opencode/senpi-task"
+import { log } from "@oh-my-opencode/utils"
 
 import type { SenpiExtensionAPI } from "../../extension/types"
 import type { LiveTaskContext } from "./runtime-context"
@@ -10,8 +18,16 @@ import { createOncePerSessionGuard } from "./usage-guidance"
  * - revival (always on): at `session_start`, ensure the recorded socket of every suspended host-session
  *   child the reconcile will revive (capacity included) except the session's own endpoint, so the host
  *   boots while the reconcile scans and the lifecycle's revival ensure hits the per-socket ensure cache;
- * - `task.host_shard_prewarm` `"session-start"` / `"first-turn"`: the session's own host, through the
- *   execution-mode gate. Failures surface through the host notices, never through a turn.
+ * - `task.host_shard_prewarm` `"first-turn"` (default) / `"session-start"`: the session's own host, through
+ *   the execution-mode gate's `warm()`. Only the root of a session tree warms: an omo-spawned session (any
+ *   session role) either runs inside its tree's host, which is already serving it, or is a per-process child
+ *   whose own host would boot for nothing; an explicit `default_execution_mode: "in-process"` never routes a
+ *   child to a host. A failed warm is logged and settles nothing, so the first spawn ensures as usual.
+ *   Once the host answers, one throwaway child session is opened and closed on it (`warmHostSession`):
+ *   a host's first session pays for compiling and loading the extensions, and that must not be the
+ *   first child's wait. Its failure is logged too; the child opens exactly as it would without it.
+ * win32 is excluded: task children there run in-process or as their own processes, so there is no task
+ * host to warm (the auto gate resolves in-process without ensuring one).
  */
 
 // The earliest host edges of a submitted prompt: `input` fires before skill/template expansion, and
@@ -19,14 +35,21 @@ import { createOncePerSessionGuard } from "./usage-guidance"
 const FIRST_TURN_EVENTS = ["input", "before_agent_start"] as const
 
 export interface HostPrewarmEngine {
-  readonly settings: Pick<OmoTaskSettings, "process_runner" | "host_shard_prewarm" | "resume_children" | "reattach_on_reconcile" | "residency_max_children">
+  readonly settings: Pick<
+    OmoTaskSettings,
+    "process_runner" | "default_execution_mode" | "host_shard_prewarm" | "resume_children" | "reattach_on_reconcile" | "residency_max_children"
+  >
   readonly runtime: {
     captureFrom(ctx: LiveTaskContext): void
     sessionId(): string | undefined
+    cwd(): string
   }
   readonly host: {
-    readonly executionModeGate: Pick<ExecutionModeGate, "ensure">
+    readonly executionModeGate: Pick<ExecutionModeGate, "warm" | "current">
     readonly hostEndpoint: Pick<HostEndpointPort, "isOwn" | "ensure">
+    shardSocket(): string
+    /** Test seam; `warmHostSession` by default. */
+    readonly warmSession?: (socket: string, cwd: string) => Promise<void>
   }
   readonly manager: Pick<TaskManager, "list">
 }
@@ -39,7 +62,8 @@ export function wireHostPrewarm(
   if (engine.settings.process_runner !== "host" || platform === "win32") return
   const revived = createOncePerSessionGuard()
   const warmed = new Set<string>()
-  const mode = engine.settings.host_shard_prewarm
+  const treeRoot = readSessionRole(pi) === undefined
+  const mode = treeRoot && engine.settings.default_execution_mode !== "in-process" ? engine.settings.host_shard_prewarm : "off"
   const attachedSession = (eventCtx: unknown): string | undefined => {
     if (typeof eventCtx === "object" && eventCtx !== null) engine.runtime.captureFrom(eventCtx)
     return engine.runtime.sessionId()
@@ -47,7 +71,7 @@ export function wireHostPrewarm(
   const warmOwnHost = (sessionId: string): void => {
     if (warmed.has(sessionId)) return
     warmed.add(sessionId)
-    void engine.host.executionModeGate.ensure().catch(() => undefined)
+    void warmHost(engine).catch(() => undefined)
   }
 
   pi.on("session_start", (_payload, eventCtx) => {
@@ -67,6 +91,18 @@ export function wireHostPrewarm(
       return undefined
     })
   }
+}
+
+async function warmHost(engine: HostPrewarmEngine): Promise<void> {
+  const gate = engine.host.executionModeGate
+  await gate.warm().catch(() => undefined)
+  // Only a session whose children will run on its host warms one up; in-process children never open there.
+  if (gate.current() !== "process") return
+  const socket = engine.host.shardSocket()
+  const warmSession = engine.host.warmSession ?? ((target: string, cwd: string) => warmHostSession({ socket: target, cwd }))
+  await warmSession(socket, engine.runtime.cwd()).catch((error: unknown) => {
+    log("omo-senpi task host warm-up session failed", { socket, error: error instanceof Error ? error.message : String(error) })
+  })
 }
 
 function contextSessionId(eventCtx: unknown): string | undefined {

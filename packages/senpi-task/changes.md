@@ -1,3 +1,18 @@
+## runners: warm a fresh task host with one throwaway session; the auto gate can warm without deciding (rpc-host-sharding PR-A)
+
+- `runners/rpc-host/host-warmup.ts` (new): `warmHostSession({ socket, cwd })` opens one `worker` session with the
+  `child` role, a private temp `state_dir` and session file, and the `host_warmup` context key, closes it at once,
+  and removes the temp directory on every path (a refused open included). It is never retained. A host's first session
+  compiles the extensions and loads the task runtime; measured, the first child on a fresh host opened in ~0.95 s and
+  the second in ~0.15 s, and after a child-role warm-up the first child opened in ~0.12-0.3 s.
+- `session-role.ts`: `HOST_WARMUP_CONTEXT` and `isHostWarmupSession(pi)`.
+- `manager/execution-mode.ts`: `ExecutionModeGate.warm()` - a speculative ask whose success is kept like
+  `ensure()`'s and whose failure is dropped (`hooks.onWarmFailure`), so a pre-warm can never settle the session on
+  in-process; an `ensure()` during a warm joins it. `createExecutionModeGate(resolve, hooks)` gains
+  `onEnsureFailure` for the notice a failed `ensure()` owes.
+
+Tests: `host-warmup.test.ts` (new), `execution-mode.test.ts`, `execute-auto-mode-gate.test.ts`.
+
 ## AGENTS: the host runner opens children on their parent session's own host
 
 `AGENTS.md` describes `RpcHostRunner` as opening a child on its parent session's own host

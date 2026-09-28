@@ -81,9 +81,21 @@ export interface HostExecutionModeDeps {
 }
 
 export function createHostExecutionModeGate(deps: HostExecutionModeDeps): ExecutionModeGate {
-  return createExecutionModeGate(() => resolveMode(deps))
+  return createExecutionModeGate(() => resolveMode(deps), {
+    onEnsureFailure: (error) => {
+      deps.notices.add(unavailableNotice(failureReason(error), error instanceof Error ? error.message : String(error)))
+    },
+    // A pre-warm failure is only logged: the first spawn asks again and reports its own failure.
+    onWarmFailure: (error) => {
+      log("omo-senpi task host pre-warm failed", {
+        reason: failureReason(error),
+        error: error instanceof Error ? error.message : String(error),
+      })
+    },
+  })
 }
 
+// Rejects when the host could not be ensured; the gate decides whether that settles the session.
 async function resolveMode(deps: HostExecutionModeDeps): Promise<ExecutionMode> {
   // A platform or a configuration that rules the daemon out never ensures one: a machine that opted
   // out of host sessions must not get a daemon started behind its back.
@@ -94,21 +106,16 @@ async function resolveMode(deps: HostExecutionModeDeps): Promise<ExecutionMode> 
   })
   if (deps.settings.process_runner !== "host" || deps.platform === "win32") return withoutDaemon
 
-  try {
-    const resolution = deps.routing.shardResolver()
-    const notice = resolutionNoticeToken(resolution)
-    if (notice !== undefined) deps.notices.add(`${notice} ${resolution.socket}`)
-    const mode = resolveAutoExecutionMode({
-      platform: deps.platform,
-      processRunner: deps.settings.process_runner,
-      capabilities: await sessionHostCapabilities(deps, resolution),
-    })
-    if (mode === "in-process") deps.notices.add(unavailableNotice("capability", "the daemon does not advertise generation_handoff"))
-    return mode
-  } catch (error) {
-    deps.notices.add(unavailableNotice(failureReason(error), error instanceof Error ? error.message : String(error)))
-    return "in-process"
-  }
+  const resolution = deps.routing.shardResolver()
+  const notice = resolutionNoticeToken(resolution)
+  if (notice !== undefined) deps.notices.add(`${notice} ${resolution.socket}`)
+  const mode = resolveAutoExecutionMode({
+    platform: deps.platform,
+    processRunner: deps.settings.process_runner,
+    capabilities: await sessionHostCapabilities(deps, resolution),
+  })
+  if (mode === "in-process") deps.notices.add(unavailableNotice("capability", "the daemon does not advertise generation_handoff"))
+  return mode
 }
 
 /**

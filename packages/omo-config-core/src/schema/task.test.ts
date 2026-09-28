@@ -148,8 +148,9 @@ describe("OmoTaskSettingsSchema resident idle timeout", () => {
 })
 
 describe("OmoTaskSettingsSchema host shard prewarm", () => {
-  test("#given no prewarm override #when task settings parse #then prewarm remains off", () => {
-    expect(OmoTaskSettingsSchema.parse({}).host_shard_prewarm).toBe("off")
+  test("#given no prewarm override #when task settings parse #then the session's host warms on its first turn", () => {
+    expect(OmoTaskSettingsSchema.parse({}).host_shard_prewarm).toBe("first-turn")
+    expect(OmoTaskSettingsSchema.parse({ host_shard_prewarm: "off" }).host_shard_prewarm).toBe("off")
     expect(OmoTaskSettingsLayerSchema.parse({})).not.toHaveProperty("host_shard_prewarm")
   })
 

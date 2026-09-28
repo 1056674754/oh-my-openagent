@@ -1,3 +1,39 @@
+## task: the session's own host is pre-warmed by default, and warmed up with one throwaway session (rpc-host-sharding PR-A)
+
+`task.host_shard_prewarm` now defaults to `"first-turn"` (schema `packages/omo-config-core/src/schema/task.ts`,
+`assets/omo.schema.json`); `"session-start"` and `"off"` stay available. Measured on the compiled binary with a
+user-shaped first child (session opens, first turn, mock model latency 1-3 s, then the `task` call): without a pre-warm
+the first child waited for a cold host, and a pre-warmed host's first child was still slower than the old shared
+host's, because a host pays for its FIRST session (extension compile, lazy task runtime). With the warm-up session,
+60 samples over two runs: `first-turn` 1116/1678 ms p50/p95, `session-start` 1115/1648, `off` 1666/3280 (20 samples),
+control (previous release, shared host already running) 979/1593. `first-turn` wins over
+`session-start`: both hide the boot behind the model call, and `first-turn` starts no host for a session that is
+never prompted.
+
+`components/task/host-prewarm.ts`:
+
+- Only the root of a session tree warms (`readSessionRole(pi) === undefined`): a child session is served by its tree's
+  host, and a per-process child would boot a host for nothing. `default_execution_mode: "in-process"` never warms.
+- The warm goes through the gate's new `warm()` (senpi-task `execution-mode.ts`): a success is kept exactly as the
+  first spawn's `ensure()` would keep it, a failure is only logged (`onWarmFailure`) and settles nothing, so the
+  first spawn asks again and reports its own `host_unavailable:*` notice; an `ensure()` issued mid-warm joins it.
+  `host-execution-mode.ts` `resolveMode` now rejects instead of settling in-process itself; the gate's
+  `onEnsureFailure` adds the notice.
+- Once the gate answers `process`, one throwaway child session is opened and closed on the session's shard
+  (senpi-task `warmHostSession`); its failure is logged and changes nothing for the first child.
+- win32 stays excluded: the auto gate resolves in-process there, so no task host exists to warm.
+
+`components/telemetry/omo-native-component.ts` registers nothing for a warm-up session (`isHostWarmupSession`),
+so it is never reported as a session, a daily-active ping or a crash reporter.
+
+QA driver: `scripts/qa/task-host-e2e-shard-cost-user-latency.mjs` (new) adds the user-shaped latency scenarios
+(`user_first_child_{off,first_turn,session_start,default,control}`, interleaved per round, the control on an
+already-running shared host) and the `prewarm_idle` section (default and session-start, a session that never
+spawns: footprint and idle exit); `shard-cost-eval.mjs` judges default vs control at p50 and p95.
+`teardownSandbox` sweeps and retries on `ENOTEMPTY` instead of losing a section to a host generation still exiting.
+
+Tests: `host-prewarm.test.ts`, `index.test.ts`, `omo-native-component.test.ts`, `shard-cost-eval.test.mjs`.
+
 ## docs: engine hosts per session (rpc-host-sharding todo 18)
 
 `AGENTS.md` replaces "Shared engine host" with "Engine hosts per session": children run on their session's own

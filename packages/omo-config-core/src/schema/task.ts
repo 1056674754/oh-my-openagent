@@ -81,7 +81,10 @@ export const OmoTaskSettingsSchema = z.object({
   host_engine_policy: z.enum(["upgrade", "fallback"]).default("upgrade"),
   // Idle lifetime handed to a daemon this client starts; omitted keeps the launch spec's tunable.
   host_idle_exit_ms: z.number().int().positive().optional(),
-  host_shard_prewarm: z.enum(["off", "first-turn", "session-start"]).default("off"),
+  // When this session's own task host boots ahead of its first child: "first-turn" (default) overlaps the
+  // boot with the first model call, "session-start" also warms sessions that never prompt, "off" waits for
+  // the first process child. Child sessions and `default_execution_mode: "in-process"` never warm.
+  host_shard_prewarm: z.enum(["off", "first-turn", "session-start"]).default("first-turn"),
   default_concurrency: z.number().int().nonnegative().default(5),
   global_concurrency: z.number().int().nonnegative().default(8),
   provider_concurrency: z.record(z.string(), z.number().int().nonnegative()).optional(),

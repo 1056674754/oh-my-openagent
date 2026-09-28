@@ -165,6 +165,7 @@ export type {
   RunnerOutcome,
   SharedToolFilterOptions,
   SubagentPromptInput,
+  WarmHostSessionInput,
 } from "./runners"
 export {
   attachOwnEndpoint,
@@ -188,6 +189,10 @@ export {
   readSessionAncestry,
   readSessionContext,
   readSessionRole,
+  HOST_WARMUP_CONTEXT,
+  HOST_WARMUP_TASK_ID,
+  isHostWarmupSession,
+  warmHostSession,
   resolveTaskHostSocket,
   RpcCommandError,
   RpcHostRunner,

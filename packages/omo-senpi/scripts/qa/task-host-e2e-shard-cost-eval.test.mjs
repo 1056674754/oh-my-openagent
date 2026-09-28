@@ -32,6 +32,10 @@ function completeReport() {
         ),
       },
       latency: { scenarios: latency },
+      prewarm_idle: {
+        default: { host_exited: true, parent_alive_at_host_exit: true, idle: { endpoint_footprint_mb: 120 } },
+        session_start: { host_exited: true, parent_alive_at_host_exit: true, idle: { endpoint_footprint_mb: 120 } },
+      },
     },
   }
 }
@@ -91,6 +95,26 @@ describe("evaluate", () => {
     const result = evaluate(report)
     expect(result.exitCode).toBe(1)
     expect(result.completeness.shortSamples).toHaveLength(LATENCY_SCENARIOS.length)
+  })
+
+  test("a default pre-warm first child slower than the control's at p95 only fails exactly that parity row", () => {
+    const report = completeReport()
+    report.sections.latency.scenarios.user_first_child_control = summarizeSamples(twenty(1_000))
+    report.sections.latency.scenarios.user_first_child_default = summarizeSamples([...twenty(1_000).slice(0, 18), 1_900, 5_000])
+    const result = evaluate(report)
+    expect(result.exitCode).toBe(2)
+    expect(result.rows.filter((row) => row.verdict === "FAIL").map((row) => row.id)).toEqual(["user_first_child_p95_vs_control"])
+  })
+
+  test("a pre-warmed host that outlives its idle window, or dies with its parent, in either mode fails the idle-exit row", () => {
+    const breaks = [(idle) => { idle.host_exited = false }, (idle) => { idle.parent_alive_at_host_exit = false }]
+    for (const [mode, breakIt] of ["default", "session_start"].flatMap((name) => breaks.map((fn) => [name, fn]))) {
+      const report = completeReport()
+      breakIt(report.sections.prewarm_idle[mode])
+      const result = evaluate(report)
+      expect(result.exitCode).toBe(2)
+      expect(result.rows.filter((row) => row.verdict === "FAIL").map((row) => row.id)).toEqual(["prewarm_idle_host_exits"])
+    }
   })
 
   test("the control-only mode judges its own three rows", () => {
