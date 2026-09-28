@@ -173,6 +173,7 @@ export {
   resolveShardSocket,
   SHARD_KEY_CONTEXT,
   shardKey,
+  shardSocketPath,
   shardSocketPathForKey,
   ensureTaskDaemon,
   HOST_NOTICE_TOKENS,

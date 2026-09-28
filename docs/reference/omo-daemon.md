@@ -1,8 +1,9 @@
-# omo daemon — one engine host per machine
+# omo daemon — per-session engine hosts
 
-`omo daemon` is the operator's view of the shared senpi RPC host: one process per
-agent dir that serves every task child, every desktop thread and every attached
-terminal as sessions inside itself, instead of one `--mode rpc` process per child.
+`omo daemon` is the operator's view of every senpi RPC host in one agent directory.
+The operator endpoint stays at `rpc.sock`; process-mode task trees use `p-*` shards,
+and Desktop interactive threads use `i-*` shards. A crash or handoff on one shard
+does not take the other sessions' hosts with it.
 Everything that decides *who serves the socket* lives in the engine (`senpi host`);
 this command supplies omo's launch spec, reads the policy out of `omo.json`, and
 turns the engine's answer into an exit code a script can branch on.
@@ -13,20 +14,71 @@ omo daemon run --json          # the engine's JSON line verbatim
 omo daemon attach              # print the env a child needs to reach it
 omo daemon attach --model x    # run omo against the daemon (a normal launch, shared socket)
 omo daemon status [--include-workers]
-omo daemon stop [--drain]      # --drain lets in-flight work finish first
-omo daemon handoff             # hand the socket to THIS build, keeping live sessions
+omo daemon gc [--json]         # remove dead endpoint state and matching owner sidecars
+omo daemon stop [--drain]      # the operator endpoint only
+omo daemon stop --all          # every discovered endpoint
+omo daemon stop --drain --all --wait --timeout 600
+omo daemon handoff             # upgrade-gated handoff across every live endpoint
+omo daemon rollback-prepare    # migrate retained records to rpc.sock before downgrading
 ```
 
 Bare `omo` never ensures a daemon. Only `run`, `attach` and `handoff` can bring one
 into existence; `status` and `stop` work on an install whose plugin payload was
 never built.
 
+## Per-session hosts
+
+Task trees use `<shardRoot>/p-<key>.sock`, where `key` is the first 16 hexadecimal
+characters of `sha256("p:" + rootParentSessionId)`. Desktop threads use the same
+rule with `i:`. The default shard root is `<agentDir>/rpc/shards`; a socket whose
+handoff siblings would exceed the platform path limit uses
+`/tmp/omo-rpc-<sha256(agentDir)[:8]>` instead.
+
+Who owns a shard is recorded beside it in `<kind>-<key>.meta.json`. `status` joins
+that sidecar to the engine's read-only `host status --all` result, prints one row
+per endpoint and generation, then prints a machine aggregate. `--json` returns:
+
+```json
+{
+  "endpoints": [
+    {
+      "socket": "/tmp/example/rpc/shards/p-0123456789abcdef.sock",
+      "shard": { "kind": "p", "key": "0123456789abcdef" },
+      "owner": { "owner_session_id": "session-id" },
+      "rss_mb": 120,
+      "host_rss_mb": 88,
+      "generations": []
+    }
+  ],
+  "aggregate": {
+    "live": 1,
+    "shards": 1,
+    "threads": 0,
+    "sessions": 2,
+    "rss_mb": 120,
+    "host_rss_mb": 88,
+    "crashes": 0
+  }
+}
+```
+
+`status` never prunes, signals, unlinks, or refreshes an idle host. A dead row is
+kept until `omo daemon gc` asks the engine to validate that no generation, live
+claim, or responding socket remains. Only after the engine reports an endpoint
+removed does OmO delete its matching owner sidecar. The durable task-store index
+is not endpoint state and survives ordinary gc; only
+`gc --prune-store-index` removes entries whose store directory no longer exists.
+
 ## Where it lives
 
 | What | Where |
 | --- | --- |
-| Socket | `<agentDir>/rpc/rpc.sock` (the canonical agent dir, see `omo doctor`) |
-| Host state (v2, fail-closed) | `<agentDir>/rpc/host/` — never a flat legacy pidfile, so a deployed older client cannot mistake this host for its own |
+| Operator socket | `<agentDir>/rpc/rpc.sock` (the canonical agent dir, see `omo doctor`) |
+| Session hosts | `<agentDir>/rpc/shards/{p,i}-*.sock` or the short alternate root above |
+| Host owner sidecar | Beside a shard socket as `{p,i}-<key>.meta.json` |
+| Host state | `<agentDir>/rpc-host-daemon/<sha256(socket)[:16]>/` |
+| Endpoint log | `<host-state>/stderr.log` |
+| Crash records | `<host-state>/crashes.jsonl` (newest 50 counted by status) |
 | Launch spec | `<pluginRoot>/daemon-launch-spec.json`, shipped inside the omo plugin payload |
 | Child env | `OMO_ENABLE_SHARED_HOST=1` and `OMO_RPC_SOCKET=<socket>` (what `attach` prints) |
 
@@ -67,6 +119,27 @@ never fewer) and the old process exits. Two builds whose ordinals cannot be
 compared — different launch profiles, or an ordinal the host does not report —
 never hand off; the newer side reuses or refuses, and says why.
 
+`omo daemon handoff` applies that same gate independently. The operator endpoint
+uses `host handoff`; every other discovered endpoint uses
+`host ensure --policy upgrade --socket <socket>`. An older client therefore cannot
+replace a newer host.
+
+## Drain and rollback
+
+`stop --drain --all` requests a drain and returns immediately with
+`requested (not awaited)`. Use `--wait` for a downgrade gate. It exits zero only
+after every generation pid is dead and every live session-path claim is released;
+reachability is deliberately not evidence because a draining supervisor refuses
+new connections while it finishes existing work.
+
+After a successful wait, run `omo daemon rollback-prepare`. It discovers task
+stores from `<agentDir>/rpc/task-stores.json`, surviving sidecars, and explicit
+`--store <dir>` values. It refuses before writing if coverage is unknown or any
+recorded endpoint is still live. Records are rewritten through the normal locked
+task store path to `rpc.sock` and receive one `host_session_migrated` event.
+`--dry-run` reports the same plan without writing. A missing index requires a
+complete explicit store list or the deliberate `--allow-missing-index` override.
+
 ## Execution mode: what `auto` does
 
 With `task.default_execution_mode: auto` the parent session resolves the mode
@@ -98,10 +171,11 @@ a capability or policy `engine_mismatch`, on win32, or on a Node without bun.
 if it exits 5, read the engine's reason (a missing spec means the plugin payload
 was not built for this install).
 
-**`omo doctor` → `INFO Daemon: running pid … · zombies N`** — `zombies` counts
-child processes the host has reaped-but-not-collected; it should be 0. A growing
-number means a tool spawned processes the host never waited on; file it with the
-tool name.
+**`omo doctor` endpoint rows** — each live daemon, shard, thread, and other
+layout-2 endpoint reports pid, generation, engine, sessions, whole-tree RSS,
+supervisor-plus-host RSS, descriptors, and crash count. Dead retained state is a
+warning that points to `omo daemon gc`. The closing `INFO Hosts:` line is the
+machine aggregate.
 
 **`legacy host (no session context)`** — an older engine, started before the v2
 state dir, is serving the socket. It has no session kind/context and cannot be

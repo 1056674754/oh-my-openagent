@@ -54,7 +54,14 @@ export { isOwnEndpoint, readOwnHostSocket } from "./rpc-host/own-endpoint"
 export { readTaskStoreIndex, taskStoreIndexPath } from "./rpc-host/store-index"
 export type { ShardResolver } from "./rpc-host/child-endpoint"
 export { attachOwnEndpoint } from "./rpc-host/child-endpoint"
-export { parseShardBasename, resolveShardSocket, SHARD_KEY_CONTEXT, shardKey, shardSocketPathForKey } from "./rpc-host/shard-socket"
+export {
+  parseShardBasename,
+  resolveShardSocket,
+  SHARD_KEY_CONTEXT,
+  shardKey,
+  shardSocketPath,
+  shardSocketPathForKey,
+} from "./rpc-host/shard-socket"
 export type { ShardIdentity, ShardResolution } from "./rpc-host/shard-socket"
 export { probeWithEngine } from "./rpc-host/session-transport"
 export type { HostProtocolProbe } from "./rpc-host/session-transport"

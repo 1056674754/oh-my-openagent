@@ -1,5 +1,16 @@
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
+import {
+  parseEngineLine,
+  parseStoreArgs,
+  readAllEndpoints,
+  runGc,
+  runHandoff,
+  runStatus,
+  runStopAll,
+} from "./daemon-operations.js"
+import { runRollbackPrepare } from "./daemon-rollback.js"
+import { formatDoctorLines } from "./daemon-status.js"
 
 /**
  * `omo daemon` - the operator's view of the one machine-wide engine host.
@@ -11,9 +22,22 @@ import { join } from "node:path"
  * gets an exit code it can branch on without reading prose.
  */
 
-const SUBCOMMANDS = new Set(["run", "attach", "status", "stop", "handoff"])
+const SUBCOMMANDS = new Set(["run", "attach", "status", "stop", "handoff", "gc", "rollback-prepare"])
 /** Flags this wrapper consumes itself; anything else after `attach` belongs to the launch. */
-const DAEMON_FLAGS = new Set(["--json", "--no-upgrade", "--persistent", "--foreground", "--include-workers", "--drain"])
+const DAEMON_FLAGS = new Set([
+  "--json",
+  "--no-upgrade",
+  "--persistent",
+  "--foreground",
+  "--include-workers",
+  "--drain",
+  "--all",
+  "--wait",
+  "--dry-run",
+  "--allow-missing-index",
+  "--prune-store-index",
+])
+const DAEMON_VALUE_FLAGS = new Set(["--store", "--timeout"])
 /** The subcommands that can bring a host into existence, and therefore need omo's argv source. */
 const NEEDS_SPEC = new Set(["run", "attach", "handoff"])
 
@@ -27,19 +51,21 @@ export const DAEMON_EXIT = {
 }
 
 const USAGE = [
-  "usage: omo daemon <run|attach|status|stop|handoff> [options]",
+  "usage: omo daemon <run|attach|status|stop|handoff|gc|rollback-prepare> [options]",
   "",
   "  run       ensure a daemon is serving this agent dir (start, reuse, or hand off)",
   "  attach    print the environment a child needs to reach the daemon",
   "  status    report who is serving and which sessions exist",
   "  stop      end the daemon; --drain lets in-flight work finish first",
   "  handoff   hand the socket to this build, keeping live sessions",
+  "  gc        remove dead endpoint state; --prune-store-index drops missing store paths",
+  "  rollback-prepare migrate retained task records back to rpc.sock before downgrading",
   "",
   "  --json            print the engine's JSON line instead of a summary",
   "  --no-upgrade      never hand off, even from an older build",
-  "  --persistent      outlive the process that started it",
-  "  --foreground      run the host in this process instead of detaching",
   "  --include-workers include subagent sessions in status",
+  "  --all             apply stop to every discovered endpoint",
+  "  --wait            with stop --drain --all, wait for generations and claims to end",
 ].join("\n")
 
 /**
@@ -79,22 +105,10 @@ function buildArgs(subcommand, args, { specPath, policy, config }) {
     if (typeof idleExitMs === "number" && Number.isFinite(idleExitMs)) {
       engineArgs.push("--idle-exit-ms", String(Math.trunc(idleExitMs)))
     }
-    if (args.includes("--persistent")) engineArgs.push("--persistent")
-    if (args.includes("--foreground")) engineArgs.push("--foreground")
   }
   if (subcommand === "stop" && args.includes("--drain")) engineArgs.push("--drain")
   if (subcommand === "status" && args.includes("--include-workers")) engineArgs.push("--include-workers")
   return engineArgs
-}
-
-function parseLine(stdout) {
-  const line = stdout.trim().split("\n").filter(Boolean).pop()
-  if (line === undefined) return undefined
-  try {
-    return JSON.parse(line)
-  } catch {
-    return undefined
-  }
 }
 
 /** What a child process needs in its environment to reach this daemon rather than start its own. */
@@ -123,7 +137,7 @@ function summarize(subcommand, parsed, exitCode) {
  * @returns the process exit code the launcher should use
  */
 export function runDaemonCommand(args, options) {
-  const { engine, pluginRoot, agentDir, env, stdout, stderr, platform } = options
+  const { engine, migration, pluginRoot, agentDir, env, stdout, stderr, platform } = options
   const subcommand = args[0]
 
   if (subcommand === "--help" || subcommand === "-h") {
@@ -154,9 +168,77 @@ export function runDaemonCommand(args, options) {
   }
 
   const config = readConfig(agentDir)
+  if (subcommand === "status") {
+    const status = runStatus({
+      engine,
+      agentDir,
+      env,
+      json: args.includes("--json"),
+      stdout,
+      stderr,
+    })
+    if (!status.legacy) return status.exitCode
+  }
+  if (subcommand === "gc") {
+    return runGc({
+      engine,
+      agentDir,
+      env,
+      json: args.includes("--json"),
+      pruneStoreIndex: args.includes("--prune-store-index"),
+      stdout,
+      stderr,
+    })
+  }
+  if (subcommand === "rollback-prepare") {
+    if (migration === undefined) {
+      stderr.write("omo daemon: rollback migration runtime is unavailable\n")
+      return DAEMON_EXIT.engineRefused
+    }
+    return runRollbackPrepare({
+      engine,
+      migration,
+      agentDir,
+      env,
+      explicitStores: parseStoreArgs(args),
+      allowMissingIndex: args.includes("--allow-missing-index"),
+      dryRun: args.includes("--dry-run"),
+      json: args.includes("--json"),
+      stdout,
+      stderr,
+    })
+  }
+  if (subcommand === "handoff") {
+    return runHandoff({
+      engine,
+      pluginRoot,
+      agentDir,
+      env,
+      policy: resolvePolicy(args, config),
+      config,
+      stdout,
+      stderr,
+    })
+  }
+  if (subcommand === "stop" && args.includes("--all")) {
+    const timeoutSeconds = readTimeoutSeconds(args)
+    const outcome = runStopAll({
+      engine,
+      agentDir,
+      env,
+      drain: args.includes("--drain"),
+      wait: args.includes("--wait"),
+      timeoutSeconds,
+      stdout,
+      stderr,
+      now: options.now ?? Date.now,
+      pause: options.pause ?? blockingPause,
+    })
+    if (outcome !== undefined) return outcome
+  }
   const engineArgs = buildArgs(subcommand, args, { specPath, policy: resolvePolicy(args, config), config })
   const result = engine.run(engineArgs, { env: { ...env, OMO_AGENT_DIR: agentDir } })
-  const parsed = parseLine(result.stdout ?? "")
+  const parsed = parseEngineLine(result.stdout ?? "")
 
   if (result.stderr) stderr.write(result.stderr)
 
@@ -165,7 +247,7 @@ export function runDaemonCommand(args, options) {
     const daemonEnv = attachEnv(parsed, agentDir)
     // `omo daemon attach --model x`: the trailing args are a normal omo launch that should run
     // against the daemon, so the caller gets the merged environment back and continues with them.
-    const launchArgs = args.slice(1).filter((arg) => !DAEMON_FLAGS.has(arg))
+    const launchArgs = attachLaunchArgs(args)
     if (launchArgs.length > 0) return { passthrough: true, args: launchArgs, env: { ...env, ...daemonEnv } }
     const payload = { ...(parsed ?? {}), env: daemonEnv }
     if (args.includes("--json")) stdout.write(`${JSON.stringify(payload)}\n`)
@@ -184,15 +266,16 @@ export function runDaemonCommand(args, options) {
  */
 export function daemonReportLines({ engine, pluginRoot, agentDir, env, platform }) {
   if (platform === "win32") return ["INFO Daemon: unavailable on win32 (no unix socket to share)"]
-  const stdout = { write() {} }
-  const captured = []
-  const exitCode = runDaemonCommand(["status", "--json"], {
-    engine, pluginRoot, agentDir, env, platform,
-    stdout: { write: (text) => void captured.push(text) },
-    stderr: stdout,
-  })
-  const parsed = parseLine(captured.join(""))
-  if (exitCode !== DAEMON_EXIT.ok || parsed === undefined) return ["INFO Daemon: not running"]
+  const all = readAllEndpoints(engine, agentDir, env)
+  if (all.kind === "all") {
+    if (all.endpoints.length === 0) return ["INFO Daemon: not running"]
+    return formatDoctorLines(all.endpoints)
+  }
+  const result = engine.run(["host", "status", "--json"], { env: { ...env, OMO_AGENT_DIR: agentDir } })
+  const parsed = parseEngineLine(result.stdout ?? "")
+  if (result.exitCode !== DAEMON_EXIT.ok || parsed === undefined) {
+    return ["INFO Daemon: not running", "INFO Hosts: engine too old to enumerate"]
+  }
   const sessions = parsed.sessions?.total ?? parsed.sessions?.length ?? 0
   const parts = [
     `pid ${parsed.pid}`,
@@ -201,5 +284,30 @@ export function daemonReportLines({ engine, pluginRoot, agentDir, env, platform 
     `${sessions} session(s)`,
     `zombies ${parsed.zombies ?? 0}`,
   ].filter(Boolean)
-  return [`INFO Daemon: running ${parts.join(" · ")}`]
+  return [`INFO Daemon: running ${parts.join(" · ")}`, "INFO Hosts: engine too old to enumerate"]
+}
+
+function readTimeoutSeconds(args) {
+  const index = args.indexOf("--timeout")
+  if (index === -1) return 600
+  const value = Number(args[index + 1])
+  return Number.isFinite(value) && value >= 0 ? value : 600
+}
+
+function attachLaunchArgs(args) {
+  const launchArgs = []
+  for (let index = 1; index < args.length; index += 1) {
+    const argument = args[index]
+    if (DAEMON_FLAGS.has(argument)) continue
+    if (DAEMON_VALUE_FLAGS.has(argument)) {
+      index += 1
+      continue
+    }
+    launchArgs.push(argument)
+  }
+  return launchArgs
+}
+
+function blockingPause(milliseconds) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds)
 }

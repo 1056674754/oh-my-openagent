@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { daemonReportLines, runDaemonCommand } from "../bin/lib/daemon.js"
+import { runDaemonCommand } from "../bin/lib/daemon.js"
 
 /**
  * `omo daemon` is a thin wrapper: every decision about who serves the socket belongs to the
@@ -122,6 +122,18 @@ describe("omo daemon", () => {
     expect(engine.calls[0]?.args).toContain("900000")
   })
 
+  test("retired persistence spellings stay wrapper-only for the adopted engine", () => {
+    const { pluginRoot, agentDir } = workspace()
+    const engine = fakeEngine({ exitCode: 0, stdout: JSON.stringify({ action: "start", pid: 9 }) })
+
+    runDaemonCommand(["run", "--persistent", "--foreground"], {
+      engine, pluginRoot, agentDir, env: {}, stdout: capture(), stderr: capture(), platform: "darwin",
+    })
+
+    expect(engine.calls[0]?.args).not.toContain("--persistent")
+    expect(engine.calls[0]?.args).not.toContain("--foreground")
+  })
+
   test("attach reports the environment a child needs to reach the daemon", () => {
     const { pluginRoot, agentDir } = workspace()
     const socket = join(agentDir, "rpc", "rpc.sock")
@@ -186,7 +198,7 @@ describe("omo daemon", () => {
       runDaemonCommand([command], {
         engine, pluginRoot, agentDir, env: {}, stdout: capture(), stderr: capture(), platform: "darwin",
       })
-      expect(engine.calls[0]?.args.slice(0, 2)).toEqual(["host", expected])
+      expect(engine.calls.at(-1)?.args.slice(0, 2)).toEqual(["host", expected])
     }
   })
 
@@ -224,6 +236,19 @@ describe("omo daemon", () => {
     expect(stdout.text()).toBe("")
   })
 
+  test("attach consumes daemon-only value flags with their values", () => {
+    const { pluginRoot, agentDir } = workspace()
+    const socket = join(agentDir, "rpc", "rpc.sock")
+    const engine = fakeEngine({ exitCode: 0, stdout: JSON.stringify({ action: "reuse", pid: 5, socket }) })
+
+    const outcome = runDaemonCommand(["attach", "--store", "/tmp/store", "--timeout", "9", "--model", "x"], {
+      engine, pluginRoot, agentDir, env: {}, stdout: capture(), stderr: capture(), platform: "darwin",
+    })
+
+    expect(typeof outcome).toBe("object")
+    expect((outcome as { args: string[] }).args).toEqual(["--model", "x"])
+  })
+
   test("attach that cannot reach a daemon does not pass through", () => {
     const { pluginRoot, agentDir } = workspace()
     const engine = fakeEngine({ exitCode: 5, stdout: "", stderr: "refused" })
@@ -233,33 +258,5 @@ describe("omo daemon", () => {
     })
 
     expect(outcome).toBe(5)
-  })
-})
-
-describe("omo doctor Daemon line", () => {
-  test("says not running when the engine reports no host", () => {
-    const engine = fakeEngine({ exitCode: 3, stdout: "" })
-    const lines = daemonReportLines({ engine, pluginRoot: "/p", agentDir: "/a", env: {}, platform: "darwin" })
-    expect(lines).toEqual(["INFO Daemon: not running"])
-  })
-
-  test("summarizes pid, instance, engine, sessions and zombies when one answers", () => {
-    const status = { pid: 4242, instanceId: "inst-1", engineVersion: "2026.9.18+1.abc", sessions: { total: 3 }, zombies: 0 }
-    const engine = fakeEngine({ exitCode: 0, stdout: JSON.stringify(status) })
-    const lines = daemonReportLines({ engine, pluginRoot: "/p", agentDir: "/a", env: {}, platform: "darwin" })
-    expect(lines).toHaveLength(1)
-    expect(lines[0]).toContain("INFO Daemon: running")
-    expect(lines[0]).toContain("pid 4242")
-    expect(lines[0]).toContain("inst-1")
-    expect(lines[0]).toContain("2026.9.18+1.abc")
-    expect(lines[0]).toContain("3 session")
-    expect(lines[0]).toContain("zombies 0")
-  })
-
-  test("is one honest line on win32 instead of a probe that cannot succeed", () => {
-    const engine = fakeEngine({ exitCode: 0, stdout: "" })
-    const lines = daemonReportLines({ engine, pluginRoot: "/p", agentDir: "/a", env: {}, platform: "win32" })
-    expect(lines).toEqual(["INFO Daemon: unavailable on win32 (no unix socket to share)"])
-    expect(engine.calls).toHaveLength(0)
   })
 })
