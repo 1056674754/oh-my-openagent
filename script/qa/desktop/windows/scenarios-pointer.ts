@@ -10,6 +10,8 @@ import {
   HOST_FIRST_VISIBLE_LINE,
   hostEvents,
   inside,
+  type MouseTrace,
+  mouseTrace,
   type Point,
   type PointerHost,
   type PointerProbe,
@@ -33,6 +35,7 @@ const SCROLL_DELTA = 300
 interface Stage {
   readonly target: PointerHost
   readonly front: PointerHost
+  readonly trace: MouseTrace
   readonly frame: { readonly id: string | null; readonly width: number; readonly height: number }
   readonly before: PointerProbe
 }
@@ -45,9 +48,11 @@ async function stage(context: ScenarioContext, engine: Engine, tag: string): Pro
   await engine.exec("raiseWindow", { windowId: front.id })
   await probeHostsUntil([target, front], (seen) => seen.foreground === front.id)
   const before = await probe([target, front], STALE)
+  const trace = await mouseTrace(context, tag)
   return {
     target,
     front,
+    trace,
     frame: {
       id: typeof captured.frameId === "string" ? captured.frameId : null,
       width: Number(captured.width),
@@ -89,11 +94,17 @@ function restoreChecks(state: Stage, after: PointerProbe): Checks {
   ]
 }
 
-function outcome(state: Stage, checks: Checks, facts: JsonObject, after: PointerProbe): ScenarioOutcome {
+async function outcome(state: Stage, checks: Checks, facts: JsonObject, after: PointerProbe): Promise<ScenarioOutcome> {
+  await state.trace.stop()
   const failed = checks.find(([, passed]) => !passed)
   const checkFacts: JsonObject = {}
   for (const [name, passed] of checks) checkFacts[name] = passed
-  const events: Json = { target: hostEvents(state.target), front: hostEvents(state.front) }
+  const events: Json = {
+    target: hostEvents(state.target),
+    front: hostEvents(state.front),
+    // WM_MOUSEMOVE 200, WM_LBUTTONDOWN 201, WM_LBUTTONUP 202, WM_MOUSEWHEEL 20A.
+    mouseTrace: state.trace.lines().slice(-200),
+  }
   return {
     pass: failed === undefined,
     ...(failed === undefined ? {} : { reason: failed[0] }),

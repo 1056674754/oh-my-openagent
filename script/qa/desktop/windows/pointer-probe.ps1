@@ -46,17 +46,18 @@ public static class QaPointerProbe {
 $parked = $null
 if ($ParkX -ne [int]::MinValue) { $parked = [QaPointerProbe]::SetCursorPos($ParkX, $ParkY) }
 
-$windows = [ordered]@{}
+# PowerShell names are case-insensitive: this must not be called $windows, which is the -Windows parameter.
+$states = [ordered]@{}
 # `-Windows form:edit,form:edit` - each form hwnd with its EDIT child's hwnd.
 foreach ($pair in ($Windows -split ',' | Where-Object { $_ -ne '' })) {
 	$form, $edit = $pair -split ':'
 	$formHwnd = [IntPtr][long]$form
 	$editHwnd = [IntPtr][long]$edit
-	if (-not [QaPointerProbe]::IsWindow($formHwnd)) { $windows[$form] = [ordered]@{ exists = $false }; continue }
+	if (-not [QaPointerProbe]::IsWindow($formHwnd)) { $states[$form] = [ordered]@{ exists = $false }; continue }
 	$rect = New-Object QaPointerProbe+RECT
 	[void][QaPointerProbe]::GetWindowRect($formHwnd, [ref]$rect)
 	$selection = [QaPointerProbe]::Selection($editHwnd)
-	$windows[$form] = [ordered]@{
+	$states[$form] = [ordered]@{
 		exists = $true
 		rect = [ordered]@{ left = $rect.Left; top = $rect.Top; right = $rect.Right; bottom = $rect.Bottom }
 		firstVisibleLine = [QaPointerProbe]::FirstVisibleLine($editHwnd)
@@ -78,5 +79,5 @@ $underRoot = if ($under -eq [IntPtr]::Zero) { [IntPtr]::Zero } else { [QaPointer
 	cursor = [ordered]@{ x = $cursor.X; y = $cursor.Y }
 	cursorRoot = $underRoot.ToInt64()
 	foreground = [QaPointerProbe]::GetForegroundWindow().ToInt64()
-	windows = $windows
+	windows = $states
 } | ConvertTo-Json -Depth 5 -Compress

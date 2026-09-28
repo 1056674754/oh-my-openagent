@@ -14,6 +14,7 @@ import { HANG_GUARD_MS, hangGuard, probeUntil } from "./until"
 
 const HOST_SCRIPT = fileURLToPath(new URL("./pointer-host.ps1", import.meta.url))
 const PROBE_SCRIPT = fileURLToPath(new URL("./pointer-probe.ps1", import.meta.url))
+const TRACE_SCRIPT = fileURLToPath(new URL("./mouse-trace.ps1", import.meta.url))
 
 /** The host's document opens with this zero-based line at the top, so a wheel either way moves it. */
 export const HOST_FIRST_VISIBLE_LINE = 100
@@ -168,4 +169,37 @@ export function rectCenter(rect: ScreenRect): Point {
 
 export function inside(rect: ScreenRect | null, point: Point): boolean {
   return rect !== null && point.x >= rect.left && point.x < rect.right && point.y >= rect.top && point.y < rect.bottom
+}
+
+export interface MouseTrace {
+  /** `<message hex> <x> <y> <wheel delta> <injected> <top-level hwnd at the point>`, one per routed event. */
+  readonly lines: () => string[]
+  readonly stop: () => Promise<void>
+}
+
+/** Starts mouse-trace.ps1 (a WH_MOUSE_LL hook in its own process) and waits until the hook is installed. */
+export async function mouseTrace(context: { readonly workspace: QaWorkspace }, tag: string): Promise<MouseTrace> {
+  const log = join(context.workspace.dir, `omo-qa-mouse-trace-${tag}.log`)
+  writeFileSync(log, "")
+  const args = ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", TRACE_SCRIPT, "-Log", log]
+  const child = spawn("powershell.exe", args, { stdio: ["ignore", "pipe", "inherit"] })
+  context.workspace.trackProcess(child, "mouse-trace.ps1")
+  const stdout = child.stdout
+  if (stdout === null) throw new Error("mouse-trace.ps1 has no stdout")
+  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()))
+  const ready = await hangGuard(
+    new Promise<string>((resolve) => createInterface({ input: stdout }).once("line", resolve)),
+    () => "hang guard: mouse-trace.ps1 never reported ready",
+  )
+  if (ready.trim() !== "ready") throw new Error(`mouse-trace.ps1: ${ready}`)
+  return {
+    lines: () =>
+      readFileSync(log, "utf8")
+        .split("\n")
+        .filter((line) => line !== ""),
+    stop: async () => {
+      child.kill()
+      await hangGuard(exited, () => undefined)
+    },
+  }
 }
