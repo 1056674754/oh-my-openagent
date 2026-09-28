@@ -10,6 +10,7 @@ use reis::PendingRequestResult;
 use tokio::io::unix::AsyncFd;
 
 use super::{update, DeviceTopology, EisConfig, Recorded, Shared, SharedDevices};
+use crate::capture::layout::EisRegion;
 
 async fn next_requests(fd: &AsyncFd<eis::Context>) -> Result<Option<Vec<eis::Request>>, String> {
     loop {
@@ -40,6 +41,7 @@ pub(super) async fn serve(
     stream: UnixStream,
     config: EisConfig,
     topology: DeviceTopology,
+    regions: &[EisRegion],
     log: &Shared,
     devices: &SharedDevices,
 ) -> Result<(), String> {
@@ -87,8 +89,8 @@ pub(super) async fn serve(
                             seat,
                             converter.handle(),
                             config,
-                            *keyboard,
-                            *pointer,
+                            (*keyboard, *pointer),
+                            regions,
                             devices,
                         )?;
                     }
@@ -169,11 +171,11 @@ fn add_devices(
     seat: &Seat,
     connection: &reis::request::Connection,
     config: EisConfig,
-    add_keyboard: bool,
-    add_pointer: bool,
+    (with_keyboard, with_pointer): (bool, bool),
+    regions: &[EisRegion],
     controls: &SharedDevices,
 ) -> Result<(), String> {
-    if add_keyboard {
+    if with_keyboard {
         let mut keymap = tempfile::tempfile().map_err(|error| error.to_string())?;
         keymap
             .write_all(config.keymap.as_bytes())
@@ -196,21 +198,35 @@ fn add_devices(
         }
         keyboard.resumed();
     }
-    if add_pointer {
-        let pointer = seat.add_device(
-            Some("pointer"),
-            eis::device::DeviceType::Virtual,
-            &[
-                DeviceCapability::PointerAbsolute,
-                DeviceCapability::Button,
-                DeviceCapability::Scroll,
-            ],
-            |device| device.device().region(0, 0, 1920, 1080, 1.0),
-        );
-        pointer.resumed();
+    if with_pointer {
+        let pointer = add_pointer(seat, regions);
         let (lock, changed) = &**controls;
-        lock.lock().unwrap_or_else(PoisonError::into_inner).pointer = Some(pointer);
+        let mut controlled = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        controlled.pointer = Some(pointer);
+        controlled.pointer_seat = Some(seat.clone());
         changed.notify_all();
     }
     Ok(())
+}
+
+/// A resumed absolute pointer with a button and scroll over `regions`.
+pub(super) fn add_pointer(seat: &Seat, regions: &[EisRegion]) -> reis::request::Device {
+    let pointer = seat.add_device(
+        Some("pointer"),
+        eis::device::DeviceType::Virtual,
+        &[
+            DeviceCapability::PointerAbsolute,
+            DeviceCapability::Button,
+            DeviceCapability::Scroll,
+        ],
+        |device| {
+            for region in regions {
+                device
+                    .device()
+                    .region(region.x, region.y, region.width, region.height, region.scale);
+            }
+        },
+    );
+    pointer.resumed();
+    pointer
 }

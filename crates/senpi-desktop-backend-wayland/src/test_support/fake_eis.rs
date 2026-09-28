@@ -1,20 +1,29 @@
 //! A fake EIS server built on `reis::eis` (the server half of the libei
 //! protocol) that announces a keyboard with a textual XKB keymap and an
-//! absolute pointer over a 1920x1080 region, then records every emulated
-//! event the client sends.
+//! absolute pointer over a 1920x1080 region (or the regions a test asks
+//! for), then records every emulated event the client sends.
 
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::thread;
 
-use reis::request::{Connection, Device};
+use reis::request::{Connection, Device, Seat};
 
 use super::HANG_GUARD;
+use crate::capture::layout::EisRegion;
 
 #[path = "fake_eis/protocol.rs"]
 mod protocol;
 
-use protocol::serve;
+use protocol::{add_pointer, serve};
+
+const DEFAULT_REGION: EisRegion = EisRegion {
+    x: 0,
+    y: 0,
+    width: 1920,
+    height: 1080,
+    scale: 1.0,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Recorded {
@@ -55,6 +64,7 @@ type SharedDevices = Arc<(Mutex<Devices>, Condvar)>;
 struct Devices {
     connection: Option<Connection>,
     pointer: Option<Device>,
+    pointer_seat: Option<Seat>,
 }
 
 pub struct FakeEis {
@@ -73,19 +83,27 @@ impl FakeEis {
         config: EisConfig,
         topology: DeviceTopology,
     ) -> Self {
-        Self::spawn(config, topology, move || {
+        Self::spawn(config, topology, vec![DEFAULT_REGION], move || {
+            listener.accept().map(|(stream, _)| stream)
+        })
+    }
+
+    /// Serves one client whose absolute pointer covers `regions`.
+    pub fn listen_with_regions(listener: UnixListener, config: EisConfig, regions: Vec<EisRegion>) -> Self {
+        Self::spawn(config, DeviceTopology::BothSameSeat, regions, move || {
             listener.accept().map(|(stream, _)| stream)
         })
     }
 
     /// Serves `stream` (the server end of a `ConnectToEIS` socket pair).
     pub fn serve(stream: UnixStream, config: EisConfig) -> Self {
-        Self::spawn(config, DeviceTopology::BothSameSeat, move || Ok(stream))
+        Self::spawn(config, DeviceTopology::BothSameSeat, vec![DEFAULT_REGION], move || Ok(stream))
     }
 
     fn spawn(
         config: EisConfig,
         topology: DeviceTopology,
+        regions: Vec<EisRegion>,
         accept: impl FnOnce() -> std::io::Result<UnixStream> + Send + 'static,
     ) -> Self {
         let log: Shared = Arc::default();
@@ -101,7 +119,7 @@ impl FakeEis {
                         .enable_all()
                         .build()
                         .map_err(|error| error.to_string())?
-                        .block_on(serve(stream, config, topology, &served, &controlled))
+                        .block_on(serve(stream, config, topology, &regions, &served, &controlled))
                 });
             if let Err(error) = outcome {
                 update(&served, |log| log.error = Some(error));
@@ -127,6 +145,26 @@ impl FakeEis {
 
     pub fn remove_pointer(&self) {
         self.control_pointer(Device::remove);
+    }
+
+    /// Removes the announced pointer and announces a resumed one over
+    /// `regions`: the compositor's layout changed.
+    pub fn replace_pointer(&self, regions: &[EisRegion]) {
+        let (lock, changed) = &*self.devices;
+        let devices = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        let (mut devices, waited) = changed
+            .wait_timeout_while(devices, HANG_GUARD, |devices| devices.pointer.is_none())
+            .unwrap_or_else(PoisonError::into_inner);
+        assert!(!waited.timed_out(), "fake EIS pointer was never announced");
+        devices.pointer.take().expect("announced pointer").remove();
+        let seat = devices.pointer_seat.clone().expect("pointer seat");
+        devices.pointer = Some(add_pointer(&seat, regions));
+        devices
+            .connection
+            .as_ref()
+            .expect("fake EIS connection")
+            .flush()
+            .expect("flush fake EIS layout change");
     }
 
     fn control_pointer(&self, action: impl FnOnce(&Device)) {
