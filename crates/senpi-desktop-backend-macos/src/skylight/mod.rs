@@ -24,7 +24,7 @@ use self::psn::{
     front_process, post_focus_record, process_psn, FocusMarker, ProcessSerialNumber,
     SET_FRONT_NO_WINDOWS,
 };
-pub(crate) use self::spi::is_available;
+pub(crate) use self::spi::{front_pid, is_available};
 use self::spi::required;
 
 /// Ensures the required background SPI resolved; the error names the missing
