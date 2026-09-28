@@ -78,8 +78,9 @@ export function createMemoryPromptHandler(
 
     const repo = createRepo(context)
     // A preview (senpi's prompt-cache prewarm) keeps only the systemPrompt: compose at the revision the
-    // real turn will use, and record no pin, consume no watermark, announce no repin.
-    const nudgeTurns = await options.resolveNudgeTurns?.(repo, session.id, context.identity)
+    // real turn will use, and record no pin, consume no watermark, announce no repin. The notice inputs
+    // only feed the message a preview discards, so their reads (a git log each) are skipped too.
+    const nudgeTurns = preview ? undefined : await options.resolveNudgeTurns?.(repo, session.id, context.identity)
     const soulNotice = preview ? undefined : await options.resolveSoulNotice?.(repo, session.id, context.identity)
     const pinInput = { repo, sessionId: session.id, branch: session.branch, head: await repo.head() }
     const turn: ProjectionTurn = preview
