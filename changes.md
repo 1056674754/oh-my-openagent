@@ -1,3 +1,7 @@
+## 2026-09-28 - macOS foreground pointer input refuses a covered point (#9079)
+
+A macOS foreground click, move, drag or scroll raised the target window and waited until it was key, but never checked which window was frontmost at the point. A window of another application that stays above normal windows (a floating panel or an always-on-top utility) received the input, and the engine reported success. Before posting, each point the event hits (a drag's first and last point) is now hit-tested through accessibility. If another window covers a point, the target is raised once more; if it stays covered, or the owner at the point cannot be identified, the action is refused and nothing is posted.
+
 ## 2026-09-28 - `omo doctor` no longer fails or downloads for users who never started computer use (#9059)
 
 Computer use is on by default, so `omo doctor` probed its engine for every user. When no engine was installed it downloaded one from GitHub releases, even in offline mode, and when that failed it printed `FAIL computer use engine` and exited 1, although the same doctor exited 0 before computer use existed. Doctor no longer installs anything: with no engine located and no `computer.engine_path`, it reports that the engine is downloaded the first time computer use starts, lists the paths it checked, and leaves the exit code alone. A configured `engine_path` that is missing or not executable, a quarantined binary, and a located engine that fails its handshake still fail doctor.
