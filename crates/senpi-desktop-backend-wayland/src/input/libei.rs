@@ -88,6 +88,15 @@ impl Libei {
     }
 
     pub fn type_text(&mut self, text: &str) -> CoreResult<()> {
+        self.type_text_interruptible(text, &|| Ok(()), &mut || {})
+    }
+
+    pub fn type_text_interruptible(
+        &mut self,
+        text: &str,
+        check_stop: &dyn Fn() -> CoreResult<()>,
+        delivered: &mut dyn FnMut(),
+    ) -> CoreResult<()> {
         self.refresh_devices()?;
         let keyboard = self
             .devices
@@ -106,6 +115,7 @@ impl Libei {
         start(&[Some(keyboard)], &mut self.sequence);
         let mut burst = Burst::new(&mut self.held_keys, &mut self.held_buttons);
         let result = strokes.iter().try_for_each(|stroke| {
+            check_stop()?;
             let modifiers = &stroke.modifiers;
             modifiers
                 .iter()
@@ -115,7 +125,9 @@ impl Libei {
             modifiers
                 .iter()
                 .rev()
-                .try_for_each(|&code| burst.key(keyboard, code, false))
+                .try_for_each(|&code| burst.key(keyboard, code, false))?;
+            delivered();
+            Ok(())
         });
         finish(&self.context, &[Some(keyboard)], result)
     }

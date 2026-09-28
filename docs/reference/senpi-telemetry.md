@@ -64,6 +64,20 @@ The curated plan agents were renamed to `plan-consultant` and `plan-reviewer`; `
 | `delegation_started` | `name` | `string` | `visual-engineering`, `artistry`, `ultrabrain`, `deep-low`, `deep-high`, `quick`, `unspecified-low`, `unspecified-high`, `architect`, `writing`, `explore`, `librarian`, `plan-consultant`, `plan-reviewer`, `custom` |
 | `feature_used` | `$session_id` | `string` | - |
 | `feature_used` | `feature` | `string` | `goal_tool`, `team_create`, `memory_tool` |
+| `computer_use_activation` | `$session_id` | `string` | - |
+| `computer_use_activation` | `active` | `boolean` | - |
+| `computer_use_activation` | `backend` | `string` | `quartz`, `x11`, `wayland`, `win32`, `fake`, `unavailable`, `other` |
+| `computer_use_activation` | `host_platform` | `string` | `darwin`, `linux`, `win32`, `other` |
+| `computer_use_activation` | `source` | `string` | `tool_call`, `command_on`, `command_off`, `other` |
+| `computer_use_permission_denied` | `$session_id` | `string` | - |
+| `computer_use_permission_denied` | `backend` | `string` | `quartz`, `x11`, `wayland`, `win32`, `fake`, `unavailable`, `other` |
+| `computer_use_permission_denied` | `host_platform` | `string` | `darwin`, `linux`, `win32`, `other` |
+| `computer_use_permission_denied` | `permission` | `string` | `capture`, `input`, `ax`, `read`, `exec` |
+| `computer_use_permission_denied` | `scope` | `string` | `os`, `tier` |
+| `computer_use_engine_error` | `$session_id` | `string` | - |
+| `computer_use_engine_error` | `backend` | `string` | `quartz`, `x11`, `wayland`, `win32`, `fake`, `unavailable`, `other` |
+| `computer_use_engine_error` | `code` | `string` | `PermissionDenied`, `CaptureFailed`, `InputFailed`, `BackgroundUnavailable`, `WindowNotFound`, `InvalidTarget`, `InvalidKey`, `InvalidCoordinateFrame`, `StaleRef`, `AxUnsupported`, `AxFailed`, `Timeout`, `Closed`, `Internal`, `StopPathUnavailable`, `Suspended`, `ScreenLocked`, `Cancelled`, `CursorRestoreFailed`, `FocusRestoreFailed`, `TransactionFailed`, `native-unavailable`, `quarantined`, `abi-mismatch`, `other` |
+| `computer_use_engine_error` | `host_platform` | `string` | `darwin`, `linux`, `win32`, `other` |
 | `kibitzer_summary` | `$session_id` | `string` | - |
 | `kibitzer_summary` | `buffered_cooldown` | `number` | - |
 | `kibitzer_summary` | `buffered_no_new_candidate` | `number` | - |
@@ -178,6 +192,14 @@ The curated plan agents were renamed to `plan-consultant` and `plan-reviewer`; `
 | `process_crashed` | `uptime_ms` | `number` | - |
 <!-- END GENERATED SCHEMA -->
 
+### Computer-use events
+
+`computer_use_activation` records session-scoped activation transitions. `tool_call` means the host activated `computer` or `computer_actions` for a by-name call or after tool discovery; `command_on` and `command_off` are explicit `/computer` commands. Repeating an already-active activation does not emit another row.
+
+`computer_use_permission_denied` separates OS capability blocks from OmO permission rules. `scope = os` reports which fixed capability is unavailable (`capture`, `input`, or `ax`) after activation. `scope = tier` reports a denied `computer:read` or `computer:exec` request. It never includes the permission rule, feedback, tool arguments, screen state, or requested action.
+
+`computer_use_engine_error` reports the frozen desktop protocol error code, startup diagnostics (`native-unavailable`, `quarantined`, `abi-mismatch`), or `other`. Error messages, recovery hints, engine paths, coordinates, window data, application names, and typed text stay local. Backend and `host_platform` values are allowlisted; unknown values become `other`. The field is named `host_platform` because the shared telemetry envelope already owns `platform = omo-senpi`.
+
 ### Parallelism v2 interpretation
 
 `parallelism_v2` consumes Senpi's in-process `senpi.eval.execution` event and
@@ -289,6 +311,7 @@ The following never leaves your machine:
 - Prompt or response text, prompt fragments, or exact prompt lengths (only coarse buckets)
 - File paths, the working directory, or repository and project names
 - Git identities or environment variable values
+- Computer-use screenshots, window titles, application names, coordinates, typed text, tool code or arguments, permission feedback, engine paths, and error messages
 - Raw hostnames or IP addresses in the application-authored payload (the transport connection still exposes its sending IP to PostHog for geoip enrichment)
 - Custom (non-builtin) skill names
 - Custom provider names, which are always masked to `custom` — including the name of a self-hosted, proxy, or internal gateway

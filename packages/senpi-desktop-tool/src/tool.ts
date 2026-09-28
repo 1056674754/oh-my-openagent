@@ -8,7 +8,15 @@ import {
 } from "@oh-my-opencode/senpi-desktop-protocol";
 import { type ExecuteTool, runComputerCode } from "@oh-my-opencode/senpi-desktop-service";
 import type { ComputerHandle } from "./activation";
-import { ComputerParams, type ComputerToolParams, DEFAULT_TIMEOUT_SECONDS } from "./params";
+import { Check } from "typebox/value";
+import { actionBranches, argumentsError } from "./action-schema";
+import {
+	ComputerActionBranches,
+	ComputerActionShape,
+	ComputerParams,
+	type ComputerToolParams,
+	DEFAULT_TIMEOUT_SECONDS,
+} from "./params";
 import { type ComputerHostContext, runSnapshot } from "./session";
 
 export const COMPUTER_TOOL_NAME = "computer";
@@ -56,6 +64,7 @@ const DESCRIPTION = [
 	'- `{action:"call", chain}` runs one desktop helper, optionally followed by one call on the window/element it returns, e.g. `[{method:"window",args:[{app:"Code"}]},{method:"screenshot"}]`.',
 	'- `{action:"run", code, read_only?, timeout?}` runs a JavaScript async function body with `desktop`, `wait`, `assert`, and `tool` in scope; `read_only: true` blocks input.',
 	'- `{action:"capabilities"}` reports backend, permissions, `stopPath`, and `focusGuard`. `{action:"close"}` ends the desktop session.',
+	"Pass only the fields of the chosen action; any other field is refused with COMPUTER_INVALID_ARGUMENTS.",
 	"In eval cells prefer the `computer` global, which wraps these actions. Pointer x,y are pixels of the latest screenshot of the same target.",
 ].join("\n");
 
@@ -64,6 +73,14 @@ const SAFETY_GUIDELINES = computerPreludeAssets.safety
 	.split("\n")
 	.filter((line) => line.startsWith("- "))
 	.map((line) => line.slice(2));
+
+const BRANCHES = actionBranches(ComputerActionBranches);
+
+/** The flat published arguments narrowed to one action's exact shape; `ComputerArgumentsError` otherwise. */
+export function parseComputerParams(input: unknown): ComputerToolParams {
+	if (Check(ComputerActionShape, input)) return input;
+	throw argumentsError(BRANCHES, input, "computer");
+}
 
 /** `desktop.<root>(...)` and at most one handle hop; every name was validated against the tier tables first. */
 function renderCallChain(chain: readonly ComputerCallStep[]): string {
@@ -146,11 +163,12 @@ export function createComputerTool(deps: ComputerToolDeps) {
 		executionMode: "sequential" as const,
 		async execute(
 			_toolCallId: string,
-			params: ComputerToolParams,
+			input: Readonly<Record<string, unknown>>,
 			signal: AbortSignal | undefined,
 			_onUpdate: unknown,
 			context: ComputerHostContext,
 		): Promise<ComputerToolResult> {
+			const params = parseComputerParams(input);
 			switch (params.action) {
 				case "call": {
 					// Classifies (and rejects unknown or unchainable methods) before anything reaches the engine.

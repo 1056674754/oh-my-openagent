@@ -11,7 +11,8 @@ export {
 	type ComputerSubcommand,
 	runComputerCommand,
 } from "./command";
-export { type ComputerAction, type ComputerActionsInput, ComputerActionsParams } from "./cua-actions";
+export { ComputerArgumentsError } from "./action-schema";
+export { type ComputerAction, type ComputerActionsInput, ComputerActionsParams, parseComputerActions } from "./cua-actions";
 export {
 	COMPUTER_ACTIONS_TOOL_NAME,
 	type ComputerActionsTool,
@@ -19,7 +20,13 @@ export {
 	createComputerActionsTool,
 } from "./cua-adapter";
 export { defaultStopHotkey, isSupportedHost } from "./host-policy";
-export { ComputerParams, type ComputerToolParams, DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS } from "./params";
+export {
+	ComputerActionShape,
+	ComputerParams,
+	type ComputerToolParams,
+	DEFAULT_TIMEOUT_SECONDS,
+	MAX_TIMEOUT_SECONDS,
+} from "./params";
 export { COMPUTER_PERMISSION, computerPermissionParser, computerTier, type PermissionRequest } from "./permission";
 export {
 	AUDIT_FILE_NAME,
@@ -44,5 +51,6 @@ export {
 	type ComputerToolDetails,
 	type ComputerToolResult,
 	createComputerTool,
+	parseComputerParams,
 	runComputer,
 } from "./tool";

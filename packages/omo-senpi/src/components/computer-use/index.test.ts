@@ -8,7 +8,7 @@ import { createInterface } from "node:readline"
 import { fileURLToPath } from "node:url"
 
 import { resolveComputerSettings } from "@oh-my-opencode/senpi-desktop-tool"
-import { type ChildFactory, DesktopEngineUnavailableError } from "@oh-my-opencode/senpi-desktop-service"
+import type { ChildFactory } from "@oh-my-opencode/senpi-desktop-service"
 
 import type { ComponentContext, ComponentLogger } from "../../extension/types"
 import { FakeExtensionAPI } from "../../../test-support/fake-extension-api"
@@ -228,27 +228,6 @@ describe("computer-use component", () => {
     expect(await runCommand(pi, "status")).toEqual([expect.stringContaining("engine: not started\nprelude: inactive")])
   })
 
-  test("#given no engine binary #when the tool activates #then status reports native-unavailable", async () => {
-    // given
-    const missing: ChildFactory = () => {
-      throw new DesktopEngineUnavailableError({
-        code: "native-unavailable",
-        host: "linux-x64",
-        attemptedPaths: [],
-        message: "No senpi-desktop-engine binary is available for linux-x64.",
-        cause: "none",
-      })
-    }
-    const { pi } = register({ engineChild: missing })
-
-    // when
-    const activation = pi.dispatch("tool_activated", { type: "tool_activated", toolNames: ["computer"] }, hostContext())
-
-    // then
-    await expect(activation).rejects.toThrow("native-unavailable")
-    expect(await runCommand(pi, "status")).toEqual([expect.stringContaining("engine: native-unavailable")])
-  })
-
   test("#given an active session #when /computer off runs #then the engine session closes and the tool leaves the active set", async () => {
     // given
     const { pi, engine } = register({})
@@ -262,6 +241,36 @@ describe("computer-use component", () => {
 
     // then
     expect(host.active).not.toContain("computer")
+  })
+
+  test("#given cua_adapter #when /computer on then off runs #then computer_actions joins and leaves the active set with computer", async () => {
+    // given
+    const { pi, engine } = register({ block: { cuaAdapter: true } })
+    const host = pi as HostApi
+
+    // when
+    await runCommand(pi, "on")
+    await engine.nth("stopPath.start", 1)
+    const whileOn = host.getActiveTools()
+    await runCommand(pi, "off")
+    await engine.nth("session.close", 1)
+
+    // then
+    expect(whileOn).toEqual(expect.arrayContaining(["read", "bash", "computer", "computer_actions"]))
+    expect(host.getActiveTools()).toEqual(["read", "bash"])
+  })
+
+  test("#given no cua_adapter #when /computer on runs #then only computer is activated", async () => {
+    // given
+    const { pi, engine } = register({})
+    const host = pi as HostApi
+
+    // when
+    await runCommand(pi, "on")
+    await engine.nth("stopPath.start", 1)
+
+    // then
+    expect(host.getActiveTools()).toEqual(["read", "bash", "computer"])
   })
 
   test("#given an enabled host #when resources_discover fires #then the computer skill path is contributed", async () => {

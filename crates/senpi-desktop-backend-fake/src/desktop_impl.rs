@@ -121,6 +121,47 @@ impl Backend for FakeBackend {
         Ok(())
     }
 
+    fn clipboard_read(&mut self) -> CoreResult<String> {
+        self.begin(FakeMethod::ClipboardRead)?;
+        Ok(self.clipboard.clone())
+    }
+
+    fn clipboard_write(&mut self, text: &str) -> CoreResult<()> {
+        self.begin(FakeMethod::ClipboardWrite)?;
+        self.clipboard.clear();
+        self.clipboard.push_str(text);
+        self.record(SinkOp::ClipboardWrite {
+            text: text.to_owned(),
+        });
+        Ok(())
+    }
+
+    fn type_text_interruptible(
+        &mut self,
+        target: &Target,
+        text: &str,
+        mode: DeliveryMode,
+        check_stop: &dyn Fn() -> CoreResult<()>,
+        delivered: &mut dyn FnMut(),
+    ) -> CoreResult<()> {
+        let mut start = 0;
+        for end in text
+            .char_indices()
+            .map(|(index, _)| index)
+            .skip(8)
+            .step_by(8)
+            .chain(std::iter::once(text.len()))
+        {
+            check_stop()?;
+            self.type_text(target, &text[start..end], mode)?;
+            for _ in text[start..end].chars() {
+                delivered();
+            }
+            start = end;
+        }
+        Ok(())
+    }
+
     fn key_chord(&mut self, target: &Target, keys: &[KeyName], mode: DeliveryMode) -> CoreResult<()> {
         self.begin(FakeMethod::KeyChord)?;
         self.input_gate(target, mode)?;

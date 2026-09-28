@@ -10,7 +10,13 @@ import {
   type SessionExitCause,
   type SessionExitClassification,
 } from "./exit-mapping"
-import type { HostSessionChildHandle, HostSessionHandleOptions, HostSessionIdentity, HostSessionPort } from "./handle-port"
+import type {
+  HostSessionChildHandle,
+  HostSessionHandleOptions,
+  HostSessionIdentity,
+  HostSessionOpenDisposition,
+  HostSessionPort,
+} from "./handle-port"
 import { recoverLostTransport } from "./handle-reattach"
 import { isTransportLossError } from "./reattach"
 import type { HostSessionCommand, HostSessionParked } from "./session-client"
@@ -31,9 +37,11 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
   // routing handle on a possibly new host generation. The session PATH is the child's identity.
   let client: HostSessionPort = options.client
   let session: HostSessionIdentity = options.session
+  let openDisposition: HostSessionOpenDisposition = options.openDisposition
   const idleWaiters: Array<() => void> = []
   const outcomeWaiters: Array<(settled: RunnerOutcome) => void> = []
   const exitWaiters: Array<(outcome: ChildExitOutcome) => void> = []
+  const eventListeners = new Set<ChildEventListener>()
   const parkedListeners = new Set<(event: HostSessionParked) => void>()
   let reachedIdle = false
   let sessionId: string | undefined
@@ -91,6 +99,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
   const settleExit = (built: ChildExitOutcome): void => {
     if (outcome) return
     outcome = built
+    eventListeners.clear()
     clearInterval(heartbeat)
     flush(idleWaiters)
     if (turnOutcome === undefined) settleTurn(exitTurnOutcome(built, finalText))
@@ -165,6 +174,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
         adopt: (next) => {
           client = next.client
           session = next.session
+          openDisposition = next.attached ? "attached" : "reopened"
           bindClient(client)
         },
         continueTurn: (prompt) => client.send({ type: "prompt", message: prompt, streamingBehavior: "steer" }),
@@ -179,7 +189,9 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
 
   const bindClient = (port: HostSessionPort): void => {
     port.onEvent((event) => {
-      if (client === port) onSessionEvent(event)
+      if (client !== port) return
+      onSessionEvent(event)
+      for (const listener of eventListeners) listener(event)
     })
     port.onParked((event) => {
       if (client !== port || parked || detached || outcome !== undefined) return
@@ -248,8 +260,15 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     settleClassified(classifySessionExit({ cause: { kind: "session_closed", reason }, intent }))
   }
 
+  // Queries follow the child to whichever port it holds now; one issued mid-reattach waits for it.
+  const currentPort = async (): Promise<HostSessionPort> => {
+    await reattaching
+    return client
+  }
+
   const detach = async (): Promise<void> => {
     detached = true
+    eventListeners.clear()
     clearInterval(heartbeat)
     await client.detach()
   }
@@ -267,6 +286,11 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     get attached() {
       return outcome === undefined && !parked && !detached
     },
+    get openDisposition() {
+      return openDisposition
+    },
+    getEntries: async (since) => (await currentPort()).getEntries(since),
+    switchSession: async (sessionPath) => (await currentPort()).switchSession(sessionPath),
     steer: async (text) => {
       beginTurn()
       try {
@@ -281,7 +305,10 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
       abortedByUser = true
       return issue({ type: "abort" })
     },
-    subscribe: (listener: ChildEventListener) => client.onEvent(listener),
+    subscribe: (listener: ChildEventListener) => {
+      eventListeners.add(listener)
+      return () => eventListeners.delete(listener)
+    },
     onParked: (listener) => {
       parkedListeners.add(listener)
       return () => parkedListeners.delete(listener)

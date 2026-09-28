@@ -10,11 +10,14 @@ import {
   createTaskManager,
   createTeamMemberRespawnLaunchResolver,
   createTaskRecordStore,
+  readSessionAncestry,
   resolveMemberExtensionEntryPath,
   type AgentDefinition,
   type ChildPlanner,
   type CompletionNotifier,
   type PersistedTaskEvent,
+  type ResolveAncestry,
+  type SessionAncestry,
   type SkillInvocationState,
   type SpawnAdmission,
   type SkillLoader,
@@ -65,6 +68,10 @@ export interface TaskEngine {
   readonly agents: Readonly<Record<string, AgentDefinition>>
   readonly omoConfig: OmoConfig
   readonly settings: OmoTaskSettings
+  // Where THIS session sits in the task tree (undefined = top-level). Every spawn entry point - task,
+  // workpool, workflow, team - counts its children's depth from here so max_depth holds (#9036).
+  readonly ancestry: SessionAncestry | undefined
+  readonly resolveAncestry: ResolveAncestry
   // This parent session's shared-daemon wiring: the ONE answer to `task.default_execution_mode:
   // "auto"`, and the deduped reasons the daemon could not take its children.
   readonly host: EngineHostRuntime
@@ -100,6 +107,8 @@ export interface ComposeTaskEngineDeps {
   // This session's shared-daemon wiring. Defaults to the real one (ensure + capability check); a
   // suite injects it whole so no test ever ensures a daemon and its notices are the engine's.
   readonly host?: EngineHostRuntime
+  // The process env the per-child launch channel is read from. Defaults to this process's env.
+  readonly env?: NodeJS.ProcessEnv
 }
 
 export type { RunnerBuildContext, TaskRunnerFactories } from "./engine-runners"
@@ -114,6 +123,9 @@ export type { RunnerBuildContext, TaskRunnerFactories } from "./engine-runners"
  */
 export function composeTaskEngine(deps: ComposeTaskEngineDeps): TaskEngine {
   const settings: OmoTaskSettings = deps.omoConfig.task ?? OmoTaskSettingsSchema.parse({})
+  const ancestry = readSessionAncestry(deps.pi, deps.env ?? process.env)
+  const resolveAncestry: ResolveAncestry = (sessionId) =>
+    ancestry === undefined ? undefined : { depth: ancestry.depth, rootSessionId: ancestry.rootSessionId ?? sessionId }
   const runtime = new TaskRuntimeContext(deps.cwd)
   const loadSkills = deps.loadSkills ?? createFsSkillLoader()
   const stateDir = {
@@ -261,6 +273,8 @@ export function composeTaskEngine(deps: ComposeTaskEngineDeps): TaskEngine {
     agents,
     omoConfig: deps.omoConfig,
     settings,
+    ancestry,
+    resolveAncestry,
     host,
     stateDir: baseStore.stateDir,
     loadSkills,
@@ -270,6 +284,7 @@ export function composeTaskEngine(deps: ComposeTaskEngineDeps): TaskEngine {
       manager,
       omoConfig: deps.omoConfig,
       agents,
+      resolveAncestry,
       loadSkills,
       resolveSkillInvocations,
       resolveChildToolNames: kernelTools.childToolNames,

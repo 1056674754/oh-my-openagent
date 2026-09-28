@@ -120,11 +120,31 @@ impl Backend for Win32Backend {
         _frame: &FrameGeometry,
         mode: DeliveryMode,
     ) -> CoreResult<()> {
-        self.input()?.pointer(target, &event, mode)
+        let input = self.input.as_mut().map_err(|error| error.clone())?;
+        input.pointer(&mut self.ax, target, &event, mode)
     }
 
     fn type_text(&mut self, target: &Target, text: &str, mode: DeliveryMode) -> CoreResult<()> {
         self.input()?.type_text(target, text, mode)
+    }
+
+    fn clipboard_read(&mut self) -> CoreResult<String> {
+        senpi_desktop_core::clipboard::read_text()
+    }
+
+    fn clipboard_write(&mut self, text: &str) -> CoreResult<()> {
+        senpi_desktop_core::clipboard::write_text(text)
+    }
+
+    fn type_text_interruptible(
+        &mut self,
+        target: &Target,
+        text: &str,
+        mode: DeliveryMode,
+        check_stop: &dyn Fn() -> CoreResult<()>,
+        delivered: &mut dyn FnMut(),
+    ) -> CoreResult<()> {
+        self.input()?.type_text_interruptible(target, text, mode, check_stop, delivered)
     }
 
     fn key_chord(&mut self, target: &Target, keys: &[KeyName], mode: DeliveryMode) -> CoreResult<()> {
@@ -172,6 +192,14 @@ impl Backend for Win32Backend {
     }
 
     fn restore_front_window(&mut self, front: &FrontWindow) -> CoreResult<()> {
-        front.window_id.as_deref().map_or(Ok(()), input::raise_window)
+        let Some(id) = front.window_id.as_deref() else {
+            return Ok(());
+        };
+        if let Ok(input) = self.input.as_mut() {
+            if !input.should_restore_front(id)? {
+                return Ok(());
+            }
+        }
+        input::raise_window(id)
     }
 }

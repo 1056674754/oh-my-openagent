@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import type { FakeHost } from "./__fixtures__/fake-host"
 import { createHostSessionHandle } from "./handle"
 import type { HostSessionChildHandle, HostSessionIdentity } from "./handle-port"
+import { event, fakeSessionPort, FAKE_SESSION } from "./handle.test-support"
 import { HOST_SESSION_REATTACH_TAG, type HostSessionReattach } from "./reattach"
 import { childOpenInput } from "./session-client.test-support"
 import { sessionClientHarness } from "./session-client.test-support"
@@ -41,6 +42,7 @@ async function openWithReattach(host: FakeHost, sessionPath: string, reattach: H
     heartbeatIntervalMs: 60_000,
     now: () => 13,
     closeGraceMs: 100,
+    openDisposition: opened.attached ? "attached" : "reopened",
     reattach,
   })
 }
@@ -50,10 +52,59 @@ function promptsOn(host: FakeHost): string[] {
 }
 
 describe("host-session handle reattach", () => {
+  test("#given progress subscribers #when the transport is replaced twice #then subscriptions survive until released and stale ports stay silent", async () => {
+    // given
+    const ports = [fakeSessionPort(), fakeSessionPort(), fakeSessionPort()]
+    let generation = 0
+    const handle = createHostSessionHandle({
+      client: ports[0],
+      session: FAKE_SESSION,
+      taskId: "st_progress_reattach",
+      heartbeatIntervalMs: 60_000,
+      now: () => 13,
+      closeGraceMs: 100,
+      openDisposition: "attached",
+      reattach: async () => ({ client: ports[++generation], session: FAKE_SESSION, attached: true }),
+    })
+    const observed: string[] = []
+    const released: string[] = []
+    const unsubscribe = handle.subscribe((next) => observed.push(next.type))
+    const releaseEarly = handle.subscribe((next) => released.push(next.type))
+    const progress = event({ type: "turn_start" })
+    ports[0].emitEvent(progress)
+    releaseEarly()
+
+    try {
+      // when: both replacements preserve the same running session
+      for (let index = 1; index < ports.length; index++) {
+        ports[index - 1].loseTransport()
+        await ports[index].stateAsked()
+        await ports[index].answerState({ sessionId: "child", isStreaming: true })
+        ports[index - 1].emitEvent(progress)
+        ports[index].emitEvent(progress)
+      }
+
+      // then: no duplicate or discarded-port events; unsubscribe remains valid after recovery
+      expect(observed).toEqual(["turn_start", "turn_start", "turn_start"])
+      expect(released).toEqual(["turn_start"])
+      unsubscribe()
+      unsubscribe()
+      ports[2].emitEvent(progress)
+      expect(observed).toHaveLength(3)
+      handle.subscribe((next) => observed.push(next.type))
+    } finally {
+      await handle.dispose()
+    }
+    ports[2].emitEvent(progress)
+    expect(observed).toHaveLength(3)
+  })
+
   test("#given a turn in flight #when the connection is cut while the host keeps the session #then the handle re-joins it and the turn completes without a second prompt", async () => {
     // given
     const host = await fakeHost()
     const handle = await openWithReattach(host, "/tmp/sessions/reattach-a.jsonl", reopenOn(host))
+    const observed: string[] = []
+    handle.subscribe((event) => observed.push(event.type))
     await handle.startInitialPrompt("do the work")
     // Recovery reads the re-joined session's state right after adopting the new port, so this
     // command is the first thing the host sees from the reattached handle.
@@ -69,8 +120,10 @@ describe("host-session handle reattach", () => {
     host.completeTurn(live.routingId, "finished after the cut")
     expect((await handle.waitForOutcome()).status).toBe("completed")
     expect(handle.lastAssistantText()).toBe("finished after the cut")
+    expect(observed).toEqual(["message_end", "agent_end"])
     expect(handle.hasExited()).toBe(false)
     expect(handle.attached).toBe(true)
+    expect(handle.openDisposition).toBe("attached")
     expect(promptsOn(host)).toEqual(["do the work"])
     await handle.dispose()
   })
@@ -89,6 +142,7 @@ describe("host-session handle reattach", () => {
     expect(String(continuation.payload.message)).toContain(HOST_SESSION_REATTACH_TAG)
     expect(handle.hasExited()).toBe(false)
     expect(handle.attached).toBe(true)
+    expect(handle.openDisposition).toBe("reopened")
     const reopened = host.sessions().find((session) => session.sessionPath === "/tmp/sessions/reattach-b.jsonl")
     if (reopened === undefined) throw new Error("the host did not reopen the session")
     expect(handle.hostSession.routingId).toBe(reopened.routingId)

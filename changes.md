@@ -1,8 +1,70 @@
+## 2026-09-28 - macOS computer use keeps the user's newer front app (#9056)
+
+After a background `type` or `press`, the macOS engine handed key focus back to the application that was front before the action, even when the user had switched to another application in the meantime. It read the front application from `NSWorkspace.frontmostApplication`, which in the engine (no AppKit run loop) can keep reporting an application the user already left. The front application now comes from WindowServer (`_SLPSGetFrontProcess`), with AppKit only as a fallback, and the hand-back leaves the front alone when a third application is front: the user's newer choice wins, as on X11 and Windows. Without a user switch the previous application is still restored.
+
+## 2026-09-28 - Computer use reads and writes the clipboard (#9009)
+
+The `clipboard.read` and `clipboard.write` engine methods were advertised by the SDK and the schema but answered "not implemented". They now reach the session: reading is a read-only request, writing goes through the same gate and single input transaction as other input (suspension, a live stop path, input permission, cancellation) and emits one audit record carrying only the text's length and digest, never the text. The macOS, X11, Wayland and Windows backends share one UTF-8 text clipboard in `senpi-desktop-core` (feature `system-clipboard`); on Linux one clipboard handle lives for the process so the text stays served after the write returns. A clipboard holding no text reads as the empty string. The desktop contract CI runs a live round-trip on the hosted macOS, Windows and Linux (Xvfb) runners.
+
+## 2026-09-28 - `computer_actions` activates with `computer` (#9048)
+
+With `computer.cua_adapter: true`, activating computer use (`/computer on`, a by-name call or a `tool_search` promotion) added only `computer` to the active tool set, and `/computer off` removed only `computer`. A provider without native deferred-tool search declares only active tools in its request, so an OpenAI computer-use model could find `computer_actions` through `tool_search` but never call it. Both tools now join and leave the active set together; without the adapter only `computer` moves, as before. The computer-use QA driver gained a scenario that records the tools each request declares and checks that the request after activation carries `computer_actions`.
+
+## 2026-09-28 - X11 computer use keeps offscreen frames and newer user state (#8974)
+
+Partially offscreen X11 windows now keep a full-size capture frame with transparent pixels for the off-root area, so an unchanged window remains targetable from its screenshot instead of being misclassified as resized. Keyboard text, chords and XTEST modifiers read the current server keymap once per operation, so runtime layout changes no longer require reconnecting.
+
+Foreground delivery now confirms core X focus as well as EWMH active-window state. On a non-EWMH server it uses a core-focus fallback, delivers to the requested window, and restores the previous focus. Both the input-local guard and the shared session restore hooks preserve a newer user focus or pointer choice instead of replaying an older snapshot over it.
+
+Filtering toolkits still receive a truthful background-unavailable refusal. The supported Linux QA stack exposes XInput and XTEST but has no writable `/dev/uinput`, and a bounded Xvfb hierarchy probe did not establish an isolated real-input route; MPX support therefore remains a separate real-Xorg/uinput feature rather than an inferred fallback.
+
+## 2026-09-28 - Computer tools publish a root object schema (#9047)
+
+The `computer` and `computer_actions` tools used to publish a root-union JSON schema. Anthropic native tool search sends a deferred tool's schema as-is, so every request with the `computer` tool deferred failed with `400 tools.N.custom.input_schema.type: Field required` (senpi #2252). OpenAI strict function schemas and Gemini also reject a root union. Both tools now publish one root object with an `action` enum and every action's fields as optional, and each field's description names the actions that take it. `execute` still checks the exact per-action shape, including every batch item, and refuses a missing, extra or mistyped field with `COMPUTER_INVALID_ARGUMENTS`, naming the action and the field, before any engine starts. Valid calls behave as before.
+
+## 2026-09-28 - Boulder plan progress counts every task format and stops on 0/0 (#9019, #6233)
+
+The plan parser in `packages/boulder-state/src/plan-checklist.ts` now counts `T1.2`, `T6.3a`, `F1` and `H1` task IDs written with a `.`, space, `-` or em-dash separator. When the canonical `## TODOs` / `## Final Verification Wave` sections hold no task rows but checkboxes sit under another heading, it falls back to every top-level checkbox. A `- [~]` row, which the continuation directive uses for a task blocked on the user, counts toward the total as in-progress: it is neither completed nor remaining. Progress no longer reads `1/1` when one of two tasks is blocked, and a plan whose open work is all blocked still ends continuation.
+
+OpenCode's idle continuation, its pending retry and the `oh-my-opencode run` continuation check now treat a plan with no countable tasks as nothing to continue, as Senpi and Codex already did. Before, a prose or heading-only plan produced the `0/0` continuation directive on every idle. The plan-format validator judges rows with the counter's own grammar (`isStructuredTaskRow`), so it no longer warns that `T1.1` rows will be skipped, and the Codex Stop hook's parser copy matches the shared grammar. Across 159 real plan files, the only totals that change are two plans that read `0/0` before.
+
+## 2026-09-28 - Session search finds prompts in the middle of a session (#9012)
+
+`find`/`search` in the `coding-agent-sessions` skill used to match only session metadata and the first and last user prompts, so a query that appeared only in a middle prompt returned nothing even though `read` showed it. Scanners that already read the whole transcript (OmO/Senpi, oh-my-pi, gajae-code, Claude, Codex rollouts, OpenClaw, Qwen, Droid, Kimi, Aside) now keep every user prompt they parse, and search reports such a hit with the match reason field `user_message`. A Codex thread listed from the state database searches the prompts of its scanned rollout. The search adds no file reads, so a miss-heavy query costs the same as before. Claude subagent transcripts and Codex threads beyond the 2000 newest rollouts keep metadata and first/last-prompt search.
+
+The entrypoint now exits with status 2 and a message naming the required Python 3.11+ and the interpreter it found, instead of failing with `ImportError` on an older `python3`.
+
+## 2026-09-28 - macOS foreground input lands in the target window (#9008)
+
+`delivery: "foreground"` clicks and keys on macOS used to report success while the target app ignored them. The engine fronted the process through SkyLight (`_SLPSSetFrontProcessWithOptions`), which makes it front to WindowServer and AX but leaves the app inactive in AppKit, so every click was consumed as an activation click. Foreground delivery now activates the app through accessibility (`AXFrontmost`) and AppKit, waits for `NSRunningApplication.isActive`, and waits until the target window is the app's focused main window. Only then does it post input. If the app never becomes active, nothing is posted and the call fails with `InputFailed`. The previous front app is still restored through SkyLight and AppKit.
+
+## 2026-09-28 - macOS QA checks both canary policies (#8893)
+
+The live macOS harness (`script/qa/desktop/macos.ts`) gains a `canary-off` scenario next to `canary`. Both drive the packaged OmO component through a real Senpi session and make two background inputs to TextEdit. `canary` runs `computer.macos_canary: "session"` and expects exactly one canary dialog; `canary-off` runs `"off"` and expects none. Both inputs must succeed in each case. The dialog count comes from the harness's independent System Events observer, not from the engine, so the pair would fail if the observer missed a dialog or if the policy were ignored.
+
+## 2026-09-27 - Computer use honors the macOS canary policy (#8945)
+
+`computer.macos_canary` now reaches the native session and macOS backend instead of being discarded by the TypeScript request builder. The wire accepts `session` and `off`, defaults to `session`, and rejects unknown values. Backend reconstruction receives the current policy, including when a session is reconfigured. The engine schema and shipped OmO extension are regenerated.
+
+## 2026-09-27 - Stop in-flight desktop typing before the remaining characters (#8937)
+
+The macOS physical stop chord previously latched the supervisor while an active `typeText` kept posting the entire text, then reported `Suspended` only after the backend returned. Desktop text delivery now checks suspension and request cancellation between Unicode scalars inside each native backend's single input call. An interrupted request releases held input, keeps the existing single admission and focus-restoration transaction, and audits both the requested and fully delivered scalar counts without recording the text.
+
 ## 2026-09-27 - macOS computer focus guard preserves the visible window (#8925)
 
 The macOS engine now captures the frontmost application's first on-screen layer-0 WindowServer window instead of assuming its AX-focused window is visually on top. Foreground delivery passes that captured window to SkyLight; when the foreground SPI is unavailable, it retains the existing public app-activation fallback. Synthetic window-order tests reject off-screen, non-normal-layer, and other-process windows. Window enumeration no longer cuts off after 48 windows, so a target behind many other windows remains addressable.
 
 Background clicks keep the user's frontmost app, visible front window, focused window, cursor, and next-keystroke destination. The target can move directly beneath the front window; macOS QA records that rank without treating it as a focus failure, and foreground sabotage still fails the invariant. The guide, tool reference, and model-facing computer guidance describe the same accepted behavior.
+
+## 2026-09-27 - OmO Native records privacy-safe computer-use outcomes (#8940)
+
+OmO Native telemetry now measures whether computer use activates, what blocks it, and which desktop-engine failures occur without exporting desktop content. Three strict events use only closed vocabularies:
+
+- `computer_use_activation`: active/inactive, source (`tool_call`, `/computer on`, `/computer off`), platform and backend.
+- `computer_use_permission_denied`: OS capability (`capture`, `input`, `ax`) or OmO permission tier (`read`, `exec`), plus platform and backend.
+- `computer_use_engine_error`: the frozen engine error code, startup diagnostics (`native-unavailable`, `quarantined`, `abi-mismatch`), or `other`.
+
+The computer-use adapter publishes through the existing OmO Native telemetry client, so every existing environment, config and component opt-out disables these events too. Session ids remain salted hashes. Screenshots, window and application names, coordinates, typed text, tool code and arguments, permission feedback, paths, error messages and recovery hints never enter an event.
 
 ## 2026-09-27 - The computer-use skill says when to stop and ask (#8941)
 
@@ -42,6 +104,14 @@ Every `@code-yeongyu/senpi` pin moves from 2026.9.27 to 2026.9.27-2: the root de
 - The `tool_activated` event.
 
 It also fixes session rebinding after a repository moves, fork-confirmation answers, and several pty issues. `packages/omo-native/bin/lib/provider-map.json` still matches the new engine's `builtinProviders()`, which `provider-map-registry.test.ts` checks against the installed package, so only its version comment changes.
+
+## 2026-09-28 - omo adopts senpi 2026.9.27-4: task children are never refused for host memory, and a handoff host no longer inherits the caller's session (#8960)
+
+Every `@code-yeongyu/senpi` pin moves from 2026.9.27-3 to 2026.9.27-4: the root devDependency, the `omo-native` dependency, the `omo-senpi` and `senpi-task` peer and dev pins, their pin tests, and `bun.lock`. The release carries code-yeongyu/senpi#2213, which removes the RSS admission refusal so opening a child session is never refused for host memory, and adds `host_rss_mb` to host status, measured from the OS rather than Bun's process counter. It also carries code-yeongyu/senpi#2220, under which `host handoff` launches the successor from the binary runtime's launch spec with the caller's session variables stripped, bumps the generation exactly once, and lets running parents follow the new generation without a restart. The release also removes senpi's leftover desktop engine crates and packages (code-yeongyu/senpi#2231); omo's computer use already lives in its own workspace packages. The fallback circuit breaker (code-yeongyu/senpi#2201) was reverted before the release (code-yeongyu/senpi#2228, Windows host-lifecycle regression, code-yeongyu/senpi#2227), so it does not ship. `packages/omo-native/bin/lib/provider-map.json` still matches the new engine's `builtinProviders()`, which `provider-map-registry.test.ts` checks against the installed package, so only its version comment changes.
+
+## 2026-09-28 - omo adopts senpi 2026.9.27-3: starting omo no longer empties an upstream pi install (#8039)
+
+Every `@code-yeongyu/senpi` pin moves from 2026.9.27-2 to 2026.9.27-3: the root devDependency, the `omo-native` dependency, the `omo-senpi` and `senpi-task` peer and dev pins, their pin tests, and `bun.lock`. The release carries code-yeongyu/senpi#2215: the first start copies `~/.pi/agent`, `~/.pi/mom` and a project's `.pi` into `~/.omo` instead of moving them, so pi keeps working next to omo, and a pi install that an earlier start already drained gets its settings, credentials, sessions and extensions copied back into `~/.pi/agent` on the next start. It also carries the RPC open-session fixes (senpi#2209, #2206) and the structured `providerDiagnostic` on failed provider turns. `packages/omo-native/bin/lib/provider-map.json` still matches the new engine's `builtinProviders()`, which `provider-map-registry.test.ts` checks against the installed package, so only its version comment changes.
 
 ## 2026-09-27 - Committed conflict markers fail the root suite (#8919)
 

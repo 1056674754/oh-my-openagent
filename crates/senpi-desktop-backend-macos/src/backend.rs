@@ -135,6 +135,26 @@ impl Backend for MacosBackend {
         self.input.type_text(target, text, mode, &self.capture)
     }
 
+    fn clipboard_read(&mut self) -> CoreResult<String> {
+        senpi_desktop_core::clipboard::read_text()
+    }
+
+    fn clipboard_write(&mut self, text: &str) -> CoreResult<()> {
+        senpi_desktop_core::clipboard::write_text(text)
+    }
+
+    fn type_text_interruptible(
+        &mut self,
+        target: &Target,
+        text: &str,
+        mode: DeliveryMode,
+        check_stop: &dyn Fn() -> CoreResult<()>,
+        delivered: &mut dyn FnMut(),
+    ) -> CoreResult<()> {
+        Self::require_input_permission()?;
+        self.input.type_text_interruptible(target, text, mode, &self.capture, check_stop, delivered)
+    }
+
     fn key_chord(&mut self, target: &Target, keys: &[KeyName], mode: DeliveryMode) -> CoreResult<()> {
         Self::require_input_permission()?;
         self.input.key_chord(target, keys, mode, &self.capture)
