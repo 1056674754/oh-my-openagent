@@ -96,8 +96,17 @@ function holderWait(lockPath: string): (holder: string) => void {
       since = now
       return
     }
-    if (now - since >= LOCK_HOLDER_WAIT_MS) throw new Error(`Timed out acquiring task record lock: ${lockPath}`)
+    if (now - since >= LOCK_HOLDER_WAIT_MS) {
+      throw new Error(`Timed out acquiring task record lock: ${lockPath} (${describeHolder(holder)} for ${now - since}ms)`)
+    }
   }
+}
+
+// Names what the waiter was stuck behind, so a timeout tells a slow live holder from a lock in transition.
+function describeHolder(holder: string): string {
+  if (holder === DELETE_PENDING) return "a delete-pending lock file"
+  const owner = parseLockOwner(holder.split(":").slice(2).join(":"))
+  return owner === undefined ? "a lock with no parseable owner" : `held by pid ${owner.pid}`
 }
 
 function tryAcquire(lockPath: string): AcquireAttempt {
