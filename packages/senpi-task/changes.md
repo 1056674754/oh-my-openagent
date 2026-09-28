@@ -1,3 +1,11 @@
+## A task record follows the child session, not the first agent_end (#9069)
+
+`src/runners/rpc/turn-settlement.ts` (new) is shared by both process runners (`runners/rpc/handle.ts`, `runners/rpc-host/handle.ts`): the outcome of a non-retrying `agent_end` is held until senpi's `agent_idle` (emitted only when no settle-time continuation started and no session work is pending), dropped when another run starts (`agent_start`), and a user abort still settles at once as cancelled. A child exit settles any held outcome. A TTSR interrupt followed by its corrective nudge therefore ends with the continuation's result instead of `error: This operation was aborted` (`runners/rpc-host/handle-continuation.test.ts`, RED on the old handle).
+
+A run the child starts on its own after its turn settled (a monitor or background job woke it) resets the handle's turn and fires `onSelfResumed`; `manager/self-resumed-turn.ts` (new) reopens the settled record under the next `run_epoch` (the same `buildRevived` a `task_send` revival uses), marks `resumed_run_epoch`, re-arms outcome tracking, and `completion/notification.ts` labels that completion `task completion (resumed turn)` (`manager/manager-self-resumed-turn.test.ts`).
+
+`runners/rpc-host/handle.ts` `park`: a session the host parks is idle on the host, so an outcome still held for `agent_idle` settles there. Test fixtures (`fake-host.ts`, `fake-child.mjs` and hand-emitted `agent_end` in handle tests) now follow `agent_end` with `agent_idle` as senpi does.
+
 ## A host lost during open_session reports host_unreachable (#9020)
 
 `HostSessionClient.open` (`src/runners/rpc-host/session-client.ts`) now classifies an `open_session` rejection with senpi's exported `isTransportGoneError`: when the host went away with the open in flight it rejects with `HostUnavailableError("host_unreachable", fallbackAllowed: false)` instead of handing senpi's `RpcTransportGoneError` to `toOpenFailure`, which returned it untouched and let `openTaskHostSession` record a `session_unavailable` failure with no reason. Typed open refusals keep their codes. `src/runners/rpc-host/open-session-transport-loss.test.ts` drives the real engine client against the fake host with the open withheld and the host crashed, at the session client and at `openTaskHostSession` (RED: raw `rpc_transport_gone`).

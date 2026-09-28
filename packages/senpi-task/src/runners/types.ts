@@ -89,6 +89,8 @@ export type RpcChildHandle = ChildHandle & {
   readonly spawnSpec?: RpcSpawnSpec
   terminalAssistantMessage?(): RpcTerminalAssistantMessage | undefined
   wasAbortedByUser?(): boolean
+  // Fires when the child starts a run on its own after its turn settled (omo#9069).
+  onSelfResumed?(listener: () => void): () => void
   switchSession?(sessionPath: string): Promise<RpcSwitchSessionResult>
   getEntries?(since?: string): Promise<RpcEntriesResult>
   terminate(options?: TerminateOptions): Promise<void>
