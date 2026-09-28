@@ -3,7 +3,6 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { createHostDaemonPaths } from "@code-yeongyu/senpi"
 import { OmoTaskSettingsSchema } from "@oh-my-opencode/omo-config-core"
 
 import { loadSenpiBarrel } from "../../../../senpi-task/src/lazy/senpi-barrel"
@@ -76,8 +75,9 @@ describe("host runner feeding the crash notice", () => {
 
 describe("readNewestHostCrash", () => {
   const dirs: string[] = []
+  let createHostDaemonPaths: Awaited<ReturnType<typeof loadSenpiBarrel>>["createHostDaemonPaths"]
   beforeAll(async () => {
-    await loadSenpiBarrel()
+    ;({ createHostDaemonPaths } = await loadSenpiBarrel())
   })
   afterEach(() => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
