@@ -170,7 +170,7 @@ describe("registerStoreIndex", () => {
     await registerStoreIndex({ indexPath: path, storeDir: existingStore, now: Date.now })
     await registerStoreIndex({ indexPath: path, storeDir: "/tmp/missing-sync-store", now: Date.now })
 
-    expect(pruneMissingStoreIndexEntriesSync(path)).toEqual(["/tmp/missing-sync-store"])
+    expect(pruneMissingStoreIndexEntriesSync(path)).toEqual([resolve("/tmp/missing-sync-store")])
     expect(Object.keys(readTaskStoreIndex(path).stores)).toEqual([existingStore])
   })
 
