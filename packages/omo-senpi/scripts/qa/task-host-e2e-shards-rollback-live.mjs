@@ -24,7 +24,9 @@ function stepFor(body, state) {
         type: "text",
         text: `${label} R0 continuation complete`,
         releaseTimeoutMs: 600_000,
-        releaseWhen: () => state.resumeRelease,
+        // Children answer first; a parent is released only once its child's record settled, since
+        // only a live parent writes that record.
+        releaseWhen: () => state.resumeChildRelease || state.resumeRelease,
       }
     }
     state.arrivals[label] ??= Date.now()
@@ -73,6 +75,7 @@ function createProvider(sandbox) {
     resumePhase: false,
     releaseRequested: false,
     resumeRelease: false,
+    resumeChildRelease: false,
   }
   const server = startMockCompletionsServer({
     steps: (body) => new Proxy([], {
@@ -131,8 +134,11 @@ export async function runRollbackLiveMatrix(current, beforeBin, artifacts) {
       rollback.migration.records.every((row) => row.socket?.endsWith("/rpc/rpc.sock") && row.events.length === 1),
     rollback_r0_resume:
       rollback.resumed.status?.socket?.endsWith("/rpc/rpc.sock") &&
-      rollback.resumed.records.length === 3 && rollback.resumed.records.every((row) =>
-        row.status === "completed" && row.socket?.endsWith("/rpc/rpc.sock")),
+      rollback.resumed.expected_workers >= 1 &&
+      (rollback.resumed.status?.sessions?.worker ?? 0) >= rollback.resumed.expected_workers &&
+      rollback.resumed.records.length === 3 &&
+      rollback.resumed.records.every((row) => row.socket?.endsWith("/rpc/rpc.sock") && row.status !== "error" && row.status !== "lost") &&
+      rollback.resumed.records.find((row) => row.project === rollback.resumed.mid_turn?.project)?.status === "completed",
     rollback_without_prepare_parks:
       control.r0_daemon_exit === 0 && control.parked?.suspension_reason === "daemon_unavailable" &&
       control.parked.socket === control.original_socket && /\/p-[0-9a-f]{16}\.sock$/.test(control.original_socket),

@@ -4,6 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { observeState, stopParent } from "./task-host-e2e-events.mjs"
 import { HostClient } from "./task-host-e2e-shards-rpc.mjs"
 import { spawnParent } from "./task-host-e2e-process.mjs"
+import { jsonlLines } from "./task-host-e2e-support.mjs"
 import {
   startParent,
   taskRecords,
@@ -153,6 +154,7 @@ export async function runNestedResumeScenario(current, artifacts) {
     const privateSocket = privateHostSocket(endpointBefore)
     stoppedSupervisor = before.supervisor
     process.kill(stoppedSupervisor, "SIGSTOP")
+    const stoppedAt = Date.now()
     privateClient = await HostClient.connect(privateSocket, "nested-resume-private")
     const attached = await privateClient.openSession({
       cwd: sandbox.cwd,
@@ -171,10 +173,16 @@ export async function runNestedResumeScenario(current, artifacts) {
       provider: "omo-http",
       modelId: "mock-1",
     })
+    // A SIGSTOPped supervisor still completes connects from its listen backlog, which the lifecycle
+    // reads as BUSY, not gone (omo#9069): C1's revival of G1 waits for its own host instead of parking
+    // it. Either verdict is acceptable here - parked own_host_unreachable (the pre-#9069 contract) or
+    // left untouched and waiting - as long as nothing was ensured, spawned or moved (checked below).
     const deferred = await observeState(sandbox.root, () => {
       const record = taskRecords(project).find((entry) => entry.task_id === grandchild.task_id)
       return record?.suspension_reason === "own_host_unreachable" ? record : undefined
-    }, { timeoutMs: 30_000 })
+    }, { timeoutMs: 15_000 })
+    const deferredAtMs = Date.now() - stoppedAt
+    const grandchildAtDeadline = taskRecords(project).find((entry) => entry.task_id === grandchild.task_id) ?? null
     const stopped = invariant(sandbox, socket, before)
     await privateClient.request({
       type: "prompt",
@@ -212,6 +220,15 @@ export async function runNestedResumeScenario(current, artifacts) {
       normal_resume: normal,
       private_socket: privateSocket,
       deferred_reason: deferred?.suspension_reason ?? null,
+      deferred_after_stop_ms: deferredAtMs,
+      stalled_own_host_verdict: deferred === undefined ? "busy_wait" : "parked_own_host_unreachable",
+      grandchild_during_stall: grandchildAtDeadline === null ? null : {
+        status: grandchildAtDeadline.status,
+        residency_state: grandchildAtDeadline.residency_state,
+        suspension_reason: grandchildAtDeadline.suspension_reason ?? null,
+        socket: grandchildAtDeadline.host_session?.socket ?? null,
+      },
+      grandchild_log_tail: jsonlLines(join(project.stateDir, "logs", `${grandchild.task_id}.jsonl`)).slice(-6),
       notice_count: notices ?? 0,
       stopped_invariants: stopped,
       resumed_instance: protocol.data?.instanceId ?? null,
@@ -221,8 +238,11 @@ export async function runNestedResumeScenario(current, artifacts) {
     }
     return scenarioResult(
       normal.unchanged &&
-        deferred !== undefined &&
-        notices === 1 &&
+        (deferred !== undefined
+          ? notices === 1
+          : grandchildAtDeadline?.status === "running" &&
+            grandchildAtDeadline.host_session?.socket === socket &&
+            (notices ?? 0) === 0) &&
         stopped.unchanged &&
         protocol.data?.instanceId === before.instance &&
         reattached !== undefined &&

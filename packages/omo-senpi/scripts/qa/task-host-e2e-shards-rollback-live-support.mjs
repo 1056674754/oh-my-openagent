@@ -196,17 +196,26 @@ async function resumeOnR0(sandbox, r0, projects, sessions, original, provider) {
     const endpoint = statusAll(sandbox).endpoints.find((row) => row.socket === rpc)
     return (endpoint?.sessions?.worker ?? 0) >= expectedWorkers ? endpoint : undefined
   }, { timeoutMs: 180_000 })
+  provider.resumeChildRelease = true
+  // The mid-turn child must finish its continuation under its live parent. The other two finished
+  // while no parent was attached; R0 reopens them on rpc.sock (the worker count above) but predates
+  // adopting such a finished turn, so their records are reported as observed, not required settled.
+  const midTurn = { project: original[0].project.name, task_id: original[0].record.task_id }
+  const midTurnDone = await observeState(sandbox.root, () =>
+    rows(projects).find(({ project, record }) =>
+      project.name === midTurn.project && record.task_id === midTurn.task_id)?.record.status === "completed" ? true : undefined,
+  { timeoutMs: 180_000 })
+  const completed = midTurnDone === true ? rows(projects) : undefined
   provider.resumeRelease = true
   await Promise.all(parents.map((parent) => awaitParent(parent, 60_000)))
-  const completed = await observeState(sandbox.root, () => {
-    const current = rows(projects)
-    return current.length === projects.length &&
-      current.every(({ record }) => record.status === "completed") ? current : undefined
-  }, { timeoutMs: 180_000 })
-  return { daemon: lastJsonLine(daemon.stdout), status,
-    records: completed?.map(({ record }) => ({
-      task_id: record.task_id, status: record.status, socket: record.host_session?.socket,
-    })) ?? [] }
+  const summary = ({ project, record }) => ({
+    project: project.name, task_id: record.task_id, status: record.status, socket: record.host_session?.socket,
+    residency_state: record.residency_state, suspension_reason: record.suspension_reason ?? null,
+    error_message: record.error_message ?? null,
+  })
+  return { daemon: lastJsonLine(daemon.stdout), status, mid_turn: midTurn, expected_workers: expectedWorkers,
+    records: completed?.map(summary) ?? [],
+    ...(completed === undefined ? { unsettled: rows(projects).map(summary) } : {}) }
 }
 
 export async function runRollbackScenario(current, r0, prepare, createProvider) {
@@ -234,6 +243,9 @@ export async function runRollbackScenario(current, r0, prepare, createProvider) 
       ? runBin(sandbox, ["daemon", "rollback-prepare", "--json"], { timeoutMs: 120_000 })
       : undefined
     const afterDigests = recordDigests(projects)
+    // Read the recorded sockets right after the refusal, before the drain and the real prepare
+    // rewrite them to rpc.sock.
+    const socketsAfterRefusal = rows(projects).map(({ record }) => record.host_session?.socket)
     const drain = await drainNormally(sandbox, provider, parents)
     parents = []
     const interruptedFixture = interruptCompletedRecord(
@@ -245,7 +257,7 @@ export async function runRollbackScenario(current, r0, prepare, createProvider) 
       const migration = runBin(sandbox, ["daemon", "rollback-prepare", "--json"], { timeoutMs: 120_000 })
       facts = { ...facts, interrupted_fixture: interruptedFixture,
         refused: { exit: refused.status, stderr: refused.stderr,
-        beforeSockets, socketsAfterRefusal: rows(projects).map(({ record }) => record.host_session?.socket),
+        beforeSockets, socketsAfterRefusal,
         beforeDigests, afterDigests }, drain,
         migration: { exit: migration.status, payload: lastJsonLine(migration.stdout),
           index: JSON.parse(readFileSync(join(sandbox.agentDir, "rpc", "task-stores.json"), "utf8")),
