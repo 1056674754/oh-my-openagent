@@ -14,6 +14,12 @@ import {
 
 const dirs: string[] = []
 
+// The store index is the host runner's admission precondition, and the rpc-host-sharding plan keeps the host
+// runner off win32 (U6: "the host runner is never used on win32"; Must NOT: "`RpcHostRunner` still unused
+// there"). A throughput case - 800 new stores, each a whole-index rewrite and fsync under one lock - measures
+// a path no win32 session takes, and a windows-latest runner spends over 60 s on those serialized fsyncs.
+const posixHostRunnerTest = test.skipIf(process.platform === "win32")
+
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
@@ -156,7 +162,7 @@ describe("registerStoreIndex", () => {
     expect(Object.keys(readTaskStoreIndex(path).stores).sort()).toEqual([existingStore, resolve("/p2/.omo/senpi-task")].sort())
   })
 
-  test("#given 32 processes each registering 25 distinct stores at once #when they all finish #then every one of the 800 stores is in the index", async () => {
+  posixHostRunnerTest("#given 32 processes each registering 25 distinct stores at once #when they all finish #then every one of the 800 stores is in the index", async () => {
     // given
     const path = indexPath()
     const writer = join(import.meta.dir, "__fixtures__", "register-stores.ts")

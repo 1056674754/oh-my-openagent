@@ -4,13 +4,14 @@
 may keep the lock before a waiter gives up (default unchanged: 1 s, sized for a record read-modify-write).
 `runners/rpc-host/durable-json.ts` exports `DURABLE_JSON_LOCK_OPTIONS` (10 s), and `store-index.ts`
 (register, prune) and `shard-sidecar.ts` (write, register store) pass it: their holders rewrite and fsync
-the whole file, and on a loaded windows-latest runner a live holder kept the index lock past 1 s, so a
-waiter behind it failed `store_index_unavailable` (the 32-process registration case failed
-intermittently). A stalled holder still times the waiter out; the task record, workpool and lease locks
-keep the 1 s budget.
+the whole file, and a loaded host (a windows-latest runner here) keeps a live holder on the index lock
+past 1 s, so a waiter behind it failed `store_index_unavailable`. A stalled holder still times the waiter
+out; the task record, workpool and lease locks keep the 1 s budget.
 
 Tests: `runners/rpc-host/store-index.test.ts` (a live holder that keeps the index lock for 1.5 s: the
-registration behind it waits and lands; it timed out at 1 s before).
+registration behind it waits and lands; it timed out at 1 s before). The 32-process x 25-store
+throughput case runs on POSIX only: the host runner the index serves is never used on win32 (plan U6),
+and the runner's 800 serialized fsynced rewrites take over 60 s there.
 
 ## AGENTS: the host runner opens children on their parent session's own host
 
