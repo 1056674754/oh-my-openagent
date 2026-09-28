@@ -122,4 +122,18 @@ describe("a reopened session's finished transcript settles only an idle session 
     expect(await outcome).toEqual({ status: "completed", finalResponse: "all green" })
     await handle.dispose()
   })
+  test("#given a finished transcript #when the reopened session's state read fails #then the turn stays unsettled and the handle survives", async () => {
+    // given
+    const port = { ...fakeSessionPort(), getState: () => Promise.reject(new Error("get_state timed out")) }
+    const handle = handleOverPort(port)
+    const outcome = handle.waitForOutcome()
+
+    // when
+    await handle.adoptFinishedTurn("all green")
+
+    // then
+    expect(await settledYet(outcome)).toBe(false)
+    expect(handle.hasExited()).toBe(false)
+    await handle.dispose()
+  })
 })

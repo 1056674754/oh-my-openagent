@@ -331,7 +331,9 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     },
     adoptFinishedTurn: async (finalResponse) => {
       if (turnOutcome !== undefined || settlement.pending() !== undefined) return
-      if (!sessionIsIdle(await client.getState())) return
+      // A state read that fails is not proof of idleness, and must never cost the reattach: stay busy.
+      const state = await client.getState().catch(() => undefined)
+      if (state === undefined || !sessionIsIdle(state)) return
       if (turnOutcome === undefined && settlement.pending() === undefined) settleTurn({ status: "completed", finalResponse })
     },
     onSelfResumed: (listener) => {
