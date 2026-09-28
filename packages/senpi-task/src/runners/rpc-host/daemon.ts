@@ -73,6 +73,7 @@ export type HostUnavailableReason =
   | "host_unreachable"
   | "ensure_timed_out"
   | "ensure_failed"
+  | "host_busy"
 
 /**
  * The daemon cannot host this child. `fallbackAllowed` marks the LOUD fallbacks to the per-child
