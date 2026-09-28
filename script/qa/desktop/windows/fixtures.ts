@@ -142,6 +142,11 @@ export class QaWorkspace {
     this.remember(engine.pid)
   }
 
+  /** Tracks a fixture process a scenario module spawned itself, for the same teardown. */
+  trackProcess(child: ChildProcess, label: string): void {
+    this.track(child, label)
+  }
+
   teardown(): string[] {
     for (const [pid, image] of this.pids) {
       if (stillTracked(pid, image)) spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { encoding: "utf8" })
