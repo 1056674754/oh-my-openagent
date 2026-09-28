@@ -1,3 +1,13 @@
+## 2026-09-28 - Adopt senpi 2026.9.28-5: GitHub Copilot recovers from a revoked token instead of failing every model (senpi #2297)
+
+Every senpi pin moves from 2026.9.28-4 to 2026.9.28-5 (root devDependency, `omo-native`, the `omo-senpi` and `senpi-task` peer and dev pins, their pin tests, `bun.lock`, and the version comment in `packages/omo-native/bin/lib/provider-map.json`). The new engine carries:
+
+- **GitHub Copilot no longer fails on every model with HTTP 403 after GitHub revokes the cached Copilot token (senpi #2297, #2302).** The token is re-exchanged once and the request re-sent before the reply starts streaming. A session recovers without `/login`, and with two Copilot logins a login that stays refused is blocked and the request moves to the other one. A Copilot 402/403 or 429 `quota_exceeded` now says whether it is a quota or a refusal and carries the GitHub request id.
+- **Copilot models compact before Copilot's own prompt limit (senpi #2299).** The account's `GET /models` prompt and output limits replace the larger native limits, and `model_max_prompt_tokens_exceeded` triggers compact-and-retry.
+- **Copilot turns no longer fail with a bare HTTP 400 when more than 128 tools are exposed (senpi #2298).**
+- **A goal stops on the first persistent provider 401/403 instead of looping to the continuation cap (senpi #2293).**
+- **The built-in OpenCode Go default model is `kimi-k3` (senpi #2295).**
+
 ## 2026-09-28 - Wayland captures without display geometry map through the libei layout or refuse coordinate input (#8957)
 
 When the ScreenCast portal is unavailable, Wayland capture falls back to the Screenshot portal, which returns physical pixels and no display scale or layout. The frame was treated as scale 1, so on a scaled output (a 200% display returned 1280x720 pixels for a 640x360 logical desktop) a click at a screenshot pixel landed at the wrong place. A ScreenCast stream that reported no logical size was likewise treated as scale 1.
