@@ -211,7 +211,7 @@ export async function admitSuspendedBatch(
   try {
     // Residents include live foreign owners; when the configured cap sits below the current
     // resident count, nothing is selected - revive none, keep owned residents, evict nothing.
-    const { selected, overflow } = selectRevivalBatch(
+    const { selected, deferred } = selectRevivalBatch(
       context.store.list().records,
       parentSessionId,
       context.config.residency_max_children,
@@ -242,7 +242,7 @@ export async function admitSuspendedBatch(
       }
     }
     // Overflow stays suspended with deferred/capacity - never evicted, never lost.
-    for (const record of overflow) {
+    for (const record of deferred) {
       outcomes.push({ task_id: record.task_id, kind: "deferred", reason: "capacity" })
     }
   } finally {

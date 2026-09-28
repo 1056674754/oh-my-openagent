@@ -34,7 +34,7 @@ export function residentsOf(records: readonly TaskRecord[], parentSessionId: str
 
 export type RevivalSelection = {
   readonly selected: readonly TaskRecord[]
-  readonly overflow: readonly TaskRecord[]
+  readonly deferred: readonly TaskRecord[]
 }
 
 /**
@@ -54,7 +54,7 @@ export function selectRevivalBatch(
   const available = isUnboundedResidency(maxChildren)
     ? candidates.length
     : Math.max(0, maxChildren - residentsOf(records, parentSessionId).length)
-  return { selected: candidates.slice(0, available), overflow: candidates.slice(available) }
+  return { selected: candidates.slice(0, available), deferred: candidates.slice(available) }
 }
 
 function byRevivalPriority(records: readonly TaskRecord[]): readonly TaskRecord[] {

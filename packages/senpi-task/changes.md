@@ -1,3 +1,10 @@
+## lifecycle: the revival selector names the children it leaves suspended `deferred`
+
+- `lifecycle/revival-selection.ts` / `residency.ts`: `selectRevivalBatch` returns `{ selected, deferred }` (was `overflow`): the
+  suspended children past the parent's residency cap that wait for the next revival. Rename only; no behavior change.
+  The rpc-host-sharding plan's audit forbids cap/overflow vocabulary in production code because per-parent task hosts
+  have no shard limit, and this name read like one.
+
 ## manager: the auto execution-mode gate admits the task store before its first ask
 
 - `manager/execution-mode.ts`: `ExecutionModeGateHooks.admit` runs before the gate's first ask, which may ensure the
