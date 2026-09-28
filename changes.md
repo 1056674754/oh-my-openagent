@@ -1,6 +1,8 @@
-## 2026-09-28 - Wayland Screenshot-portal fallback frames refuse coordinate input (#8957)
+## 2026-09-28 - Wayland captures without display geometry map through the libei layout or refuse coordinate input (#8957)
 
-When the ScreenCast portal is unavailable, Wayland capture falls back to the Screenshot portal, which returns physical pixels and no display scale or layout. The frame was treated as scale 1, so on a scaled output (a 200% display returned 1280x720 pixels for a 640x360 logical desktop) a click at a screenshot pixel landed at the wrong place. The fallback screenshot is still returned, but coordinate input and hit tests against it are refused with a reason pointing to accessibility actions or the ScreenCast portal.
+When the ScreenCast portal is unavailable, Wayland capture falls back to the Screenshot portal, which returns physical pixels and no display scale or layout. The frame was treated as scale 1, so on a scaled output (a 200% display returned 1280x720 pixels for a 640x360 logical desktop) a click at a screenshot pixel landed at the wrong place. A ScreenCast stream that reported no logical size was likewise treated as scale 1.
+
+Both captures now take their geometry from the connected libei input session, whose device regions give the logical layout and per-region scale that input coordinates use. The image is accepted only when it is exactly that layout, either at logical size or at one uniform scale, within one pixel of rounding; a ScreenCast stream without a size takes the size of the region at its position under the same rule. Otherwise the capture is still returned, but coordinate input and hit tests against it are refused with a reason pointing to accessibility actions. Capture never opens an input session to learn the layout: before the first desktop input, such a frame refuses coordinate input. Pointer input through a frame derived this way is refused when the libei layout has changed since the capture.
 
 ## 2026-09-28 - macOS foreground pointer input refuses a covered point (#9079)
 
