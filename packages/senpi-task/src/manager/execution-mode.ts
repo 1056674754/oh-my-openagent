@@ -53,19 +53,64 @@ export interface ExecutionModeGate {
   /** The resolved mode, or undefined while no ensure has settled yet. */
   current(): ExecutionMode | undefined
   ensure(): Promise<ExecutionMode>
+  /**
+   * A speculative ask ahead of the first spawn (the task-host pre-warm). An answer is kept exactly as
+   * `ensure()` would keep it; a FAILED ask is dropped, so the first spawn's `ensure()` asks again and a
+   * pre-warm can never decide the session's mode by failing. An `ensure()` issued while the warm is in
+   * flight joins it. Never rejects.
+   */
+  warm(): Promise<void>
 }
 
-export function createExecutionModeGate(resolve: () => Promise<ExecutionMode>): ExecutionModeGate {
+export interface ExecutionModeGateHooks {
+  /** A failed `ensure()`: the session settles on in-process. */
+  readonly onEnsureFailure?: (error: unknown) => void
+  /** A failed `warm()`: nothing is settled. */
+  readonly onWarmFailure?: (error: unknown) => void
+}
+
+export function createExecutionModeGate(
+  resolve: () => Promise<ExecutionMode>,
+  hooks: ExecutionModeGateHooks = {},
+): ExecutionModeGate {
   let resolved: ExecutionMode | undefined
-  let pending: Promise<ExecutionMode> | undefined
+  let settled: Promise<ExecutionMode> | undefined
+  let warming: Promise<ExecutionMode | undefined> | undefined
+  const keep = (mode: ExecutionMode): ExecutionMode => {
+    resolved = mode
+    return mode
+  }
+  const ensure = (): Promise<ExecutionMode> => {
+    if (settled !== undefined) return settled
+    if (warming !== undefined) return warming.then((mode) => mode ?? ensure())
+    settled = resolve()
+      .catch((error: unknown): ExecutionMode => {
+        hooks.onEnsureFailure?.(error)
+        return "in-process"
+      })
+      .then(keep)
+    return settled
+  }
   return {
     current: () => resolved,
-    ensure: () => {
-      pending ??= resolve().catch((): ExecutionMode => "in-process").then((mode) => {
-        resolved = mode
-        return mode
+    ensure,
+    warm: () => {
+      if (settled !== undefined || warming !== undefined) return (settled ?? warming ?? Promise.resolve()).then(() => undefined)
+      const attempt: Promise<ExecutionMode | undefined> = resolve().then(
+        (mode) => {
+          settled = Promise.resolve(keep(mode))
+          return mode
+        },
+        (error: unknown) => {
+          hooks.onWarmFailure?.(error)
+          return undefined
+        },
+      )
+      warming = attempt
+      void attempt.then(() => {
+        if (warming === attempt) warming = undefined
       })
-      return pending
+      return attempt.then(() => undefined)
     },
   }
 }
