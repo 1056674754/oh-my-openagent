@@ -132,6 +132,7 @@ bun add -g omo-ai
 - `omo update` on a compiled binary picks the newest release on its own channel and the asset it was built as, and prints a command that replaces the running binary; the TUI update notice says `omo update`.
 - `omo doctor` treats a standalone omo binary as an OmO install instead of an unknown file to delete, and warns once when it and omo-ai are both on PATH.
 - On Windows, `omo doctor` and `install --platform=native` recognize a Bun-installed omo, and `omo update` uses `bun add -g` for a legacy Bun home install. ([#8909](https://github.com/code-yeongyu/oh-my-openagent/issues/8909))
+- The computer use engine for Intel Macs starts: it was built for macOS 10.12 and could not load its Swift libraries, and the release now runs its selftest under Rosetta. ([#9139](https://github.com/code-yeongyu/oh-my-openagent/pull/9139))
 
 ## [5.0.1] - 2026-09-27
 
