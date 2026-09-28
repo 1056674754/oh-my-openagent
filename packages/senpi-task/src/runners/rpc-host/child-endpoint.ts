@@ -134,12 +134,11 @@ function ownHostUnreachable(socket: string, detail: string, cause?: unknown): Ru
 }
 
 /**
- * THE one place an ensure result is consumed. When the engine's ensure starts handing its readiness
- * connection to the caller as an attach hold (senpi #2242), that hold is released here, after the
- * open it guards.
+ * THE one place an ensure result is consumed. The engine's attach hold (senpi #2242) never reaches
+ * here: `ensureTaskDaemon` releases it before returning, because its result is cached and shared.
  */
 export async function ensureChildEndpoint(ports: ChildEndpointPorts, endpoint: ChildEndpoint): Promise<string> {
-  if (endpoint.attachOnly || attachOnlyEndpoint(endpoint.socket, ports.ownHostSocket(), ports.insideHost())) {
+  if (!isEnsuredEndpoint(ports, endpoint)) {
     await attachOwnEndpoint(ports.probeHost, endpoint.socket)
     return endpoint.socket
   }
@@ -152,6 +151,11 @@ export async function ensureChildEndpoint(ports: ChildEndpointPorts, endpoint: C
     ...(endpoint.sidecarNotice === undefined ? {} : { sidecarNotice: endpoint.sidecarNotice }),
   })
   return daemon.socket
+}
+
+/** Whether `ensureChildEndpoint` ensures this endpoint, or only attaches to the host it lives on. */
+export function isEnsuredEndpoint(ports: ChildEndpointPorts, endpoint: ChildEndpoint): boolean {
+  return !endpoint.attachOnly && !attachOnlyEndpoint(endpoint.socket, ports.ownHostSocket(), ports.insideHost())
 }
 
 /** The sidecar's copy of the store list is informational: a failure is logged and noticed once. */

@@ -1,3 +1,35 @@
+## A host that dies inside the ensure cache window is re-ensured, not trusted
+
+`runners/rpc-host/daemon.ts`: `ensureTaskDaemon` caches a successful ensure per socket for
+`TASK_DAEMON_CACHE_TTL_MS` (5 s), and nothing dropped the entry when its host died: a spawn in that
+window reused the dead answer, skipped the re-ensure and failed `host_unreachable`, and a live child's
+reattach did the same until the window ran out. `forgetTaskDaemon(socket, instanceId?)` drops the entry
+(kept when it already vouches for a different generation; the entry now records the generation its
+ensure learned). `runners/rpc-host/live-children.ts` calls it on every observed transport loss, before
+the reattach re-ensures. `runners/rpc-host.ts`: when the OPEN on a freshly ensured (non-recorded,
+non-attach-only) endpoint fails `host_unreachable` - no probe answer, or the transport went away during
+`open_session` - the start forgets the entry, ensures and opens once more.
+
+Tests: `runners/rpc-host-ensure-cache.test.ts` (new: a spawn right after the host died re-ensures and
+runs; a live child's reattach after its host died re-ensures instead of ending `lost`),
+`runners/rpc-host/daemon.test.ts` (a loss of the cached generation re-probes, a stale generation's loss
+does not).
+
+## The task daemon ensure releases the engine's attach hold (#9041)
+
+`runners/rpc-host/daemon.ts`: senpi #2242 makes `ensureHost()` return an attach hold - the readiness
+connection stays open and the host counts the ensuring process as attached - until `release()` is
+called. `ensureTaskDaemon` releases it once, right after its own capability probe (in a `finally`, so
+a failed probe still releases) and before it returns: its result is cached and shared by the
+single-flight, and the transient daemon would otherwise never start its idle window while omo runs.
+Every ensure path (spawn, revival, reattach, pre-warm, shard routing) goes through this one call.
+`lazy/senpi-barrel.ts`: `EnsuredSenpiHost.release` is optional, so the current engine pin (no hold)
+keeps working.
+
+Tests: `runners/rpc-host/daemon.test.ts` ("ensureTaskDaemon attach hold": a started host is released
+after its capability probe, a reused one once, a throwing probe still releases, concurrent and cached
+ensures release the one engine ensure once, a hold-less pin still ensures).
+
 ## A session the host parks parks its task record
 
 `manager/manager-outcome.ts`: every park of a daemon session now reaches the record, not only the ones

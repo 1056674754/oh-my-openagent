@@ -8,13 +8,14 @@ import { RunnerError } from "./in-process/runner-error"
 import {
   admitChildStore,
   ensureChildEndpoint,
+  isEnsuredEndpoint,
   recordSidecarStore,
   resolveChildEndpoint,
   type ChildEndpointPorts,
   type EnsureTaskDaemonPort,
   type ShardResolver,
 } from "./rpc-host/child-endpoint"
-import { HostUnavailableError, ensureTaskDaemon } from "./rpc-host/daemon"
+import { HostUnavailableError, ensureTaskDaemon, forgetTaskDaemon } from "./rpc-host/daemon"
 import { recordedEndpointFailure } from "./rpc-host/endpoint-failure"
 import { onceNoticeSink, type HostNoticeSink } from "./rpc-host/host-notice"
 import { createReattachPort } from "./rpc-host/reattach-port"
@@ -160,26 +161,34 @@ export class RpcHostRunner {
     const endpoint = resolveChildEndpoint(this.endpoint, spec)
     const keyed = endpoint.shardKey === undefined ? spec : { ...spec, treeKey: endpoint.shardKey, shardKey: endpoint.shardKey }
     await admitChildStore(this.endpoint)
-    let socket: string
-    try {
-      socket = await ensureChildEndpoint(this.endpoint, endpoint)
-    } catch (error) {
-      if (RunnerError.is(error)) throw error
-      if (endpoint.recorded) throw recordedEndpointFailure(this.endpoint.notice, error, endpoint.socket)
-      return await this.delegate(error, spec, isHostTransportError(error))
-    }
-    await recordSidecarStore(this.endpoint, socket)
-    try {
-      return await this.openChild(keyed, socket)
-    } catch (error) {
-      if (RunnerError.is(error)) throw error
-      // The host refusing the OPEN on a recorded endpoint (e.g. a missing capability - the only
-      // check the session's own endpoint gets, since it is never ensured) must park the child too:
-      // the fallback would reopen the retained session off its endpoint.
-      if (endpoint.recorded && error instanceof HostUnavailableError) {
-        throw recordedEndpointFailure(this.endpoint.notice, error, endpoint.socket)
+    for (let retried = false; ; retried = true) {
+      let socket: string
+      try {
+        socket = await ensureChildEndpoint(this.endpoint, endpoint)
+      } catch (error) {
+        if (RunnerError.is(error)) throw error
+        if (endpoint.recorded) throw recordedEndpointFailure(this.endpoint.notice, error, endpoint.socket)
+        return await this.delegate(error, spec, isHostTransportError(error))
       }
-      return await this.delegate(error, spec, false)
+      await recordSidecarStore(this.endpoint, socket)
+      try {
+        return await this.openChild(keyed, socket)
+      } catch (error) {
+        if (RunnerError.is(error)) throw error
+        // The host refusing the OPEN on a recorded endpoint (e.g. a missing capability - the only
+        // check the session's own endpoint gets, since it is never ensured) must park the child too:
+        // the fallback would reopen the retained session off its endpoint.
+        if (endpoint.recorded && error instanceof HostUnavailableError) {
+          throw recordedEndpointFailure(this.endpoint.notice, error, endpoint.socket)
+        }
+        // An ensure answered from the cache can vouch for a host that died moments ago: drop it and
+        // ensure once more, which starts the endpoint again.
+        if (!retried && isHostGone(error) && isEnsuredEndpoint(this.endpoint, endpoint)) {
+          forgetTaskDaemon(socket)
+          continue
+        }
+        return await this.delegate(error, spec, false)
+      }
     }
   }
 
@@ -302,4 +311,8 @@ export class RpcHostRunner {
       })
     }
   }
+}
+
+function isHostGone(error: unknown): boolean {
+  return error instanceof HostUnavailableError && error.reason === "host_unreachable"
 }
