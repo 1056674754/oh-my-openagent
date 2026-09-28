@@ -1,3 +1,7 @@
+## 2026-09-28 - `computer_actions` activates with `computer` (#9048)
+
+With `computer.cua_adapter: true`, activating computer use (`/computer on`, a by-name call or a `tool_search` promotion) added only `computer` to the active tool set, and `/computer off` removed only `computer`. A provider without native deferred-tool search declares only active tools in its request, so an OpenAI computer-use model could find `computer_actions` through `tool_search` but never call it. Both tools now join and leave the active set together; without the adapter only `computer` moves, as before. The computer-use QA driver gained a scenario that records the tools each request declares and checks that the request after activation carries `computer_actions`.
+
 ## 2026-09-28 - X11 computer use keeps offscreen frames and newer user state (#8974)
 
 Partially offscreen X11 windows now keep a full-size capture frame with transparent pixels for the off-root area, so an unchanged window remains targetable from its screenshot instead of being misclassified as resized. Keyboard text, chords and XTEST modifiers read the current server keymap once per operation, so runtime layout changes no longer require reconnecting.
