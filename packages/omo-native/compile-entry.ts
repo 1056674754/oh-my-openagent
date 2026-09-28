@@ -28,6 +28,11 @@ import { isInternalSupervisorLaunch, runInternalSupervisor } from "./supervisor-
 import { spawnSync } from "node:child_process"
 import { delimiter } from "node:path"
 import { registerBunOAuthFlows } from "../../node_modules/@code-yeongyu/senpi/node_modules/@earendil-works/pi-ai/dist/bun-oauth.js"
+import {
+  migrateHostSessionSockets,
+  planHostSessionSocketMigration,
+} from "../senpi-task/src/store/rollback-migrate"
+import { pruneMissingStoreIndexEntriesSync } from "../senpi-task/src/runners/rpc-host/store-index"
 
 // Register statically bundled OAuth flows before loading senpi's CLI graph.
 // Bun's compiled filesystem cannot resolve the opaque dynamic cursor loader.
@@ -213,6 +218,38 @@ export function shouldPrintCompiledBanner(args: string[], stderrIsTTY: boolean):
   return true
 }
 
+type CompiledRollbackMigrationRequest =
+  | {
+      readonly operation?: "migrate"
+      readonly storeDir: string
+      readonly to: string
+      readonly deadEndpoints?: readonly string[]
+      readonly dryRun?: boolean
+      readonly planOnly?: boolean
+    }
+  | {
+      readonly operation: "prune-store-index"
+      readonly indexPath: string
+    }
+
+function compiledRollbackMigration() {
+  return {
+    run(request: CompiledRollbackMigrationRequest) {
+      if (request.operation === "prune-store-index") {
+        return { removed: pruneMissingStoreIndexEntriesSync(request.indexPath) }
+      }
+      if (request.planOnly) {
+        return planHostSessionSocketMigration(request.storeDir, request.to)
+      }
+      return migrateHostSessionSockets(request.storeDir, {
+        to: request.to,
+        deadEndpoints: new Set(request.deadEndpoints ?? []),
+        dryRun: request.dryRun,
+      })
+    },
+  }
+}
+
 export async function runCompiledLauncher(args: string[], execDir: string, enginePin = "unknown", compiledPackageRoot?: string, migration: MigrationOptions = {}): Promise<boolean> {
   const packageJson = readJson(join(execDir, "package.json")) as { version: string; omoBuild?: unknown }
   migrateLegacyBunGlobalManifest(execDir)
@@ -237,6 +274,7 @@ export async function runCompiledLauncher(args: string[], execDir: string, engin
   if (command === "daemon") {
     const outcome = runDaemonCommand(args.slice(1), {
       engine,
+      migration: compiledRollbackMigration(),
       pluginRoot: join(execDir, "plugin"),
       agentDir: canonicalAgentDir(),
       env: process.env,

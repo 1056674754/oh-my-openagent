@@ -36,10 +36,10 @@ const REAP_UNLINK_RETRY_MS = 25
 const DELETE_PENDING = "delete-pending"
 const sleeper = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT))
 
-export function withTaskRecordLock<T>(recordPath: string, operation: () => T): T {
+export function withTaskRecordLock<T>(recordPath: string, operation: () => T, options: TaskRecordLockOptions = {}): T {
   const lockPath = `${recordPath}.lock`
   mkdirSync(dirname(lockPath), { recursive: true })
-  const token = acquireLock(lockPath)
+  const token = acquireLock(lockPath, options.holderWaitMs ?? LOCK_HOLDER_WAIT_MS)
   try {
     return operation()
   } finally {
@@ -73,8 +73,8 @@ export async function withTaskRecordLockAsync<T>(
 /** `held` names the holder (its lock file and body, which carries the acquisition token). */
 type AcquireAttempt = { readonly acquired: string } | { readonly held: string } | "retry"
 
-function acquireLock(lockPath: string): string {
-  const waitOn = holderWait(lockPath, LOCK_HOLDER_WAIT_MS)
+function acquireLock(lockPath: string, holderWaitMs: number): string {
+  const waitOn = holderWait(lockPath, holderWaitMs)
   for (;;) {
     const attempt = tryAcquire(lockPath)
     if (attempt === "retry") continue

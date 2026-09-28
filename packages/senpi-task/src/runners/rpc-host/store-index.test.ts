@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path"
 import { DURABLE_JSON_FS } from "./durable-json"
 import {
   pruneMissingStoreIndexEntries,
+  pruneMissingStoreIndexEntriesSync,
   readTaskStoreIndex,
   registerStoreIndex,
   StoreIndexUnavailableError,
@@ -162,7 +163,19 @@ describe("registerStoreIndex", () => {
     expect(Object.keys(readTaskStoreIndex(path).stores).sort()).toEqual([existingStore, resolve("/p2/.omo/senpi-task")].sort())
   })
 
+  test("#given compiled launcher pruning #when one indexed store is missing #then the sync port removes only that entry", async () => {
+    const path = indexPath()
+    const existingStore = join(dirname(path), "existing-store")
+    mkdirSync(existingStore, { recursive: true })
+    await registerStoreIndex({ indexPath: path, storeDir: existingStore, now: Date.now })
+    await registerStoreIndex({ indexPath: path, storeDir: "/tmp/missing-sync-store", now: Date.now })
+
+    expect(pruneMissingStoreIndexEntriesSync(path)).toEqual(["/tmp/missing-sync-store"])
+    expect(Object.keys(readTaskStoreIndex(path).stores)).toEqual([existingStore])
+  })
+
   posixHostRunnerTest("#given 32 processes each registering 25 distinct stores at once #when they all finish #then every one of the 800 stores is in the index", async () => {
+
     // given
     const path = indexPath()
     const writer = join(import.meta.dir, "__fixtures__", "register-stores.ts")

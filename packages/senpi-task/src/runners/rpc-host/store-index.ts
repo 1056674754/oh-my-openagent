@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 import { join, resolve } from "node:path"
 
-import { withTaskRecordLockAsync } from "../../store/record-lock"
+import { withTaskRecordLock, withTaskRecordLockAsync } from "../../store/record-lock"
 import { DURABLE_JSON_FS, DURABLE_JSON_LOCK_OPTIONS, isRecord, type DurableJsonFs } from "./durable-json"
 
 /**
@@ -90,6 +90,29 @@ export async function pruneMissingStoreIndexEntries(
     await options._test?.afterLockAcquired?.()
     const current = parseStoreIndex(fs.read(indexPath))
     await options._test?.afterRead?.()
+    const retained: Record<string, StoreIndexEntry> = {}
+    const removed: string[] = []
+    for (const [storeDir, entry] of Object.entries(current.stores)) {
+      if (exists(storeDir)) retained[storeDir] = entry
+      else removed.push(storeDir)
+    }
+    if (removed.length === 0) return []
+    fs.write(indexPath, `${JSON.stringify({ ...current, stores: retained }, null, 2)}\n`)
+    return removed
+  }, DURABLE_JSON_LOCK_OPTIONS)
+}
+
+export function pruneMissingStoreIndexEntriesSync(
+  indexPath: string,
+  options: {
+    readonly exists?: (path: string) => boolean
+    readonly fs?: DurableJsonFs
+  } = {},
+): readonly string[] {
+  const exists = options.exists ?? existsSync
+  const fs = options.fs ?? DURABLE_JSON_FS
+  return withTaskRecordLock(indexPath, () => {
+    const current = parseStoreIndex(fs.read(indexPath))
     const retained: Record<string, StoreIndexEntry> = {}
     const removed: string[] = []
     for (const [storeDir, entry] of Object.entries(current.stores)) {
