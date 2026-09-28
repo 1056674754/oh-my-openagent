@@ -13,14 +13,22 @@ import {
 } from "node:fs"
 import { dirname } from "node:path"
 
+import { formatLockBody, isLockOwnerProvenDead, parseLockOwner } from "./lock-owner"
+
 const LOCK_RETRY_MS = 10
-const LOCK_WAIT_TIMEOUT_MS = 1_000
-// The lock guards a sub-10ms record read-modify-write. Any lock file older than this window was
-// left behind by a crashed or wedged holder; age (file mtime) is the staleness authority because a
-// pid probe can false-alive after pid reuse and a partially written lock file has no parseable
-// content. The async holder refreshes the mtime while it runs, so a live holder never expires.
-// The pid+timestamp lines of the body are diagnostic; the token line names the acquisition.
+// A waiter gives up only when ONE holder keeps the lock this long. Holders that each finish promptly
+// hand the lock on, and a waiter queued behind any number of them keeps waiting: a busy lock never
+// fails an acquisition, only a holder that stops making progress does.
+const LOCK_HOLDER_WAIT_MS = 1_000
+// A lock is taken from its holder only on proof that the holder is dead (lock-owner.ts); age alone
+// never expires a lock. The one exception is a lock with no parseable owner - its writer died between
+// the create and the write, which takes microseconds - once it is older than this window.
+// The async holder still refreshes the mtime so that builds which expire locks by age leave it alone.
 const LOCK_STALE_MS = 5_000
+// A reaped lock the filesystem refuses to unlink (a Windows sharing violation while a scanner or the
+// dead holder's last handle closes) is retried briefly, then waited on like a held lock - as team-core does (#9034).
+const REAP_UNLINK_ATTEMPTS = 3
+const REAP_UNLINK_RETRY_MS = 25
 const sleeper = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT))
 
 export function withTaskRecordLock<T>(recordPath: string, operation: () => T): T {
@@ -48,48 +56,65 @@ export async function withTaskRecordLockAsync<T>(recordPath: string, operation: 
   }
 }
 
-type AcquireAttempt = { readonly acquired: string } | "retry" | "held"
+/** `held` names the holder (its lock file and body, which carries the acquisition token). */
+type AcquireAttempt = { readonly acquired: string } | { readonly held: string } | "retry"
 
 function acquireLock(lockPath: string): string {
-  const startedAt = Date.now()
+  const waitOn = holderWait(lockPath)
   for (;;) {
     const attempt = tryAcquire(lockPath)
     if (attempt === "retry") continue
-    if (attempt !== "held") return attempt.acquired
-    if (Date.now() - startedAt >= LOCK_WAIT_TIMEOUT_MS) {
-      throw new Error(`Timed out acquiring task record lock: ${lockPath}`)
-    }
+    if ("acquired" in attempt) return attempt.acquired
+    waitOn(attempt.held)
     Atomics.wait(sleeper, 0, 0, LOCK_RETRY_MS)
   }
 }
 
 async function acquireLockAsync(lockPath: string): Promise<string> {
-  const startedAt = Date.now()
+  const waitOn = holderWait(lockPath)
   for (;;) {
     const attempt = tryAcquire(lockPath)
     if (attempt === "retry") continue
-    if (attempt !== "held") return attempt.acquired
-    if (Date.now() - startedAt >= LOCK_WAIT_TIMEOUT_MS) {
-      throw new Error(`Timed out acquiring task record lock: ${lockPath}`)
-    }
+    if ("acquired" in attempt) return attempt.acquired
+    waitOn(attempt.held)
     await new Promise<void>((resolve) => setTimeout(resolve, LOCK_RETRY_MS))
+  }
+}
+
+function holderWait(lockPath: string): (holder: string) => void {
+  let current: string | undefined
+  let since = 0
+  return (holder) => {
+    const now = Date.now()
+    if (holder !== current) {
+      current = holder
+      since = now
+      return
+    }
+    if (now - since >= LOCK_HOLDER_WAIT_MS) throw new Error(`Timed out acquiring task record lock: ${lockPath}`)
   }
 }
 
 function tryAcquire(lockPath: string): AcquireAttempt {
   const token = randomUUID()
+  if (publishLock(lockPath, token)) return { acquired: token }
+  return reapAbandonedLock(lockPath)
+}
+
+function publishLock(lockPath: string, token: string): boolean {
+  let fd: number
   try {
-    const fd = openSync(lockPath, "wx")
-    try {
-      writeSync(fd, `${process.pid}\n${Date.now()}\n${token}\n`)
-    } finally {
-      closeSync(fd)
-    }
-    return { acquired: token }
+    fd = openSync(lockPath, "wx")
   } catch (error) {
-    if (!hasCode(error, "EEXIST")) throw error
-    return reapExpiredLock(lockPath)
+    if (hasCode(error, "EEXIST")) return false
+    throw error
   }
+  try {
+    writeSync(fd, formatLockBody(token))
+  } finally {
+    closeSync(fd)
+  }
+  return true
 }
 
 interface LockIdentity {
@@ -99,34 +124,81 @@ interface LockIdentity {
   readonly body: string
 }
 
+export type RecordLockReapStage = "recovery_held" | "judged_unchanged"
+let reapHook: ((stage: RecordLockReapStage, lockPath: string) => void) | undefined
+
+/** Test seam: steps a reaper inside its window between the judgement and the unlink. */
+export function setRecordLockReapHookForTests(hook: typeof reapHook): () => void {
+  const previous = reapHook
+  reapHook = hook
+  return () => {
+    reapHook = previous
+  }
+}
+
+function isAbandoned(lock: LockIdentity): boolean {
+  const owner = parseLockOwner(lock.body)
+  return owner === undefined ? Date.now() - lock.mtimeMs > LOCK_STALE_MS : isLockOwnerProvenDead(owner)
+}
+
 /**
- * Removes the lock only when it is EXPIRED and is still the very lock that was judged expired. A
- * lock that is gone was released - the caller retries the create, nothing is removed. The expired
- * lock is renamed away (atomic: exactly one reaper obtains it) and compared with what was judged;
- * if a fresh holder published in between, the renamed file is that holder's, so it is linked back
- * (EEXIST: yet another contender already republished) instead of being deleted.
+ * Removes a lock whose owner is proven dead. Reapers serialize on `<lock>.recovery`: while one holds
+ * it, the judged lock can change only by that reaper (its dead owner never releases, and nobody
+ * creates over an existing file), so re-reading it unchanged and unlinking it can never remove a
+ * fresh holder's lock. A lock that changed since the judgement is simply judged again.
  */
-function reapExpiredLock(lockPath: string): "retry" | "held" {
+function reapAbandonedLock(lockPath: string): AcquireAttempt {
   const judged = readLockIdentity(lockPath)
   if (judged === undefined) return "retry"
-  if (Date.now() - judged.mtimeMs <= LOCK_STALE_MS) return "held"
-  const tombstone = `${lockPath}.reaping-${randomUUID()}`
+  const held = { held: `${judged.dev}:${judged.ino}:${judged.body}` }
+  if (!isAbandoned(judged)) return held
+  const recoveryPath = `${lockPath}.recovery`
+  const recoveryToken = randomUUID()
+  if (!publishLock(recoveryPath, recoveryToken)) {
+    if (!reclaimAbandonedRecoveryLock(recoveryPath) || !publishLock(recoveryPath, recoveryToken)) return held
+  }
   try {
-    renameSync(lockPath, tombstone)
+    reapHook?.("recovery_held", lockPath)
+    const current = readLockIdentity(lockPath)
+    if (current === undefined || !isSameLock(current, judged)) return "retry"
+    reapHook?.("judged_unchanged", lockPath)
+    // Fence: a reaper that lost its recovery lock (see below) must not unlink the primary.
+    if (readToken(recoveryPath) !== recoveryToken) return held
+    return unlinkReapedLock(lockPath) ? "retry" : held
+  } finally {
+    releaseLock(recoveryPath, recoveryToken)
+  }
+}
+
+/**
+ * A recovery lock is held for microseconds, so one left behind means its reaper died; it is reclaimed
+ * on the same proof. Rename is atomic - exactly one reclaimer obtains the file - and a file that is no
+ * longer the judged one is handed back with link. Only when two reapers died in a row can that
+ * hand-back lose to a third reaper; the fence in reapAbandonedLock keeps the loser off the primary.
+ */
+function reclaimAbandonedRecoveryLock(recoveryPath: string): boolean {
+  const judged = readLockIdentity(recoveryPath)
+  if (judged === undefined) return true
+  if (!isAbandoned(judged)) return false
+  const tombstone = `${recoveryPath}.reaping-${randomUUID()}`
+  try {
+    renameSync(recoveryPath, tombstone)
   } catch (error) {
-    if (hasCode(error, "ENOENT")) return "retry"
+    if (hasCode(error, "ENOENT")) return true
+    if (isWindowsSharingError(error)) return false
     throw error
   }
   const moved = readLockIdentity(tombstone)
-  if (moved !== undefined && !isSameLock(moved, judged)) {
+  const reclaimed = moved === undefined || isSameLock(moved, judged)
+  if (!reclaimed) {
     try {
-      linkSync(tombstone, lockPath)
+      linkSync(tombstone, recoveryPath)
     } catch (error) {
       if (!hasCode(error, "EEXIST")) throw error
     }
   }
   rmSync(tombstone, { force: true })
-  return "retry"
+  return reclaimed
 }
 
 function readLockIdentity(lockPath: string): LockIdentity | undefined {
@@ -146,14 +218,16 @@ function isSameLock(left: LockIdentity, right: LockIdentity): boolean {
 // Only the acquisition that wrote the token releases the lock: a holder whose lock expired and was
 // reaped must not delete the lock the next process has since taken.
 function releaseLock(lockPath: string, token: string): void {
-  let body: string
+  if (readToken(lockPath) === token) rmSync(lockPath, { force: true })
+}
+
+function readToken(lockPath: string): string | undefined {
   try {
-    body = readFileSync(lockPath, "utf8")
+    return readFileSync(lockPath, "utf8").split("\n")[2]
   } catch (error) {
-    if (hasCode(error, "ENOENT")) return
+    if (hasCode(error, "ENOENT")) return undefined
     throw error
   }
-  if (body.split("\n")[2] === token) rmSync(lockPath, { force: true })
 }
 
 function refreshLock(lockPath: string): void {
@@ -163,6 +237,23 @@ function refreshLock(lockPath: string): void {
   } catch (error) {
     if (!hasCode(error, "ENOENT")) console.error("Task record lock heartbeat failed", error)
   }
+}
+
+function unlinkReapedLock(lockPath: string): boolean {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      rmSync(lockPath, { force: true })
+      return true
+    } catch (error) {
+      if (!hasCode(error, "EPERM") && !hasCode(error, "EBUSY")) throw error
+      if (attempt === REAP_UNLINK_ATTEMPTS) return false
+      Atomics.wait(sleeper, 0, 0, REAP_UNLINK_RETRY_MS)
+    }
+  }
+}
+
+function isWindowsSharingError(error: unknown): boolean {
+  return process.platform === "win32" && ["EBUSY", "EPERM", "EACCES"].some((code) => hasCode(error, code))
 }
 
 function hasCode(error: unknown, expected: string): boolean {

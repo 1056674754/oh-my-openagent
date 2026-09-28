@@ -27,6 +27,80 @@ by `idle_evicted` close and by handoff; a completed resident child parked by the
 after the park), `manager/host-session-park.test.ts` (host causes park the record; `release` and
 re-tracking leave one watch).
 
+## A holder that once failed to read its own start identity tries again
+
+`store/lock-owner.ts`: the process's own start identity (written into every lock it takes so others can
+prove it dead) was read once, and a failed read was cached as `unavailable` for the process lifetime -
+every later lock of that process could then only be reaped once its pid was gone. A success is still kept
+for the lifetime; a failure is now retried after 1 s, doubling to at most one minute between reads.
+
+Tests: `store/lock-owner.test.ts` (new: retry schedule and a kept success; the interval caps at one minute).
+
+## A reaped task record lock that Windows briefly refuses to unlink is retried
+
+`store/record-lock.ts`: the reaper's unlink of a dead holder's lock threw a Windows sharing violation
+(`EPERM`/`EBUSY`, while a scanner or the dead holder's last handle closes) straight out of the
+acquisition. It now retries three times 25 ms apart, as team-core's reclaim does (#9034), and if the
+file is still refused it waits on it like a held lock, so the waiter times out on that one holder instead of
+throwing.
+
+CI: `store/record-lock.test.ts`, `store/record-lock-reap-window.test.ts` and
+`runners/rpc-host/durable-json.test.ts` join the root serial quarantine
+(`script/root-test-serial-quarantine.ts`, both shard-2 commands in `ci.yml`, `bunfig.win2.parallel.toml`), so
+the start-identity proof (kernel32 on windows-latest) and the win32 no-directory-fsync branch run in one
+uncontended process on every OS.
+
+Tests: `store/record-lock.test.ts` (one refused unlink is retried and the lock is taken; a lock that stays
+refused times the waiter out and is left in place).
+
+## A busy store index lock no longer fails an admission
+
+`runners/rpc-host/store-index.ts`: registering a store that the index already lists is a read under the
+lock and nothing else - no rewrite, no fsync, the file keeps its inode and mtime. A new entry writes
+`last_seen` equal to `first_seen` (the field stays for version 1 readers; nothing consumes it).
+
+`store/record-lock.ts`: a waiter now gives up only when ONE holder keeps the lock for the whole wait
+budget (1 s), instead of after 1 s in total. Holders that each finish promptly hand the lock on, and a
+waiter queued behind any number of them keeps waiting, so heavy contention no longer surfaces as
+`store_index_unavailable` (32 processes x 100 new stores: 12-15 of 32 processes failed per run before,
+none after); a holder that stops making progress still times the waiter out, and is never reaped while
+it is alive. This applies to every task record, workpool, lease, sidecar and index lock.
+
+Tests: `runners/rpc-host/store-index.test.ts` (a registered store is not rewritten; 32 processes x 25 stores
+all present), `store/record-lock.test.ts` (a waiter behind live holders handing over every 100 ms for 1.5 s
+acquires).
+
+## The store index and shard sidecars survive a crash right after they are written
+
+`runners/rpc-host/durable-json.ts`: `writeTextDurably` fsynced the staged file and renamed it over the old
+one, but never fsynced the parent directory, so a crash right after the rename could lose the new name -
+an admission whose store index entry had already read back could come back without it. The directory is
+now fsynced after the rename (skipped on win32, which cannot open a directory for fsync; a filesystem that
+answers EINVAL/ENOTSUP for a directory fsync is accepted as is).
+
+Tests: `runners/rpc-host/durable-json.test.ts` (new: file fsync, rename, then directory fsync).
+
+## A task record lock is reaped only after its owner is proven dead
+
+`store/record-lock.ts` + `store/lock-owner.ts` (new) + `lifecycle/pid-liveness.ts` (new): the lock body now
+also carries the holder's process start identity and hostname (after the pid, time and token lines every
+earlier build wrote and still reads). A lock is removed by anyone but its holder only when that holder is
+PROVEN dead - its pid is gone, or a live pid's start identity contradicts the recorded one (the pid was
+recycled) - read synchronously (`/proc` on Linux, libproc and kernel32 through `bun:ffi`, no process
+spawn). Age no longer expires a lock: a live holder keeps it however old it is (an unknown liveness,
+another host, a legacy lock without an identity on a live pid all keep it), and a dead holder's lock is
+reaped at once instead of after five seconds. The only age rule left is for a lock with no parseable
+owner (its writer died between create and write). Reapers serialize on `<lock>.recovery` and unlink the
+primary only while it is still the very lock they judged dead, which closes the window where a fresh
+holder published between the judgement and the rename, plus a contender between rename and link-back,
+could give two holders; a recovery lock left by a dead reaper is reclaimed on the same proof and fenced
+by its token. The async holder still refreshes the mtime so older builds, which expire locks by age,
+leave a long-held lock alone.
+
+Tests: `store/record-lock.test.ts` (dead holder reaped fresh or old; a live pid's old lock - current or
+legacy format - is never reaped; a recycled pid is; another host's is not; an empty lock only once stale;
+a dead reaper's recovery lock is recovered).
+
 ## Every task child opens on its parent session's own host; the shared-host route is gone
 
 `runners/rpc-host.ts` + `rpc-host/child-endpoint.ts`: `RpcHostRunnerOptions.shardResolver`, `storeDir`,

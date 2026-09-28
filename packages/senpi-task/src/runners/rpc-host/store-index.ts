@@ -14,6 +14,7 @@ export const TASK_STORE_INDEX_VERSION = 1
 
 interface StoreIndexEntry {
   readonly first_seen: string
+  // Written equal to first_seen: an entry is never rewritten, but version 1 readers require the field.
   readonly last_seen: string
 }
 
@@ -49,11 +50,13 @@ export async function registerStoreIndex(input: RegisterStoreIndexInput): Promis
   try {
     await withTaskRecordLockAsync(input.indexPath, async () => {
       const current = parseStoreIndex(fs.read(input.indexPath))
+      // Already registered: the entry is durable (it read back under this lock), so an admission for a
+      // known store costs one read and never a rewrite and fsync of the whole index.
+      if (current.stores[storeDir] !== undefined) return
       const seenAt = new Date(input.now()).toISOString()
-      const firstSeen = current.stores[storeDir]?.first_seen ?? seenAt
       const next: TaskStoreIndex = {
         version: TASK_STORE_INDEX_VERSION,
-        stores: { ...current.stores, [storeDir]: { first_seen: firstSeen, last_seen: seenAt } },
+        stores: { ...current.stores, [storeDir]: { first_seen: seenAt, last_seen: seenAt } },
       }
       fs.write(input.indexPath, `${JSON.stringify(next, null, 2)}\n`)
       if (parseStoreIndex(fs.read(input.indexPath)).stores[storeDir] === undefined) {
