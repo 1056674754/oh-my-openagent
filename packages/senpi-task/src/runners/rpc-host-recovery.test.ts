@@ -27,9 +27,10 @@ describe("RpcHostRunner transport recovery", () => {
     const handle = await runner.start(childSpec())
     const sessionPath = host.sessions()[0]?.sessionPath ?? ""
 
-    // when
+    // when - registered before the trigger: the reattach can re-prompt before restart() resolves
+    const continued = host.waitForCommand("prompt")
     await host.restart()
-    const continuation = await host.waitForCommand("prompt")
+    const continuation = await continued
 
     // then
     expect(String(continuation.payload.message)).toContain(HOST_SESSION_REATTACH_TAG)

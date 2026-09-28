@@ -87,3 +87,53 @@ describe("host session turn settlement follows the session, not the first agent_
     await handle.dispose()
   })
 })
+
+describe("a reopened session's finished transcript settles only an idle session (omo#9069)", () => {
+  test("#given a finished-looking transcript #when the reopened session still has a follow-up queued #then the turn is not settled from the transcript", async () => {
+    // given
+    const port = fakeSessionPort()
+    const handle = handleOverPort(port)
+    const outcome = handle.waitForOutcome()
+    void port.stateAsked().then(() =>
+      port.answerState({ sessionId: "s", isStreaming: false, followUp: ["the monitor fired"], pendingMessageCount: 1 }),
+    )
+
+    // when
+    await handle.adoptFinishedTurn("waiting for the test run")
+
+    // then
+    expect(await settledYet(outcome)).toBe(false)
+    await handle.dispose()
+  })
+
+  test("#given a finished transcript #when the reopened session is idle #then the turn settles with the transcript's final answer", async () => {
+    // given
+    const port = fakeSessionPort()
+    const handle = handleOverPort(port)
+    const outcome = handle.waitForOutcome()
+    void port.stateAsked().then(() =>
+      port.answerState({ sessionId: "s", isStreaming: false, steering: [], followUp: [], pendingMessageCount: 0 }),
+    )
+
+    // when
+    await handle.adoptFinishedTurn("all green")
+
+    // then
+    expect(await outcome).toEqual({ status: "completed", finalResponse: "all green" })
+    await handle.dispose()
+  })
+  test("#given a finished transcript #when the reopened session's state read fails #then the turn stays unsettled and the handle survives", async () => {
+    // given
+    const port = { ...fakeSessionPort(), getState: () => Promise.reject(new Error("get_state timed out")) }
+    const handle = handleOverPort(port)
+    const outcome = handle.waitForOutcome()
+
+    // when
+    await handle.adoptFinishedTurn("all green")
+
+    // then
+    expect(await settledYet(outcome)).toBe(false)
+    expect(handle.hasExited()).toBe(false)
+    await handle.dispose()
+  })
+})
