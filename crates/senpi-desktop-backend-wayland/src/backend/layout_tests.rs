@@ -159,6 +159,61 @@ fn capture_never_opens_an_input_session_to_learn_the_layout() {
     );
 }
 
+fn qa_layout() -> EisRegion {
+    let layout = std::env::var("SENPI_WAYLAND_QA_LAYOUT").expect("precondition: SENPI_WAYLAND_QA_LAYOUT=x,y,w,h,scale");
+    let fields: Vec<f64> = layout.split(',').map(|field| field.parse().expect("number")).collect();
+    let whole = |value: f64| u32::try_from(value.round() as i64).expect("non-negative");
+    EisRegion {
+        x: whole(fields[0]),
+        y: whole(fields[1]),
+        width: whole(fields[2]),
+        height: whole(fields[3]),
+        scale: fields[4] as f32,
+    }
+}
+
+/// A real portal screenshot against a fake EIS announcing `layout`.
+fn live_frame(layout: EisRegion) -> (u32, u32, FrameGeometry) {
+    let dir = tempfile::Builder::new().prefix("senpi-libei-").tempdir().expect("socket dir");
+    let socket = dir.path().join("eis-0");
+    let _eis = FakeEis::listen_with_regions(UnixListener::bind(&socket).expect("bind"), EisConfig { keymap: FR, group: 0 }, vec![layout]);
+    let _socket = LibeiSocketEnv::set(Some(&socket));
+    let mut backend = WaylandBackend::new(senpi_desktop_core::types::DisplaySelector::All);
+    backend.prepare_input(&Target::Desktop, "qa input").expect("libei connected");
+    let (image, frame) = backend.capture(&Target::Desktop, &CaptureCaps::default()).expect("portal screenshot");
+    (image.width(), image.height(), frame)
+}
+
+#[test]
+#[ignore = "live: needs a Wayland session with a Screenshot portal and SENPI_WAYLAND_QA_LAYOUT"]
+fn live_portal_screenshot_maps_through_the_compositor_layout() {
+    let layout = qa_layout();
+    let (width, height, frame) = live_frame(layout);
+    let pixel = (f64::from(width) * 0.75, f64::from(height) * 0.5);
+    let mapped = frame.map_point(pixel.0, pixel.1, None);
+    println!("QA_MATCH layout={layout:?} image={width}x{height} pixel={pixel:?} mapped={mapped:?}");
+    let expected = (
+        f64::from(layout.x) + f64::from(layout.width) * 0.75,
+        f64::from(layout.y) + f64::from(layout.height) * 0.5,
+    );
+    let (x, y) = mapped.expect("the image is the compositor layout, so it maps");
+    assert!((x - expected.0).abs() <= 1.0 && (y - expected.1).abs() <= 1.0, "{expected:?}");
+}
+
+#[test]
+#[ignore = "live: needs a Wayland session with a Screenshot portal and SENPI_WAYLAND_QA_LAYOUT"]
+fn live_portal_screenshot_refuses_a_layout_the_image_is_not() {
+    let actual = qa_layout();
+    let layout = EisRegion {
+        width: actual.width + 100,
+        ..actual
+    };
+    let (width, height, frame) = live_frame(layout);
+    let mapped = frame.map_point(1.0, 1.0, None).map_err(|error| error.code);
+    println!("QA_MISMATCH layout={layout:?} image={width}x{height} mapped={mapped:?}");
+    assert_eq!(mapped, Err(ErrorCode::InvalidCoordinateFrame));
+}
+
 #[test]
 fn a_layout_change_after_capture_refuses_pointer_input_against_that_frame() {
     // Given: a frame derived from the 64x48 @2x layout, then the layout changes
