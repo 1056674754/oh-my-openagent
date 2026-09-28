@@ -46,6 +46,8 @@ export type {
 } from "./rpc-host"
 export type { HostSessionChildHandle, HostSessionFacts } from "./rpc-host/handle-port"
 export type { HostShardEvents, ReattachOutcome, ReattachOutcomeInfo, TransportLostInfo } from "./rpc-host/handle-reattach"
+export { createLiveHostChildren } from "./rpc-host/live-children"
+export type { LiveHostChildren } from "./rpc-host/live-children"
 export { createHostEndpointPort } from "./rpc-host/host-endpoint-port"
 export type { HostEndpointPortInput } from "./rpc-host/host-endpoint-port"
 export { HOST_NOTICE_TOKENS } from "./rpc-host/host-notice"

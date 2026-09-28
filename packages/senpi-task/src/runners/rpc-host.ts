@@ -79,6 +79,10 @@ export type RpcHostRunnerOptions = {
   readonly onNotice: HostNoticeSink
   // Every child's transport recoveries, so the parent hears about a host crash once (todo 10).
   readonly shardEvents: HostShardEvents
+  // The session's ONE live-child registry over `shardEvents`, when the session builds more than one
+  // runner (spawns and revivals): a crash must name every child it took from that session, not only
+  // the children of the runner whose child reported first. A lone runner gets a private registry.
+  readonly liveChildren?: LiveHostChildren
   // The attach-only probe for the session's own endpoint; defaults to the engine's `probeHost`.
   readonly probeHost?: HostProtocolProbe
 }
@@ -132,7 +136,7 @@ export class RpcHostRunner {
     this.reattachDelaysMs = options.reattachDelaysMs ?? DEFAULT_REATTACH_DELAYS_MS
     this.admissionWaitMs = options.admissionWaitMs ?? DEFAULT_ADMISSION_WAIT_MS
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
-    this.liveChildren = createLiveHostChildren(options.shardEvents)
+    this.liveChildren = options.liveChildren ?? createLiveHostChildren(options.shardEvents)
     this.endpoint = {
       agentDir: options.agentDir,
       env: options.env ?? process.env,
