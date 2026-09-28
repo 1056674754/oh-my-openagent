@@ -1,5 +1,5 @@
 import { existsSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 
 import { observeState, stopParent } from "./task-host-e2e-events.mjs"
 import { pidAlive } from "./task-host-e2e-process.mjs"
@@ -19,6 +19,7 @@ import {
   crashRows,
   endpointFacts,
   heldSteps,
+  parentNoticeLines,
   parentSteps,
   pass,
   recordsByParent,
@@ -26,8 +27,30 @@ import {
   statusWorkers,
   writeRoute,
 } from "./task-host-e2e-shards-support.mjs"
+import { bystanderProblems, crashedParentProblems, statusRow } from "./task-host-e2e-shards-crash-rules.mjs"
 
 const terminal = (record) => ["completed", "error", "lost", "cancelled"].includes(record.status)
+
+// The parent's task_output read lands on its stdout event stream, not on disk: wake on stdout data
+// (parsed by startParent's listener, registered first) and on exit.
+function noticeRead(parent, timeoutMs) {
+  return new Promise((resolve) => {
+    let timer
+    const finish = (value) => {
+      clearTimeout(timer)
+      parent.child.stdout?.off("data", check)
+      resolve(value)
+    }
+    function check() {
+      const lines = parentNoticeLines(parent)
+      if (lines !== undefined) finish(lines)
+    }
+    parent.child.stdout?.on("data", check)
+    void parent.closed.then(() => finish(parentNoticeLines(parent)))
+    timer = setTimeout(() => finish(undefined), timeoutMs)
+    check()
+  })
+}
 
 function ready(project) {
   const records = taskRecords(project)
@@ -51,8 +74,8 @@ export async function runCrashMatrix(config, artifacts) {
   const routeB = writeRoute(sandbox, "b", { parentSteps: [], childSteps: [] })
   const releaseA = join(routeA, "release")
   const releaseB = join(routeB, "release")
-  const scriptA = { parentSteps: parentSteps(routeA, "a"), childSteps: heldSteps(releaseA, "A child") }
-  const scriptB = { parentSteps: parentSteps(routeB, "b"), childSteps: heldSteps(releaseB, "B child") }
+  const scriptA = { parentSteps: parentSteps(routeA, "a", { readNotices: true }), childSteps: heldSteps(releaseA, "A child") }
+  const scriptB = { parentSteps: parentSteps(routeB, "b", { readNotices: true }), childSteps: heldSteps(releaseB, "B child") }
   writeFileSync(join(routeA, "mock-script.json"), `${JSON.stringify(scriptA, null, 2)}\n`)
   writeFileSync(join(routeB, "mock-script.json"), `${JSON.stringify(scriptB, null, 2)}\n`)
   const markerA = `[[mock-cwd:${routeA}]]`
@@ -67,6 +90,10 @@ export async function runCrashMatrix(config, artifacts) {
     if (started === undefined) throw new Error("six children did not reach running")
     const groups = recordsByParent(project)
     const parentIds = [...groups.keys()]
+    const [crashedParent, bystanderParent] = parentIds.map((id) => parents.find((parent) => parent.sessionId() === id))
+    if (crashedParent === undefined || bystanderParent === undefined) {
+      throw new Error(`parent session ids ${JSON.stringify(parents.map((parent) => parent.sessionId()))} do not own the task records ${JSON.stringify(parentIds)}`)
+    }
     const before = endpointFacts(sandbox)
     const workersBefore = statusWorkers(sandbox)
     const sockets = endpointSockets(sandbox)
@@ -107,11 +134,28 @@ export async function runCrashMatrix(config, artifacts) {
     const continuations = Object.fromEntries(final.map((record) => [record.task_id, continuationCount(sandbox, record.task_id)]))
     const after = endpointFacts(sandbox)
     const bAfter = control ? after[0] : after.find((row) => row.socket === endpointB.socket)
+    const status = statusAll(sandbox)
+    const statusAfter = {
+      mode: status.mode,
+      endpoints: status.endpoints.map((row) => ({
+        socket: row.socket,
+        crashes: row.crashes ?? null,
+        instanceId: row.instanceId ?? row.instance_id ?? null,
+      })),
+    }
 
+    const reads = [crashedParent, bystanderParent].map((parent) => noticeRead(parent, 120_000))
     for (const prefix of ["a", "b"]) writeFileSync(join(sandbox.cwd, ".omo", `parent-${prefix}-release`), "go\n")
+    const [crashedNotices, bystanderNotices] = await Promise.all(reads)
     await Promise.all(parents.map((parent) => stopParent(parent)))
     const facts = {
       parentIds,
+      crashedKey: /^p-([0-9a-f]{16})\.sock$/.exec(basename(endpointA.socket))?.[1] ?? null,
+      crashedSocket: endpointA.socket,
+      bystanderSocket: endpointB.socket,
+      crashedInstanceBefore: endpointA.status?.instanceId ?? null,
+      notices: { crashed: crashedNotices ?? null, bystander: bystanderNotices ?? null },
+      statusAfter,
       sockets,
       workersBefore,
       before,
@@ -136,12 +180,28 @@ export function crashRowsForReport(facts, artifacts) {
   const evidence = [join(artifacts, "sharded-crash.json")]
   const sixComplete = facts.final.length === 6 && facts.final.every((record) => record.status === "completed")
   const oneEach = Object.values(facts.continuations).filter((count) => count === 1).length >= 3
+  const crashed = crashedParentProblems(facts)
+  const bystander = bystanderProblems(facts)
   return {
     topology_two_parent_shards: pass(evidence, { sockets: facts.sockets, workers: facts.workersBefore }),
-    host_crash_isolated: facts.bStable ? pass(evidence, { bStable: true }) : { status: "fail", evidence, reason: "bystander shard changed" },
-    crashed_shard_reattaches: facts.replaced !== undefined && oneEach
-      ? pass(evidence, { replaced: facts.replaced, continuations: facts.continuations })
-      : { status: "fail", evidence, reason: "crashed shard did not replace with continuations" },
+    host_crash_isolated: facts.bStable && bystander.length === 0
+      ? pass(evidence, { bStable: true, bystanderNotices: facts.notices.bystander, bystanderStatus: statusRow(facts, facts.bystanderSocket) })
+      : { status: "fail", evidence, reason: [...(facts.bStable ? [] : ["bystander shard changed"]), ...bystander].join("; ") },
+    crashed_shard_reattaches: facts.replaced !== undefined && oneEach && crashed.length === 0
+      ? pass(evidence, {
+          replaced: facts.replaced,
+          continuations: facts.continuations,
+          crashedNotices: facts.notices.crashed,
+          crashedStatus: statusRow(facts, facts.crashedSocket),
+        })
+      : {
+          status: "fail",
+          evidence,
+          reason: [
+            ...(facts.replaced !== undefined && oneEach ? [] : ["crashed shard did not replace with continuations"]),
+            ...crashed,
+          ].join("; "),
+        },
     all_six_children_complete: sixComplete
       ? pass(evidence, { final: facts.final })
       : { status: "fail", evidence, reason: "not every child completed" },
