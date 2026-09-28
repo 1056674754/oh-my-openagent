@@ -18,10 +18,14 @@ fn selected_screencast_display_returns_only_that_monitor() {
         position: (2, 0),
         size: Some((2, 1)),
     };
-    let (image, displays) = composite(&[
-        (left, RgbaImage::from_pixel(2, 2, [1, 1, 1, 255].into())),
-        (right, RgbaImage::from_pixel(4, 2, [2, 2, 2, 255].into())),
-    ]);
+    let cast = composite(
+        &[
+            (left, RgbaImage::from_pixel(2, 2, [1, 1, 1, 255].into())),
+            (right, RgbaImage::from_pixel(4, 2, [2, 2, 2, 255].into())),
+        ],
+        None,
+    );
+    let (image, displays) = (cast.image, cast.displays);
 
     // When
     let (selected, displays) = select_capture(

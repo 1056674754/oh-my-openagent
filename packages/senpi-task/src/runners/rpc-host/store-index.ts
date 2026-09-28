@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { join, resolve } from "node:path"
 
 import { withTaskRecordLock, withTaskRecordLockAsync } from "../../store/record-lock"
-import { DURABLE_JSON_FS, isRecord, type DurableJsonFs } from "./durable-json"
+import { DURABLE_JSON_FS, DURABLE_JSON_LOCK_OPTIONS, isRecord, type DurableJsonFs } from "./durable-json"
 
 /**
  * The agent-dir STORE INDEX: every task store that ever opened a child on a host of this agent dir.
@@ -63,7 +63,7 @@ export async function registerStoreIndex(input: RegisterStoreIndexInput): Promis
       if (parseStoreIndex(fs.read(input.indexPath)).stores[storeDir] === undefined) {
         throw new Error("the written index does not read back the store")
       }
-    })
+    }, DURABLE_JSON_LOCK_OPTIONS)
   } catch (error) {
     throw new StoreIndexUnavailableError(input.indexPath, error)
   }
@@ -99,7 +99,7 @@ export async function pruneMissingStoreIndexEntries(
     if (removed.length === 0) return []
     fs.write(indexPath, `${JSON.stringify({ ...current, stores: retained }, null, 2)}\n`)
     return removed
-  })
+  }, DURABLE_JSON_LOCK_OPTIONS)
 }
 
 export function pruneMissingStoreIndexEntriesSync(
@@ -122,7 +122,7 @@ export function pruneMissingStoreIndexEntriesSync(
     if (removed.length === 0) return []
     fs.write(indexPath, `${JSON.stringify({ ...current, stores: retained }, null, 2)}\n`)
     return removed
-  })
+  }, DURABLE_JSON_LOCK_OPTIONS)
 }
 
 // A missing index is empty; an index that does not parse is NOT - rewriting it would drop every

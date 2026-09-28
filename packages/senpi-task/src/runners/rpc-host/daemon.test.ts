@@ -89,8 +89,10 @@ function ensureInput(
   overrides: { readonly policy?: HostEnginePolicy; readonly agentDir?: string; readonly now?: () => number } = {},
 ) {
   agentDirSeq += 1
+  const agentDir = overrides.agentDir ?? join("/tmp", `agent-${agentDirSeq}`)
   return {
-    agentDir: overrides.agentDir ?? join("/tmp", `agent-${agentDirSeq}`),
+    agentDir,
+    socket: resolveTaskHostSocket(DAEMON_LAUNCH_FIXTURE.parentEnv, agentDir),
     env: DAEMON_LAUNCH_FIXTURE.parentEnv,
     policy: overrides.policy ?? ("upgrade" as HostEnginePolicy),
     ports: {

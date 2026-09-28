@@ -35,7 +35,17 @@ export {
   TASK_HOST_SOCKET_ENV_NAMES,
 } from "./rpc-host/daemon"
 export type { EnsuredTaskDaemon, EnsureTaskDaemonInput, HostUnavailableReason } from "./rpc-host/daemon"
-export { readMemberSessionIdentity, readSessionAncestry, readSessionContext, readSessionRole, SESSION_ROLES } from "./rpc-host/session-role"
+export {
+  HOST_WARMUP_CONTEXT,
+  isHostWarmupSession,
+  readMemberSessionIdentity,
+  readSessionAncestry,
+  readSessionContext,
+  readSessionRole,
+  SESSION_ROLES,
+} from "./rpc-host/session-role"
+export { HOST_WARMUP_TASK_ID, warmHostSession } from "./rpc-host/host-warmup"
+export type { WarmHostSessionInput } from "./rpc-host/host-warmup"
 export type { MemberSessionIdentity, SessionAncestry, SessionRole } from "./rpc-host/session-role"
 export type {
   CreateHostSessionChannel,
@@ -46,6 +56,8 @@ export type {
 } from "./rpc-host"
 export type { HostSessionChildHandle, HostSessionFacts } from "./rpc-host/handle-port"
 export type { HostShardEvents, ReattachOutcome, ReattachOutcomeInfo, TransportLostInfo } from "./rpc-host/handle-reattach"
+export { createLiveHostChildren } from "./rpc-host/live-children"
+export type { LiveHostChildren } from "./rpc-host/live-children"
 export { createHostEndpointPort } from "./rpc-host/host-endpoint-port"
 export type { HostEndpointPortInput } from "./rpc-host/host-endpoint-port"
 export { HOST_NOTICE_TOKENS } from "./rpc-host/host-notice"

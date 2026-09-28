@@ -1,6 +1,5 @@
-import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
-import { basename, join, win32 } from "node:path"
+import { basename, join } from "node:path"
 
 import {
   parseShardBasename,
@@ -10,7 +9,7 @@ import {
   type TransportLostInfo,
 } from "@oh-my-opencode/senpi-task"
 
-import { senpiCreateHostDaemonPaths } from "../../../../senpi-task/src/lazy/senpi-barrel"
+import { hostDaemonDir } from "../../../../senpi-task/src/runners/rpc-host/host-daemon-dir"
 import type { HostNotices } from "./host-execution-mode"
 import type { CapturedUi } from "./runtime-context"
 
@@ -52,6 +51,8 @@ interface Episode {
   announced: boolean
 }
 
+const subagents = (n: number): string => `${n} ${n === 1 ? "subagent" : "subagents"}`
+
 const count = (outcomes: readonly ReattachOutcome[], ...kinds: readonly ReattachOutcome[]): number =>
   outcomes.filter((outcome) => kinds.includes(outcome)).length
 
@@ -73,7 +74,7 @@ export function createShardCrashNotices(deps: ShardCrashNoticeDeps): Required<Ho
     const supervisorPid = info.supervisorPid ?? crash.supervisorPid
     const pid = supervisorPid === undefined ? "pid unknown" : `supervisor pid ${supervisorPid}`
     const n = episode.members.size
-    const text = `${SHARD_CRASH_TOKEN}:${episode.key} Background task host crashed (shard ${episode.key}, ${pid}, ${crash.cause ?? "cause unknown"}): reattaching ${n} ${n === 1 ? "child" : "children"}...`
+    const text = `${SHARD_CRASH_TOKEN}:${episode.key} Background task host crashed (shard ${episode.key}, ${pid}, ${crash.cause ?? "cause unknown"}): reattaching ${subagents(n)}...`
     emit(`${SHARD_CRASH_TOKEN}:${episode.id}`, text, "warning")
   }
 
@@ -83,8 +84,11 @@ export function createShardCrashNotices(deps: ShardCrashNoticeDeps): Required<Ho
     closed.add(episode.id)
     if (!episode.announced) return
     const cancelled = count(episode.outcomes, "cancelled")
-    const settled = episode.outcomes.length - cancelled
-    const counts = `${settled} reattached: ${count(episode.outcomes, "continued")} continued mid-turn, ${count(episode.outcomes, "lost", "host_incompatible")} lost`
+    const lost = count(episode.outcomes, "lost", "host_incompatible")
+    const reattached = count(episode.outcomes, "attached", "resumed", "continued")
+    // The Desktop parses this shape into its one "Task host restarted" row: the loss leads when there is one.
+    const counts =
+      lost === 0 ? `${subagents(reattached)} reattached, 0 lost` : `${subagents(lost)} lost (reattach failed), ${reattached} reattached`
     const text = `${SHARD_CRASH_DONE_TOKEN}:${episode.key} ${counts}${cancelled === 0 ? "" : `, ${cancelled} cancelled`}`
     emit(`${SHARD_CRASH_DONE_TOKEN}:${episode.id}`, text, "info")
   }
@@ -122,18 +126,6 @@ export function createShardCrashNotices(deps: ShardCrashNoticeDeps): Required<Ho
 
 function endpointKey(agentDir: string, socket: string): string {
   return parseShardBasename(socket)?.key ?? basename(hostDaemonDir(agentDir, socket))
-}
-
-/**
- * The endpoint's daemon directory as the ENGINE names it (`createHostDaemonPaths`), so a change in
- * how senpi canonicalizes the socket cannot point this reader at an empty directory. An engine
- * without the export - or a barrel nobody loaded yet - falls back to today's `sha256(socket)[:16]`.
- */
-export function hostDaemonDir(agentDir: string, socket: string): string {
-  const createHostDaemonPaths = senpiCreateHostDaemonPaths()
-  if (createHostDaemonPaths !== undefined) return createHostDaemonPaths({ agentDir, socket }).dir
-  const canonical = process.platform === "win32" ? win32.normalize(socket).toLowerCase() : socket
-  return join(agentDir, "rpc-host-daemon", createHash("sha256").update(canonical, "utf8").digest("hex").slice(0, 16))
 }
 
 /** A record older than this belongs to an earlier crash of the endpoint, not the one being announced. */

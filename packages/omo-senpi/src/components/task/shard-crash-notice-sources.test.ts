@@ -3,11 +3,17 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { createHostDaemonPaths } from "@code-yeongyu/senpi"
 import { OmoTaskSettingsSchema } from "@oh-my-opencode/omo-config-core"
 
 import { loadSenpiBarrel } from "../../../../senpi-task/src/lazy/senpi-barrel"
-import { childSpec, ensuredDaemon, hostRunnerHarness } from "../../../../senpi-task/src/runners/rpc-host.test-support"
+import {
+  CHILD_STATE_DIR,
+  childSpec,
+  ensuredDaemon,
+  hostRunnerHarness,
+  rootResolution,
+} from "../../../../senpi-task/src/runners/rpc-host.test-support"
+import { buildProcessChildRunner, buildRespawnRunner, type RunnerBuildContext } from "./engine-runners"
 import { createEngineHostRuntime, createHostNotices } from "./host-execution-mode"
 import { TaskRuntimeContext, type CapturedUi } from "./runtime-context"
 import { createShardCrashNotices, readNewestHostCrash, SHARD_CRASH_DONE_TOKEN, SHARD_CRASH_TOKEN } from "./shard-crash-notice"
@@ -68,16 +74,69 @@ describe("host runner feeding the crash notice", () => {
     const warnings = linesWith(notices.list(), SHARD_CRASH_TOKEN)
     expect(warnings).toHaveLength(1)
     expect(reattachingCount(warnings[0] ?? "")).toBe(2)
-    expect(doneCounts(linesWith(notices.list(), SHARD_CRASH_DONE_TOKEN)[0] ?? "")).toEqual([2, 2, 0])
+    expect(doneCounts(linesWith(notices.list(), SHARD_CRASH_DONE_TOKEN)[0] ?? "")).toEqual({ reattached: 2, lost: 0, cancelled: 0 })
     await first.terminate()
     await second.terminate()
   })
+
+  test("#given one session's spawned child and revived child on one host generation #when the host dies and comes back #then the ONE warning counts both and matches the done line", async () => {
+    // given - the spawn runner and the respawn runner exactly as the engine builds them for one session
+    const host = await fakeHost()
+    const agentDir = mkdtempSync(join(tmpdir(), "dh-t10-wiring-"))
+    wiringDirs.push(agentDir)
+    const closed = Promise.withResolvers<void>()
+    const ui: CapturedUi = {
+      ...uiRecorder().ui,
+      notify: (_text, type) => {
+        if (type === "info") closed.resolve()
+      },
+    }
+    const runtime = new TaskRuntimeContext(agentDir)
+    runtime.captureFrom({ ui, sessionManager: { getSessionId: () => "01a0e4ae-parent" } })
+    const settings = OmoTaskSettingsSchema.parse({})
+    const session = createEngineHostRuntime(settings, runtime, {}, {
+      agentDir,
+      env: {},
+      ensureDaemon: () => Promise.resolve({ ...ensuredDaemon(host.socketPath), instanceId: host.instanceId }),
+      probeHost: () => host.probeProtocolInfo(),
+    })
+    const build: RunnerBuildContext = {
+      runtime,
+      sharedParentTools: () => [],
+      settings,
+      platform: "darwin",
+      agentDir,
+      env: {},
+      hostRouting: { ...session.routing, shardResolver: () => rootResolution(host.socketPath), storeDir: CHILD_STATE_DIR },
+    }
+    // No model: admission (a real catalog probe) is not what this case is about.
+    const spawned = await buildProcessChildRunner(build).start(childSpec({ task_id: "st_spawned", model: undefined, extensions: [] }))
+    const revived = await buildRespawnRunner(build).start(childSpec({ task_id: "st_revived", model: undefined, extensions: [] }))
+
+    // when
+    await host.restart()
+    await closed.promise
+
+    // then
+    const warnings = linesWith(session.notices.list(), SHARD_CRASH_TOKEN)
+    expect(warnings).toHaveLength(1)
+    expect(reattachingCount(warnings[0] ?? "")).toBe(2)
+    expect(doneCounts(linesWith(session.notices.list(), SHARD_CRASH_DONE_TOKEN)[0] ?? "")).toEqual({ reattached: 2, lost: 0, cancelled: 0 })
+    await spawned.terminate()
+    await revived.terminate()
+  })
+})
+
+const wiringDirs: string[] = []
+afterAll(() => {
+  for (const dir of wiringDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
 describe("readNewestHostCrash", () => {
   const dirs: string[] = []
+  let createHostDaemonPaths: Awaited<ReturnType<typeof loadSenpiBarrel>>["createHostDaemonPaths"]
   beforeAll(async () => {
-    await loadSenpiBarrel()
+    ;({ createHostDaemonPaths } = await loadSenpiBarrel())
   })
   afterEach(() => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })

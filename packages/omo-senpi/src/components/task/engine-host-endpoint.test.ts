@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { loadOmoConfig, OmoTaskSettingsSchema } from "@oh-my-opencode/omo-config-core"
@@ -21,7 +22,7 @@ afterEach(() => {
 describe("composeTaskEngine wires the session's host endpoint into the lifecycle", () => {
   test("#given a parked host child on a silent recorded shard #when session-start revival runs #then the engine's host ensures that socket", async () => {
     // given - a short root keeps the recorded socket under the unix bind limit
-    const cwd = mkdtempSync("/tmp/omo-t8e-")
+    const cwd = mkdtempSync(join(process.platform === "win32" ? tmpdir() : "/tmp", "omo-t8e-"))
     roots.push(cwd)
     const recordedSocket = join(cwd, "agent", "rpc", "shards", "p-00000000000000cc.sock")
     const ensures: EnsureTaskDaemonInput[] = []

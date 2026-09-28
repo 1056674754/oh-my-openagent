@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto"
 import { closeSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs"
-import { basename, join, win32 } from "node:path"
+import { basename, join } from "node:path"
 
+import { socketNamesHostDaemonDir } from "../../../../senpi-task/src/runners/rpc-host/host-daemon-dir"
 import { parseShardBasename } from "../../../../senpi-task/src/runners/rpc-host/shard-socket"
 import type { CrashShardKind } from "./crash-schema"
 
@@ -73,7 +74,7 @@ export function claimUnreportedCrashRecords(input: ClaimCrashRecordsInput): read
       live.add(fingerprint)
       if (claimed.length >= maxRecords || Date.parse(record.at) < oldest) continue
       if (!claim(join(claimDir, fingerprint))) continue
-      shardKind ??= source.endpointDir === undefined ? "none" : endpointShardKind(source.endpointDir)
+      shardKind ??= source.endpointDir === undefined ? "none" : endpointShardKind(input.agentDir, source.endpointDir)
       claimed.push({ record, source: source.kind, shardKind })
     }
   }
@@ -136,14 +137,14 @@ function crashRecordSources(agentDir: string): readonly CrashRecordSource[] {
  * trusted only when the socket hashes to the directory it was found in, as senpi's `listHostEndpoints`
  * does, so a copied or foreign file never lends its kind to another endpoint.
  */
-function endpointShardKind(endpointDir: string): CrashShardKind {
-  const socket = socketNamedBy(join(endpointDir, "endpoint.json"), endpointDir)
-    ?? socketNamedBy(join(endpointDir, "settings.json"), endpointDir)
+function endpointShardKind(agentDir: string, endpointDir: string): CrashShardKind {
+  const socket = socketNamedBy(join(endpointDir, "endpoint.json"), agentDir, endpointDir)
+    ?? socketNamedBy(join(endpointDir, "settings.json"), agentDir, endpointDir)
   if (socket === undefined) return "unknown"
   return parseShardBasename(socket)?.kind ?? "none"
 }
 
-function socketNamedBy(file: string, endpointDir: string): string | undefined {
+function socketNamedBy(file: string, agentDir: string, endpointDir: string): string | undefined {
   let value: unknown
   try {
     value = JSON.parse(readFileSync(file, "utf8"))
@@ -151,13 +152,7 @@ function socketNamedBy(file: string, endpointDir: string): string | undefined {
     return undefined
   }
   if (!isRecord(value) || typeof value.socket !== "string" || value.socket === "") return undefined
-  return endpointDirectoryName(value.socket) === basename(endpointDir) ? value.socket : undefined
-}
-
-/** senpi's `daemonDirectoryName`: `sha256(socket)[:16]`, over the case-folded normalized path on win32. */
-function endpointDirectoryName(socket: string): string {
-  const canonical = process.platform === "win32" ? win32.normalize(socket).toLowerCase() : socket
-  return createHash("sha256").update(canonical, "utf8").digest("hex").slice(0, 16)
+  return socketNamesHostDaemonDir(agentDir, value.socket, endpointDir) ? value.socket : undefined
 }
 
 function readLines(file: string): readonly string[] {

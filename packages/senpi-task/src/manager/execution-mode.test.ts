@@ -155,4 +155,106 @@ describe("createExecutionModeGate", () => {
     // given / when / then
     expect(createExecutionModeGate(() => Promise.resolve("process" as const)).current()).toBeUndefined()
   })
+
+  test("#given a resolution that throws #when ensure runs #then onEnsureFailure sees the error once", async () => {
+    // given
+    const failures: unknown[] = []
+    const gate = createExecutionModeGate(() => Promise.reject(new Error("boom")), { onEnsureFailure: (error) => failures.push(error) })
+
+    // when
+    await gate.ensure()
+    await gate.ensure()
+
+    // then
+    expect(failures.map((error) => (error instanceof Error ? error.message : String(error)))).toEqual(["boom"])
+  })
+})
+
+describe("ExecutionModeGate.warm (the task-host pre-warm)", () => {
+  function scriptedGate(answers: readonly ("process" | "in-process" | Error)[]) {
+    let calls = 0
+    const warmFailures: unknown[] = []
+    const ensureFailures: unknown[] = []
+    const gate = createExecutionModeGate(
+      () => {
+        const answer = answers[Math.min(calls, answers.length - 1)]
+        calls += 1
+        return answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer ?? "in-process")
+      },
+      { onWarmFailure: (error) => warmFailures.push(error), onEnsureFailure: (error) => ensureFailures.push(error) },
+    )
+    return { gate, calls: () => calls, warmFailures, ensureFailures }
+  }
+
+  test("#given a warm that answered #when the first spawn ensures #then the answer is reused without asking again", async () => {
+    // given
+    const g = scriptedGate(["process"])
+    await g.gate.warm()
+
+    // when
+    const mode = await g.gate.ensure()
+
+    // then
+    expect(mode).toBe("process")
+    expect(g.gate.current()).toBe("process")
+    expect(g.calls()).toBe(1)
+  })
+
+  test("#given a warm that failed #when the first spawn ensures #then the host is asked again and the failure never settled the session", async () => {
+    // given
+    const g = scriptedGate([new Error("cold start timed out"), "process"])
+    await g.gate.warm()
+    const afterWarm = g.gate.current()
+
+    // when
+    const mode = await g.gate.ensure()
+
+    // then
+    expect(afterWarm).toBeUndefined()
+    expect(mode).toBe("process")
+    expect(g.calls()).toBe(2)
+    expect(g.warmFailures).toHaveLength(1)
+    expect(g.ensureFailures).toEqual([])
+  })
+
+  test("#given a warm still in flight #when a spawn ensures #then it joins the warm instead of asking twice", async () => {
+    // given
+    const g = scriptedGate(["process"])
+    const warming = g.gate.warm()
+
+    // when
+    const mode = await g.gate.ensure()
+    await warming
+
+    // then
+    expect(mode).toBe("process")
+    expect(g.calls()).toBe(1)
+  })
+
+  test("#given a warm in flight that fails #when a spawn joined it #then the spawn asks again rather than inheriting the failure", async () => {
+    // given
+    const g = scriptedGate([new Error("cold start timed out"), "process"])
+    const warming = g.gate.warm()
+
+    // when
+    const mode = await g.gate.ensure()
+    await warming
+
+    // then
+    expect(mode).toBe("process")
+    expect(g.calls()).toBe(2)
+  })
+
+  test("#given a settled gate #when warm runs #then nothing is asked", async () => {
+    // given
+    const g = scriptedGate(["in-process"])
+    await g.gate.ensure()
+
+    // when
+    await g.gate.warm()
+
+    // then
+    expect(g.calls()).toBe(1)
+    expect(g.gate.current()).toBe("in-process")
+  })
 })

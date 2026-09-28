@@ -1,18 +1,30 @@
 import { spawn, spawnSync } from "node:child_process"
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { basename, delimiter, join, resolve } from "node:path"
+import { basename, delimiter, extname, join, resolve } from "node:path"
 import { repoRoot } from "./omo-native-telemetry-provider.mjs"
 import { isRecord } from "./omo-native-telemetry-assertions.mjs"
 
 export function findExecutable(name) {
   if (name.includes("/")) return existsSync(name) ? resolve(name) : null
+  const names = executableNames(name)
   for (const directory of (process.env.PATH ?? "").split(delimiter)) {
-    const candidate = resolve(directory || ".", name)
-    if (existsSync(candidate)) return candidate
+    for (const executable of names) {
+      const candidate = resolve(directory || ".", executable)
+      if (existsSync(candidate)) return candidate
+    }
   }
-  const workspaceCandidate = join(repoRoot, "node_modules", ".bin", name)
-  return existsSync(workspaceCandidate) ? workspaceCandidate : null
+  for (const executable of names) {
+    const workspaceCandidate = join(repoRoot, "node_modules", ".bin", executable)
+    if (existsSync(workspaceCandidate)) return workspaceCandidate
+  }
+  return null
+}
+
+// win32 installs `bun` as `bun.exe`: a bare name resolves through PATHEXT, as the shell resolves it.
+function executableNames(name) {
+  if (process.platform !== "win32" || extname(name) !== "") return [name]
+  return (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean).map((extension) => `${name}${extension.toLowerCase()}`)
 }
 
 export async function startCaptureServer() {

@@ -1,3 +1,4 @@
+import { test } from "bun:test"
 import { chmodSync, mkdtempSync, rmSync, symlinkSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -14,6 +15,15 @@ export interface ShardEndpoint {
   readonly key: string
   resolution(notice?: ShardResolution["notice"]): ShardResolution
 }
+
+/**
+ * A case that opens a child through a shard endpoint. A shard endpoint here is a unix-socket alias of a fake
+ * host; per-parent shard routing is POSIX-only by the rpc-host-sharding plan ("Per-parent shard routing as
+ * the ONLY task-child routing on POSIX"; Must NOT: "No win32 behavior change ... `RpcHostRunner` still
+ * unused there"), and win32 never selects the host runner (`engine-runners.ts`, `host-execution-mode.ts`),
+ * where a named pipe is derived from the alias path and its own `.secret`, so no alias of a host exists.
+ */
+export const posixShardTest = test.skipIf(process.platform === "win32")
 
 const created: string[] = []
 

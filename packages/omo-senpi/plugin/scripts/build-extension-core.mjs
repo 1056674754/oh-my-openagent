@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { mkdir, readFile, rm } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { builtinModules } from "node:module"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -56,11 +56,18 @@ const toolkitSdkEntryPath = join(packageRoot, "src", "extension", "agent-toolkit
 const toolkitSdkOutputPath = join(process.env.OMO_SENPI_PLUGIN_OUTPUT ?? pluginRoot, "runtime", "agent-toolkit-sdk", "sdk.js")
 const advisorRuntimeEntryPath = join(packageRoot, "src", "components", "init-deep-advisor", "runtime.ts")
 const advisorRuntimeOutputPath = process.env.OMO_SENPI_PLUGIN_OUTPUT === undefined ? join(pluginRoot, "extensions", "omo-init-deep-advisor.js") : join(process.env.OMO_SENPI_PLUGIN_OUTPUT, "extensions", "omo-init-deep-advisor.js")
+const computerUseEntryPath = join(packageRoot, "src", "components", "computer-use", "runtime.ts")
+const computerUseOutputPath = join(process.env.OMO_SENPI_PLUGIN_OUTPUT ?? pluginRoot, "extensions", "omo-computer-use.js")
+// The computer-use prelude JSON: bundled modules read it from beside the bundle (extensions/), the
+// same contract as the staged personas, so omo.js carries none of the ~29 KB of prelude text (#9113).
+export const COMPUTER_PRELUDE_ASSET_NAME = "assets.generated.json"
+const computerPreludeAssetSource = join(repoRoot, "packages", "senpi-desktop-prelude", "src", "assets.generated.json")
 const rollbackRuntimeEntryPath = join(packageRoot, "src", "extension", "rollback-migrate-runtime.ts")
 const rollbackRuntimeOutputPath = join(process.env.OMO_SENPI_PLUGIN_OUTPUT ?? pluginRoot, "runtime", "rollback-migrate.js")
 const builtinModuleNames = builtinModules.filter((moduleName) => !moduleName.startsWith("_")).sort()
 const externalSpecifiers = [
   "#omo-task-runtime",
+  "#omo-computer-use-runtime",
   "#omo-agent-toolkit-sdk",
   ...SENPI_LOADER_ALIASES,
   ...builtinModuleNames,
@@ -89,6 +96,24 @@ export const extensionBuildPaths = {
   toolkitSdkOutputPath,
   advisorRuntimeOutputPath,
   rollbackRuntimeOutputPath,
+  computerUseOutputPath,
+}
+
+// An explicit path wins; with only `outputPath` set, every sidecar lands beside it.
+export function resolveOutputs(options) {
+  const output = options.outputPath ?? outputPath
+  const sibling = (explicit, fallback, relativePath) =>
+    explicit ?? (options.outputPath === undefined ? fallback : join(dirname(output), relativePath))
+  return {
+    output,
+    taskOutput: sibling(options.taskOutputPath, taskOutputPath, "omo-task.js"),
+    memberOutput: sibling(options.memberOutputPath, memberOutputPath, "omo-member.js"),
+    supervisorOutput: sibling(options.supervisorOutputPath, supervisorOutputPath, "memory-run-supervisor.mjs"),
+    advisorRuntimeOutput: sibling(options.advisorRuntimeOutputPath, advisorRuntimeOutputPath, "omo-init-deep-advisor.js"),
+    toolkitSdkOutput: sibling(options.toolkitSdkOutputPath, toolkitSdkOutputPath, join("runtime", "agent-toolkit-sdk", "sdk.js")),
+    rollbackRuntimeOutput: sibling(options.rollbackRuntimeOutputPath, rollbackRuntimeOutputPath, join("runtime", "rollback-migrate.js")),
+    computerUseOutput: sibling(options.computerUseOutputPath, computerUseOutputPath, "omo-computer-use.js"),
+  }
 }
 
 export async function buildExtension(options = {}) {
@@ -100,13 +125,16 @@ export async function buildExtension(options = {}) {
     OMO_SENPI_PACKAGE_VERSION: packageManifest.version,
     OMO_SENPI_BUNDLED: true,
   }
-  const output = options.outputPath ?? outputPath
-  const taskOutput = options.taskOutputPath ?? (options.outputPath === undefined ? taskOutputPath : join(dirname(output), "omo-task.js"))
-  const memberOutput = options.memberOutputPath ?? (options.outputPath === undefined ? memberOutputPath : join(dirname(output), "omo-member.js"))
-  const supervisorOutput = options.supervisorOutputPath ?? (options.outputPath === undefined ? supervisorOutputPath : join(dirname(output), "memory-run-supervisor.mjs"))
-  const advisorRuntimeOutput = options.advisorRuntimeOutputPath ?? (options.outputPath === undefined ? advisorRuntimeOutputPath : join(dirname(output), "omo-init-deep-advisor.js"))
-  const toolkitSdkOutput = options.toolkitSdkOutputPath ?? (options.outputPath === undefined ? toolkitSdkOutputPath : join(dirname(output), "runtime", "agent-toolkit-sdk", "sdk.js"))
-  const rollbackRuntimeOutput = options.rollbackRuntimeOutputPath ?? (options.outputPath === undefined ? rollbackRuntimeOutputPath : join(dirname(output), "runtime", "rollback-migrate.js"))
+  const {
+    output,
+    taskOutput,
+    memberOutput,
+    supervisorOutput,
+    advisorRuntimeOutput,
+    toolkitSdkOutput,
+    rollbackRuntimeOutput,
+    computerUseOutput,
+  } = resolveOutputs(options)
   const toolkitSdkInputs = await buildEntry(toolkitSdkEntryPath, toolkitSdkOutput, buildDefines, sdkExternalSpecifiers)
   const mainInputs = await buildEntry(entryPath, output, buildDefines)
   const taskInputs = await buildEntry(taskEntryPath, taskOutput, buildDefines)
@@ -114,7 +142,13 @@ export async function buildExtension(options = {}) {
   const supervisorInputs = await buildEntry(supervisorEntryPath, supervisorOutput, buildDefines)
   const advisorRuntimeInputs = await buildEntry(advisorRuntimeEntryPath, advisorRuntimeOutput, buildDefines)
   const rollbackRuntimeInputs = await buildEntry(rollbackRuntimeEntryPath, rollbackRuntimeOutput, buildDefines, sdkExternalSpecifiers)
-  await Promise.all([stageRuntimePersonas(repoRoot, dirname(output))])
+  const computerUseInputs = await buildEntry(computerUseEntryPath, computerUseOutput, buildDefines)
+  // Bundling inlines assets.ts but its markdown is read from disk at runtime next to the bundle,
+  // so the persona and the computer-use prelude are staged into the directory the loader runs from.
+  await Promise.all([
+    stageRuntimePersonas(repoRoot, dirname(output)),
+    writeFile(join(dirname(output), COMPUTER_PRELUDE_ASSET_NAME), await readFile(computerPreludeAssetSource, "utf8")),
+  ])
   return {
     mainInputs,
     taskInputs,
@@ -123,6 +157,7 @@ export async function buildExtension(options = {}) {
     advisorRuntimeInputs,
     toolkitSdkInputs,
     rollbackRuntimeInputs,
+    computerUseInputs,
   }
 }
 

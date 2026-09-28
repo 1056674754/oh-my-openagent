@@ -133,7 +133,7 @@ export function runDaemonCommand(args, options) {
   // A named pipe is per-process on win32: there is no socket for a second client to attach to,
   // so refusing here is honest, where pretending would strand the caller on a host it cannot reach.
   if (platform === "win32") {
-    stderr.write("omo daemon: a shared host needs a unix socket, which win32 does not provide\n")
+    stderr.write("omo daemon: a task host needs a unix socket, which win32 does not provide\n")
     return DAEMON_EXIT.unsupported
   }
   if (args.includes("--foreground")) {

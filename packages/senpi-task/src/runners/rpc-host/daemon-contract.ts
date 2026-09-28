@@ -88,7 +88,9 @@ export interface EnsureTaskDaemonInput {
   readonly env: Readonly<Record<string, string | undefined>>
   readonly policy: HostEnginePolicy
   readonly ports?: TaskDaemonPorts
-  readonly socket?: string
+  // The endpoint to attach to or start. Required: a task child has no machine-wide default, and the
+  // operator endpoint `rpc.sock` is only ever reached by naming it.
+  readonly socket: string
   readonly owner?: ShardOwner
   readonly sidecarNotice?: ShardNotice
 }

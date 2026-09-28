@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { OmoTaskSettingsSchema } from "@oh-my-opencode/omo-config-core"
-import { RpcHostRunner, RpcProcessRunner } from "@oh-my-opencode/senpi-task"
+import { createLiveHostChildren, RpcHostRunner, RpcProcessRunner } from "@oh-my-opencode/senpi-task"
 
 import { loadSenpiBarrel } from "../../../../senpi-task/src/lazy/senpi-barrel"
 import { DEFAULT_RUNNER_FACTORIES } from "./engine-runners"
@@ -22,6 +22,7 @@ const STUBBED_HOST_ROUTING: TaskHostRouting = {
   probeHost: () => Promise.resolve(undefined),
   onNotice: () => undefined,
   shardEvents: {},
+  liveChildren: createLiveHostChildren({}),
   storeDir: "/state",
 }
 

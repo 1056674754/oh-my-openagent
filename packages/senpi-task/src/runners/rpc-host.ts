@@ -79,6 +79,10 @@ export type RpcHostRunnerOptions = {
   readonly onNotice: HostNoticeSink
   // Every child's transport recoveries, so the parent hears about a host crash once (todo 10).
   readonly shardEvents: HostShardEvents
+  // The session's ONE live-child registry over `shardEvents`, when the session builds more than one
+  // runner (spawns and revivals): a crash must name every child it took from that session, not only
+  // the children of the runner whose child reported first. A lone runner gets a private registry.
+  readonly liveChildren?: LiveHostChildren
   // The attach-only probe for the session's own endpoint; defaults to the engine's `probeHost`.
   readonly probeHost?: HostProtocolProbe
 }
@@ -100,9 +104,10 @@ export function isHostSessionHandle(handle: RpcChildHandle): handle is HostSessi
  * per-child `RpcProcessRunner` and the reason is warned ONCE per runner. Every other reason fails
  * closed with `host_unavailable`: a refused client must never start a second host beside the daemon.
  *
- * Two refusals are recoveries, not failures (omo#8563). A host above its memory refuse watermark
- * answers `host_memory_pressure` with a retry hint: the start WAITS for it (bounded) and asks
- * again - the one-process rule stands, so this never reaches the fallback. A lost transport under
+ * Two refusals are recoveries, not failures (omo#8563). A host from before senpi#2213 (which removed
+ * the RSS refuse watermark; current hosts never refuse an open for memory) may answer
+ * `host_memory_pressure` with a retry hint: the start WAITS for it (bounded) and asks again - the
+ * one-process rule stands, so this never reaches the fallback. A lost transport under
  * a live child is re-ensured and the same session path reopened with backoff; the handle stays.
  * A host whose socket accepts but whose loop does not answer is busy, not gone (omo#9067): the
  * start is attempted again at the same session path within the same bounded window.
@@ -132,7 +137,7 @@ export class RpcHostRunner {
     this.reattachDelaysMs = options.reattachDelaysMs ?? DEFAULT_REATTACH_DELAYS_MS
     this.admissionWaitMs = options.admissionWaitMs ?? DEFAULT_ADMISSION_WAIT_MS
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
-    this.liveChildren = createLiveHostChildren(options.shardEvents)
+    this.liveChildren = options.liveChildren ?? createLiveHostChildren(options.shardEvents)
     this.endpoint = {
       agentDir: options.agentDir,
       env: options.env ?? process.env,

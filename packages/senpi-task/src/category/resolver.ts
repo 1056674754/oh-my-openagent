@@ -19,7 +19,7 @@ import {
   isCategoryChainViable,
   isCategoryGateSatisfied,
 } from "./builtins"
-import { buildRuntimeModelChain, chainRungCandidates, type ModelChainCandidate } from "../model-chain"
+import { availableChainCandidates, buildRuntimeModelChain, chainRungCandidates, type ModelChainCandidate } from "../model-chain"
 import { CATEGORY_FALLBACK_CHAINS } from "./fallback-chains"
 import type {
   CategoryModelSelection,
@@ -283,6 +283,20 @@ function modelSelection(input: ModelSelectionInput): CategoryModelSelection {
     ...(fallbackEntry !== undefined ? { fallbackEntry } : {}),
     matchedFallback: matchedFallback === true,
   }
+}
+
+/**
+ * The builtin fallback chain of a category, resolved against the models the registry reports as
+ * available, in chain order. `resolveCategory` leaves a user-forced model's chain untouched; a
+ * background child that must not die with its one refused pin appends these rungs itself.
+ */
+export function builtinCategoryChainCandidates<TModel extends SenpiModelPort>(
+  requestedCategoryName: string,
+  senpiModelRegistry: SenpiModelRegistryPort<TModel>,
+): readonly ModelChainCandidate[] {
+  const chain = getOwnRecordValue(CATEGORY_FALLBACK_CHAINS, canonicalCategoryName(requestedCategoryName))
+  if (chain === undefined) return []
+  return availableChainCandidates(chain, new Set(parseAvailableModels(senpiModelRegistry.getAvailable()).models))
 }
 
 export function resolveCategory<TModel extends SenpiModelPort>(

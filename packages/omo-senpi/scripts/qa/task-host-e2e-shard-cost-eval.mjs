@@ -8,7 +8,7 @@
 // value); 1 = a section is missing, a cell is null, or a latency scenario is below the required
 // sample count.
 
-export const SECTIONS = ["idle", "marginal", "totals", "idle_exit", "latency"]
+export const SECTIONS = ["idle", "marginal", "totals", "idle_exit", "latency", "prewarm_idle"]
 export const REQUIRED_SAMPLES = 20
 export const LATENCY_SCENARIOS = [
   "cold_first_child",
@@ -17,6 +17,11 @@ export const LATENCY_SCENARIOS = [
   "reattach_after_crash",
   "ensure_n1",
   "ensure_n4",
+  "user_first_child_off",
+  "user_first_child_first_turn",
+  "user_first_child_session_start",
+  "user_first_child_default",
+  "user_first_child_control",
 ]
 
 /**
@@ -31,6 +36,9 @@ export const DEFAULT_TARGETS = {
   warm_first_turn_p95_ms: { max: 4_000, unit: "ms", what: "pre-warmed (first-turn) first child, p95" },
   warm_session_start_p95_ms: { max: 4_000, unit: "ms", what: "pre-warmed (session-start) first child, p95" },
   reattach_p95_ms: { max: 30_000, unit: "ms", what: "host SIGSEGV -> first continuation model request, p95" },
+  user_first_child_p50_vs_control: { equals: true, what: "user-shaped first child with the DEFAULT pre-warm: p50 <= the control's first child on its already-running shared host" },
+  user_first_child_p95_vs_control: { equals: true, what: "user-shaped first child with the DEFAULT pre-warm: p95 <= the control's first child on its already-running shared host" },
+  prewarm_idle_host_exits: { equals: true, what: "the pre-warmed host of a session that never spawns a child (default AND session-start) exits on its idle window while the parent lives" },
   d1_both_idled_out: { equals: true, what: "all parents quit: every endpoint of BOTH configurations gone at +16 min" },
   d2_default_departed_shards_gone: { equals: true, what: "defaults: A's and B's shards gone at +16 min, C's alive" },
   d2_default_control_retained_evicted: { equals: true, what: "defaults: control host alive with sessions.retained == 0 at +16 min" },
@@ -54,7 +62,8 @@ const SECTION_ROWS = {
     "d2_long_control_retains",
     "d2_long_sharded_rss_lower",
   ],
-  latency: ["cold_p95_ms", "warm_first_turn_p95_ms", "warm_session_start_p95_ms", "reattach_p95_ms"],
+  latency: ["cold_p95_ms", "warm_first_turn_p95_ms", "warm_session_start_p95_ms", "reattach_p95_ms", "user_first_child_p50_vs_control", "user_first_child_p95_vs_control"],
+  prewarm_idle: ["prewarm_idle_host_exits"],
 }
 
 /** The `--control` failure scenario measures only the control half of (d); these rows are its contract. */
@@ -130,6 +139,9 @@ function measuredFor(id, sections) {
     case "warm_first_turn_p95_ms": return latency.warm_first_turn?.p95_ms
     case "warm_session_start_p95_ms": return latency.warm_session_start?.p95_ms
     case "reattach_p95_ms": return latency.reattach_after_crash?.p95_ms
+    case "user_first_child_p50_vs_control": return notSlower(latency.user_first_child_default?.p50_ms, latency.user_first_child_control?.p50_ms)
+    case "user_first_child_p95_vs_control": return notSlower(latency.user_first_child_default?.p95_ms, latency.user_first_child_control?.p95_ms)
+    case "prewarm_idle_host_exits": return prewarmIdleExits(sections.prewarm_idle)
     case "d1_both_idled_out": return exit.d1?.sharded?.all_gone === true && exit.d1?.control?.all_gone === true
     case "d2_default_departed_shards_gone": return exit.d2_default?.sharded?.departed_gone === true && exit.d2_default?.sharded?.survivor_alive === true
     case "d2_default_control_retained_evicted": return exit.d2_default?.control?.host_alive === true && exit.d2_default?.control?.retained === 0
@@ -142,6 +154,15 @@ function measuredFor(id, sections) {
     case "control_d2_long_retains": return exit.d2_long?.control?.host_alive === true && (exit.d2_long?.control?.retained ?? -1) >= 2
     default: return undefined
   }
+}
+
+function prewarmIdleExits(probes) {
+  const all = Object.values(probes ?? {})
+  return all.length > 0 && all.every((probe) => probe?.host_exited === true && probe?.parent_alive_at_host_exit === true)
+}
+
+function notSlower(sharded, control) {
+  return typeof sharded === "number" && typeof control === "number" ? sharded <= control : null
 }
 
 function lower(variant) {

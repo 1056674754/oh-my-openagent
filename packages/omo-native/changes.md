@@ -1,3 +1,12 @@
+## 2026-09-28 - The compiled binary enters a shard supervisor without the engine CLI graph
+
+`compile-entry.ts` routes an `--internal-rpc-host-supervisor` launch through `supervisor-fast-path.ts`, which applies
+the engine CLI's pre-`main()` process setup (deleted-cwd guard, process title, agent markers, silenced warnings) and
+imports the engine's own `modes/rpc/supervisor-route.js` instead of `dist/cli.js`. The supervisor of every task shard
+and Desktop thread host therefore no longer evaluates the engine's `main.js` graph. An argv the engine declines falls
+through to the full CLI as before. Measured on the compiled binary (1 parent x 4 children): supervisor physical
+footprint 70.7 -> 49.4 MB, RSS 123.3 -> 102.9 MB; children, host and topology unchanged.
+
 ## 2026-09-28 - `omo daemon run --foreground` exits 2; `--persistent` is accepted and ignored
 
 `bin/lib/daemon.js`: `--foreground` on any `omo daemon` subcommand exits 2 with "the engine host always

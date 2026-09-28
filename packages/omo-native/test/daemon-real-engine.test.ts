@@ -18,7 +18,8 @@ import { resolveSenpi } from "../bin/lib/package-paths.js"
 
 const PACKAGE_ROOT = resolve(import.meta.dir, "..")
 const LAUNCHER = join(PACKAGE_ROOT, "bin", "omo.js")
-const LAUNCH_SPEC = join(PACKAGE_ROOT, "plugin", "daemon-launch-spec.json")
+// The tracked source of the launch spec; `build:omo-native` copies it into this package's untracked plugin/.
+const LAUNCH_SPEC = resolve(PACKAGE_ROOT, "..", "omo-senpi", "plugin", "daemon-launch-spec.json")
 const roots: string[] = []
 const ownedPids = new Set<number>()
 

@@ -24,6 +24,7 @@ import { runDoctor } from "./bin/lib/doctor.js"
 import { migrationReport } from "./bin/lib/doctor-migration.js"
 import { detectHarnesses, needsSetupSuggestion } from "./bin/lib/setup-detect.js"
 import { printSetupReport } from "./bin/lib/setup-report.js"
+import { isInternalSupervisorLaunch, runInternalSupervisor } from "./supervisor-fast-path"
 import { spawnSync } from "node:child_process"
 import { delimiter } from "node:path"
 import { registerBunOAuthFlows } from "../../node_modules/@code-yeongyu/senpi/node_modules/@earendil-works/pi-ai/dist/bun-oauth.js"
@@ -382,6 +383,7 @@ async function main(): Promise<void> {
   }
   process.argv.splice(2, process.argv.length - 2, ...buildSenpiArgs(process.argv.slice(2), execDir))
   Object.assign(process.env, remapSenpiEnvironment(process.env, execDir))
+  if (isInternalSupervisorLaunch(process.argv.slice(2)) && await runInternalSupervisor(process.argv.slice(2))) return
   await import("../../node_modules/@code-yeongyu/senpi/dist/cli.js") // literal: see import note above
 }
 

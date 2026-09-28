@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
 
-import { HOST_TURN_RESUMED_EVENT, type ListedTask, type TaskRecord, type TaskStatus } from "@oh-my-opencode/senpi-task"
+import { createChildProgress, HOST_TURN_RESUMED_EVENT, type ListedTask, type TaskRecord, type TaskStatus } from "@oh-my-opencode/senpi-task"
 
 import type { CapturedUi } from "./runtime-context"
 import { createTaskStatusUi, type StatusUiManager, type StatusUiTimers } from "./status-ui"
@@ -139,7 +139,7 @@ describe("createTaskStatusUi.background progress", () => {
     expect(listCalls).toBe(1)
   })
 
-  it("#given a background child before its first turn #when a host reattach resumes its turn #then the row reads running instead of starting", () => {
+  it("#given a child before its first turn #when a host reattach resumes its turn #then both the footer progress line and the status row read running instead of starting", () => {
     // given: no successful turn and no tool yet, so the stats-derived verb is "starting"
     const active = new Map<number, () => void>()
     let nextHandle = 1
@@ -170,17 +170,23 @@ describe("createTaskStatusUi.background progress", () => {
       terminalWidth: () => 140,
       now: () => Date.parse("2026-07-07T00:00:11.000Z"),
     })
+    // The task tool's live progress line (the footer of a running task call) for the same child.
+    const progress = createChildProgress("st_reattached", { category: "quick" }, 0, () => 11_000)
     statusUi.syncNow()
     expect(ui.widgetCalls.at(-1)?.content?.[0]).toContain("· starting ·")
+    expect(progress.details().progress.activity).toEndWith("· starting")
 
-    // when
+    // when - the one event a reattach emits reaches both surfaces
     listeners.get("st_reattached")?.({ type: HOST_TURN_RESUMED_EVENT })
+    progress.accept({ type: HOST_TURN_RESUMED_EVENT })
     for (const callback of [...active.values()]) callback()
 
     // then
     const row = ui.widgetCalls.at(-1)?.content?.[0] ?? ""
     expect(row).toContain("· running ·")
     expect(row).not.toContain("starting")
+    expect(progress.details().progress.activity).toEndWith("· running")
+    expect(progress.details().turns).toBe(0)
     statusUi.dispose()
   })
 

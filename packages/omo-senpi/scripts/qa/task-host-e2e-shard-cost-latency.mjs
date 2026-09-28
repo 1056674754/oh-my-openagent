@@ -25,6 +25,7 @@ import {
   treePids,
 } from "./task-host-e2e-shard-cost-support.mjs"
 import { REQUIRED_SAMPLES, summarizeSamples } from "./task-host-e2e-shard-cost-eval.mjs"
+import { userFirstChild } from "./task-host-e2e-shard-cost-user-latency.mjs"
 
 const MAX_EXTRA_ATTEMPTS = 5
 
@@ -157,5 +158,6 @@ export async function latency(run, samples, cleanup, log) {
   scenarios.reattach_after_crash = await reattachScenario(run, samples, cleanup, log)
   scenarios.ensure_n1 = await ensureScenario(run, 1, samples, cleanup)
   scenarios.ensure_n4 = await ensureScenario(run, 4, samples, cleanup)
+  Object.assign(scenarios, await userFirstChild(run, samples, cleanup, log))
   return { percentile: "nearest-rank", required_samples: REQUIRED_SAMPLES, scenarios }
 }

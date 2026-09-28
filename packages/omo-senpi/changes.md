@@ -1,3 +1,43 @@
+## 2026-09-29 — Task-host crash lines read in one word and count only what came back
+
+The `host_shard_crash_done:<key>` closing line now reads `N subagent(s) reattached, 0 lost`, or, when anything was lost, `N subagent(s) lost (reattach failed), M reattached` (`, C cancelled` as before). "Reattached" counts only children that actually came back (attached, resumed, continued); the old first number counted lost ones too, so a lost case read "1 reattached: 0 continued mid-turn, 1 lost". The `host_shard_crash:<key>` warning says "reattaching N subagent(s)..." instead of "child/children". Both tokens are unchanged; the Desktop's parser moves to this shape in the same release. `shard-crash-notice.test.ts` pins both shapes.
+
+## task: the session's own host is pre-warmed by default, and warmed up with one throwaway session (rpc-host-sharding PR-A)
+
+`task.host_shard_prewarm` now defaults to `"first-turn"` (schema `packages/omo-config-core/src/schema/task.ts`,
+`assets/omo.schema.json`); `"session-start"` and `"off"` stay available. Measured on the compiled binary with a
+user-shaped first child (session opens, first turn, mock model latency 1-3 s, then the `task` call): without a pre-warm
+the first child waited for a cold host, and a pre-warmed host's first child was still slower than the old shared
+host's, because a host pays for its FIRST session (extension compile, lazy task runtime). With the warm-up session,
+60 samples over two runs: `first-turn` 1116/1678 ms p50/p95, `session-start` 1115/1648, `off` 1666/3280 (20 samples),
+control (previous release, shared host already running) 979/1593. `first-turn` wins over
+`session-start`: both hide the boot behind the model call, and `first-turn` starts no host for a session that is
+never prompted.
+
+`components/task/host-prewarm.ts`:
+
+- Only the root of a session tree warms (`readSessionRole(pi) === undefined`): a child session is served by its tree's
+  host, and a per-process child would boot a host for nothing. `default_execution_mode: "in-process"` never warms.
+- The warm goes through the gate's new `warm()` (senpi-task `execution-mode.ts`): a success is kept exactly as the
+  first spawn's `ensure()` would keep it, a failure is only logged (`onWarmFailure`) and settles nothing, so the
+  first spawn asks again and reports its own `host_unavailable:*` notice; an `ensure()` issued mid-warm joins it.
+  `host-execution-mode.ts` `resolveMode` now rejects instead of settling in-process itself; the gate's
+  `onEnsureFailure` adds the notice.
+- Once the gate answers `process`, one throwaway child session is opened and closed on the session's shard
+  (senpi-task `warmHostSession`); its failure is logged and changes nothing for the first child.
+- win32 stays excluded: the auto gate resolves in-process there, so no task host exists to warm.
+
+`components/telemetry/omo-native-component.ts` registers nothing for a warm-up session (`isHostWarmupSession`),
+so it is never reported as a session, a daily-active ping or a crash reporter.
+
+QA driver: `scripts/qa/task-host-e2e-shard-cost-user-latency.mjs` (new) adds the user-shaped latency scenarios
+(`user_first_child_{off,first_turn,session_start,default,control}`, interleaved per round, the control on an
+already-running shared host) and the `prewarm_idle` section (default and session-start, a session that never
+spawns: footprint and idle exit); `shard-cost-eval.mjs` judges default vs control at p50 and p95.
+`teardownSandbox` sweeps and retries on `ENOTEMPTY` instead of losing a section to a host generation still exiting.
+
+Tests: `host-prewarm.test.ts`, `index.test.ts`, `omo-native-component.test.ts`, `shard-cost-eval.test.mjs`.
+
 ## docs: engine hosts per session (rpc-host-sharding todo 18)
 
 `AGENTS.md` replaces "Shared engine host" with "Engine hosts per session": children run on their session's own
@@ -71,6 +111,18 @@ The `task.host_idle_exit_ms` override now wraps the one ensure port the gate, ru
 The daemon launch spec is unchanged: no memory knob.
 
 Tests: `shard-routing.test.ts` (new), `host-runner-selection.test.ts`.
+
+## Memory reflection moves to the next model on a spent usage or quota limit (#8296, #6808)
+
+`worker/model-miss.ts` classified a reflection child that died on `quota exceeded` as not retryable, so a Kimi quota 403 or any other spent plan ended the reflection run instead of trying the next candidate. The shared model-core classifier no longer keeps a separate STOP list: `isRetryableModelError` now derives quota, usage, and billing limits from `classifyRuntimeFallbackError`, so `classifyRetryableModelMiss` reports them as `provider_unavailable` and `runMemoryModelAttempts` continues down the chain. A quota the provider marks as terminal still stops.
+
+## Kibitzer gate notice names the failing model and its fix; unserved Devin SWE-2 ids warn at startup (#9111)
+
+The persistent-failure notice only said `check Kibitzer model/provider settings`, so a user whose recall category was pinned to a refused model could not tell which setting to change. `observe.onWake` now takes the session's recall settings (`{ category }`, passed by the composition), the gate record carries the additive `category`, and `renderKibitzerGateEntry` draws `last failed model: <model> (memory recall category "<category>")` and `after N consecutive failures; set categories.<category>.model (or memory.recall.category) in omo.json to a model that answers`. The model and category are drawn only as one bounded, secret-free line; an older record, or one with a malformed category, keeps the generic hint. `config-startup` adds one warning when a category or agent names a Devin SWE-2 id Cascade does not serve (`devin/swe-2`, `devin/swe-2-low`, `devin/swe-2-high-lite`; model-core `isUnservedDevinSWE2Selector` / `DEVIN_SWE2_SERVED_LANES`), naming each path and the served lanes `devin/swe-2-medium`, `devin/swe-2-high`, `devin/swe-2-max`. QA: `scripts/qa/kibitzer-sidecar-e2e.mjs --scenario refused-pinned-model` drives the real senpi binary against the built bundle with the pinned model refused (403 `permission_denied`) and a builtin quick rung served; the lane's `assertSandboxEnv` now requires every agent-dir lane to point at the sandbox, the shape `isolatedChildEnv` produces since #8967 (it rejected `OMO_CODING_AGENT_DIR` and so failed every Kibitzer scenario before any wake). Tests: `notice.test.ts`, `observe.test.ts`, `config-startup/index.test.ts`, model-core `model-family-detectors.test.ts`.
+
+## Memory sidecars keep the category's builtin chain after a pinned model (#9111)
+
+A recall (or facts/reflection) category pinned to a model outside its builtin chain, such as `categories.quick.model: "devin/swe-2-low"`, resolved with no fallback rung: `resolveCategory` leaves a user-forced model's chain untouched, so `resolveReflectionModel` returned `fallbacks: []`, the child ran with model fallback off, and a provider that refused the pin (Devin answers an unserved SWE-2 lane with `permission_denied`) failed every Kibitzer wake until the three-failure gate notice. `worker/resolve-model.ts` now appends the category's builtin chain rungs that are connected (senpi-task `builtinCategoryChainCandidates`) after the user's own rungs, on both the resolved path and the stale-snapshot pin path. They are the category's own chain, never the beyond-category ladder the advisor refuses; the pinned model still answers first and transient errors keep the same-model retry. Tests: `worker/resolve-model.test.ts` (a pin outside the chain gets the connected builtin rungs in chain order; a user chain keeps priority over them).
 
 ## skill commands: bare `/ulw-execute` and every bundled skill name dispatch like `/skill:` (#9042)
 

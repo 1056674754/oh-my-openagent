@@ -28,15 +28,29 @@ export interface HandleTeardown {
   terminate(): Promise<void>
 }
 
-/** The handle's deliberate detach, close, and terminate lifecycle. */
+/** How strong a close intent is: an overlapping teardown can only raise it, never lower it. */
+const INTENT_STRENGTH: Readonly<Record<SessionCloseIntent, number>> = { running: 0, closed: 1, terminated: 2 }
+
+/**
+ * The handle's deliberate detach, close, and terminate lifecycle.
+ *
+ * Close and terminate are idempotent in either order: the strongest intent requested wins (a
+ * terminate is never downgraded to a clean exit by a later close), and a teardown that overlaps one
+ * already in flight joins it instead of ending the session on the host a second time.
+ */
 export function createHandleTeardown(host: HandleTeardownHost): HandleTeardown {
+  let ending: Promise<void> | undefined
   const endOnHost = async (next: "closed" | "terminated"): Promise<void> => {
     if (host.exited()) return
-    host.markIntent(next)
-    host.stopHeartbeat()
-    await endSessionOnHost(host, next)
-    const reason = next === "terminated" ? "terminated" : "client_close"
-    host.settle(classifySessionExit({ cause: { kind: "session_closed", reason }, intent: host.intent() }))
+    if (INTENT_STRENGTH[next] > INTENT_STRENGTH[host.intent()]) host.markIntent(next)
+    ending ??= (async () => {
+      host.stopHeartbeat()
+      await endSessionOnHost(host, next)
+      const intent = host.intent()
+      const reason = intent === "terminated" ? "terminated" : "client_close"
+      host.settle(classifySessionExit({ cause: { kind: "session_closed", reason }, intent }))
+    })()
+    await ending
   }
 
   return {

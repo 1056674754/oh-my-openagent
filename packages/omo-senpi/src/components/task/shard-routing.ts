@@ -1,5 +1,6 @@
 import type { OmoTaskSettings } from "@oh-my-opencode/omo-config-core"
 import {
+  createLiveHostChildren,
   ensureTaskDaemon,
   HOST_NOTICE_TOKENS,
   probeWithEngine,
@@ -13,6 +14,7 @@ import {
   type HostNoticeSink,
   type HostProtocolProbe,
   type HostShardEvents,
+  type LiveHostChildren,
   type ShardIdentity,
   type ShardResolution,
 } from "@oh-my-opencode/senpi-task"
@@ -49,6 +51,9 @@ export interface SessionShardRouting {
   readonly onNotice: HostNoticeSink
   // Every child's transport recoveries: the parent's one crash notice per host crash.
   readonly shardEvents: HostShardEvents
+  // The session's ONE registry of live host children over `shardEvents`. Every runner the session
+  // builds (spawns AND revivals) shares it, so a crash names every child it took from the session.
+  readonly liveChildren: LiveHostChildren
 }
 
 export type TaskHostRouting = SessionShardRouting & { readonly storeDir: string }
@@ -111,6 +116,7 @@ export function createSessionShardRouting(input: SessionShardRoutingInput): Sess
       input.notices.add(detail === undefined ? token : `${token} ${detail}`)
     },
     shardEvents: input.shardEvents,
+    liveChildren: createLiveHostChildren(input.shardEvents),
   }
 }
 

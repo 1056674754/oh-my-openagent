@@ -3,26 +3,20 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
 import { artifactsMatch } from "./build-artifact.mjs"
-import { buildExtension, extensionBuildPaths } from "./build-extension-core.mjs"
+import { buildExtension, COMPUTER_PRELUDE_ASSET_NAME, extensionBuildPaths, resolveOutputs } from "./build-extension-core.mjs"
 import { findStaleRuntimePersona } from "./persona-artifacts.mjs"
 
 export async function checkExtensionCurrent(options = {}) {
   const {
-    outputPath,
-    taskOutputPath,
-    memberOutputPath,
-    supervisorOutputPath,
-    advisorRuntimeOutputPath,
-    toolkitSdkOutputPath,
-    rollbackRuntimeOutputPath,
-  } = extensionBuildPaths
-  const output = options.outputPath ?? outputPath
-  const taskOutput = options.taskOutputPath ?? (options.outputPath === undefined ? taskOutputPath : join(dirname(output), "omo-task.js"))
-  const memberOutput = options.memberOutputPath ?? (options.outputPath === undefined ? memberOutputPath : join(dirname(output), "omo-member.js"))
-  const supervisorOutput = options.supervisorOutputPath ?? (options.outputPath === undefined ? supervisorOutputPath : join(dirname(output), "memory-run-supervisor.mjs"))
-  const advisorRuntimeOutput = options.advisorRuntimeOutputPath ?? (options.outputPath === undefined ? advisorRuntimeOutputPath : join(dirname(output), "omo-init-deep-advisor.js"))
-  const toolkitSdkOutput = options.toolkitSdkOutputPath ?? (options.outputPath === undefined ? toolkitSdkOutputPath : join(dirname(output), "runtime", "agent-toolkit-sdk", "sdk.js"))
-  const rollbackRuntimeOutput = options.rollbackRuntimeOutputPath ?? (options.outputPath === undefined ? rollbackRuntimeOutputPath : join(dirname(output), "runtime", "rollback-migrate.js"))
+    output,
+    taskOutput,
+    memberOutput,
+    supervisorOutput,
+    advisorRuntimeOutput,
+    toolkitSdkOutput,
+    rollbackRuntimeOutput,
+    computerUseOutput,
+  } = resolveOutputs(options)
   const currentToolkitSdk = await readBuiltEntry(toolkitSdkOutput)
   if (currentToolkitSdk === undefined) return { ok: false, reason: "missing-output", output: toolkitSdkOutput }
   const currentRollbackRuntime = await readBuiltEntry(rollbackRuntimeOutput)
@@ -37,6 +31,8 @@ export async function checkExtensionCurrent(options = {}) {
   if (currentSupervisor === undefined) return { ok: false, reason: "missing-output", output: supervisorOutput }
   const currentAdvisorRuntime = await readBuiltEntry(advisorRuntimeOutput)
   if (currentAdvisorRuntime === undefined) return { ok: false, reason: "missing-output", output: advisorRuntimeOutput }
+  const currentComputerUse = await readBuiltEntry(computerUseOutput)
+  if (currentComputerUse === undefined) return { ok: false, reason: "missing-output", output: computerUseOutput }
 
   const tempRoot = await mkdtemp(join(tmpdir(), "omo-senpi-build-check-"))
   const expected = {
@@ -47,6 +43,7 @@ export async function checkExtensionCurrent(options = {}) {
     advisorRuntimeOutputPath: join(tempRoot, "omo-init-deep-advisor.js"),
     toolkitSdkOutputPath: join(tempRoot, "runtime", "agent-toolkit-sdk", "sdk.js"),
     rollbackRuntimeOutputPath: join(tempRoot, "runtime", "rollback-migrate.js"),
+    computerUseOutputPath: join(tempRoot, "omo-computer-use.js"),
   }
   try {
     await buildExtension(expected)
@@ -58,6 +55,7 @@ export async function checkExtensionCurrent(options = {}) {
       [currentMember, expected.memberOutputPath, memberOutput],
       [currentSupervisor, expected.supervisorOutputPath, supervisorOutput],
       [currentAdvisorRuntime, expected.advisorRuntimeOutputPath, advisorRuntimeOutput],
+      [currentComputerUse, expected.computerUseOutputPath, computerUseOutput],
     ]) {
       if (!artifactsMatch(current, await readFile(built, "utf8"))) {
         return { ok: false, reason: "stale-output", output: outputFile }
@@ -65,7 +63,12 @@ export async function checkExtensionCurrent(options = {}) {
     }
     const stalePersona = await findStaleRuntimePersona(tempRoot, dirname(output), extensionBuildPaths.repoRoot)
     if (stalePersona !== undefined) return { ok: false, reason: "stale-output", output: stalePersona }
-    return { ok: true, output, taskOutput, memberOutput, advisorRuntimeOutput }
+    const expectedPrelude = await readFile(join(tempRoot, COMPUTER_PRELUDE_ASSET_NAME), "utf8")
+    const currentPrelude = await readFile(join(dirname(output), COMPUTER_PRELUDE_ASSET_NAME), "utf8").catch(() => undefined)
+    if (currentPrelude !== expectedPrelude) {
+      return { ok: false, reason: "stale-output", output: join(dirname(output), COMPUTER_PRELUDE_ASSET_NAME) }
+    }
+    return { ok: true, output, taskOutput, memberOutput, advisorRuntimeOutput, computerUseOutput }
   } finally {
     await rm(tempRoot, { recursive: true, force: true })
   }

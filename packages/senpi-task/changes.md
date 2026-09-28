@@ -1,3 +1,33 @@
+## runners: warm a fresh task host with one throwaway session; the auto gate can warm without deciding (rpc-host-sharding PR-A)
+
+- `runners/rpc-host/host-warmup.ts` (new): `warmHostSession({ socket, cwd })` opens one `worker` session with the
+  `child` role, a private temp `state_dir` and session file, and the `host_warmup` context key, closes it at once,
+  and removes the temp directory on every path (a refused open included). It is never retained. A host's first session
+  compiles the extensions and loads the task runtime; measured, the first child on a fresh host opened in ~0.95 s and
+  the second in ~0.15 s, and after a child-role warm-up the first child opened in ~0.12-0.3 s.
+- `session-role.ts`: `HOST_WARMUP_CONTEXT` and `isHostWarmupSession(pi)`.
+- `manager/execution-mode.ts`: `ExecutionModeGate.warm()` - a speculative ask whose success is kept like
+  `ensure()`'s and whose failure is dropped (`hooks.onWarmFailure`), so a pre-warm can never settle the session on
+  in-process; an `ensure()` during a warm joins it. `createExecutionModeGate(resolve, hooks)` gains
+  `onEnsureFailure` for the notice a failed `ensure()` owes.
+
+Tests: `host-warmup.test.ts` (new), `execution-mode.test.ts`, `execute-auto-mode-gate.test.ts`.
+
+## A store index or sidecar waiter outlasts a slow durable rewrite
+
+`store/record-lock.ts`: `withTaskRecordLockAsync` takes an optional `holderWaitMs`, the time ONE live holder
+may keep the lock before a waiter gives up (default unchanged: 1 s, sized for a record read-modify-write).
+`runners/rpc-host/durable-json.ts` exports `DURABLE_JSON_LOCK_OPTIONS` (10 s), and `store-index.ts`
+(register, prune) and `shard-sidecar.ts` (write, register store) pass it: their holders rewrite and fsync
+the whole file, and a loaded host (a windows-latest runner here) keeps a live holder on the index lock
+past 1 s, so a waiter behind it failed `store_index_unavailable`. A stalled holder still times the waiter
+out; the task record, workpool and lease locks keep the 1 s budget.
+
+Tests: `runners/rpc-host/store-index.test.ts` (a live holder that keeps the index lock for 1.5 s: the
+registration behind it waits and lands; it timed out at 1 s before). The 32-process x 25-store
+throughput case runs on POSIX only: the host runner the index serves is never used on win32 (plan U6),
+and the runner's 800 serialized fsynced rewrites take over 60 s there.
+
 ## AGENTS: the host runner opens children on their parent session's own host
 
 `AGENTS.md` describes `RpcHostRunner` as opening a child on its parent session's own host
@@ -237,6 +267,14 @@ the PARENT `host_pid`. No single-daemon reader needed changing.
 Tests: `rpc-host-endpoint.test.ts`, `lifecycle/host-session-endpoint.test.ts`,
 `manager/host-session-park.test.ts`, `rpc-host/daemon-shard.test.ts`, `rpc-host/store-index.test.ts`,
 `rpc-host/own-endpoint.test.ts`.
+
+## 2026-09-29 - Runtime fallback tries another provider first after an account-wide usage limit (#8296)
+
+A task child that died on a usage limit (a Claude session or weekly limit, a monthly quota, a Codex usage limit) was handed to the next rung in list order, so a chain like `claude-fable-5-1 -> claude-opus-5-5 -> kimi-k3` on one Claude account spent a child start on Opus, which fails the same way, before reaching Kimi. `manager/credential-failure.ts` adds `usageLimitScope`: a limit that names a model, a model family or premium models is `model`-scoped and keeps list order, so a Fable-only weekly cap continues on Opus; any other usage limit is `account`-scoped and moves the spent provider's rungs behind every other provider's, keeping them as the last resort instead of dropping them. `runtimeFallbackCandidates` reports the scope as `limit`, and the `task_model_fallback` event records it as `usage_limit`. Credential rejections keep dropping the provider's rungs as before. The runtime-fallback QA driver gains `limit-account` and `limit-model` scenarios on a two-provider chain.
+
+## `builtinCategoryChainCandidates`: a category's builtin chain against the live registry (#9111)
+
+`category/resolver.ts` exports `builtinCategoryChainCandidates(category, registry)`: the category's builtin fallback chain (retired names mapped to their replacement) with every rung resolved to its first available provider, in chain order. `model-chain.ts` `availableChainCandidates` is the shared rung resolution `chainRungCandidates` now uses for the rungs after the selection. `resolveCategory` is unchanged: a user-forced model still keeps its own chain for task routing; memory sidecars append these rungs themselves so a refused pin is not their only model.
 
 ## A reattach continuation that is not delivered fails the turn (#9093)
 

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 
 import { DURABLE_JSON_FS } from "./durable-json"
 import {
@@ -14,6 +14,12 @@ import {
 } from "./store-index"
 
 const dirs: string[] = []
+
+// The store index is the host runner's admission precondition, and the rpc-host-sharding plan keeps the host
+// runner off win32 (U6: "the host runner is never used on win32"; Must NOT: "`RpcHostRunner` still unused
+// there"). A throughput case - 800 new stores, each a whole-index rewrite and fsync under one lock - measures
+// a path no win32 session takes, and a windows-latest runner spends over 60 s on those serialized fsyncs.
+const posixHostRunnerTest = test.skipIf(process.platform === "win32")
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
@@ -39,7 +45,7 @@ describe("registerStoreIndex", () => {
     // then
     expect(readTaskStoreIndex(path)).toEqual({
       version: 1,
-      stores: { "/p1/.omo/senpi-task": { first_seen: new Date(1_000).toISOString(), last_seen: new Date(1_000).toISOString() } },
+      stores: { [resolve("/p1/.omo/senpi-task")]: { first_seen: new Date(1_000).toISOString(), last_seen: new Date(1_000).toISOString() } },
     })
   })
 
@@ -125,8 +131,36 @@ describe("registerStoreIndex", () => {
 
     const [removed] = await Promise.all([prune, register])
 
-    expect(removed).toEqual(["/tmp/missing-store"])
+    expect(removed).toEqual([resolve("/tmp/missing-store")])
     expect(Object.keys(readTaskStoreIndex(path).stores)).toEqual([existingStore])
+  })
+
+  test("#given a live holder that keeps the index lock past a record lock's budget #when another store registers #then it waits for the holder and lands", async () => {
+    // given - a live holder slowed the way a loaded host slows an fsynced rewrite of the index
+    const path = indexPath()
+    const existingStore = join(dirname(path), "existing-store")
+    mkdirSync(existingStore, { recursive: true })
+    await registerStoreIndex({ indexPath: path, storeDir: existingStore, now: Date.now })
+    let reportHeld: (() => void) | undefined
+    const held = new Promise<void>((resolve) => {
+      reportHeld = resolve
+    })
+    const slowHolder = pruneMissingStoreIndexEntries(path, {
+      _test: {
+        afterLockAcquired: async () => {
+          reportHeld?.()
+          await Bun.sleep(1_500)
+        },
+      },
+    })
+    await held
+
+    // when
+    const registered = registerStoreIndex({ indexPath: path, storeDir: "/p2/.omo/senpi-task", now: Date.now })
+
+    // then
+    await Promise.all([slowHolder, registered])
+    expect(Object.keys(readTaskStoreIndex(path).stores).sort()).toEqual([existingStore, resolve("/p2/.omo/senpi-task")].sort())
   })
 
   test("#given compiled launcher pruning #when one indexed store is missing #then the sync port removes only that entry", async () => {
@@ -140,7 +174,8 @@ describe("registerStoreIndex", () => {
     expect(Object.keys(readTaskStoreIndex(path).stores)).toEqual([existingStore])
   })
 
-  test("#given 32 processes each registering 25 distinct stores at once #when they all finish #then every one of the 800 stores is in the index", async () => {
+  posixHostRunnerTest("#given 32 processes each registering 25 distinct stores at once #when they all finish #then every one of the 800 stores is in the index", async () => {
+
     // given
     const path = indexPath()
     const writer = join(import.meta.dir, "__fixtures__", "register-stores.ts")

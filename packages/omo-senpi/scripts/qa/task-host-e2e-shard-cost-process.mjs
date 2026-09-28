@@ -160,15 +160,18 @@ export async function teardownSandbox(sandbox, parents = []) {
   for (const parent of parents) await stopParent(parent).catch(() => undefined)
   const endpoints = []
   for (const socket of endpointSockets(sandbox)) endpoints.push(await stopEndpoint(sandbox, socket))
-  const survivors = sandboxProcesses(sandbox).map((entry) => entry.pid)
-  for (const pid of survivors) {
+  const survivors = await killSurvivors(sandbox)
+  // A process that was still exiting (a host generation respawned after a crash scenario) can write into
+  // the tree while it is removed: sweep again and retry instead of losing the whole section to ENOTEMPTY.
+  for (let attempt = 0; ; attempt += 1) {
     try {
-      process.kill(pid, "SIGKILL")
-    } catch {
-      // gone
+      rmSync(sandbox.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+      break
+    } catch (error) {
+      if (attempt >= 3 || error?.code !== "ENOTEMPTY") throw error
+      survivors.push(...(await killSurvivors(sandbox)))
     }
   }
-  rmSync(sandbox.root, { recursive: true, force: true })
   return {
     sandbox: sandbox.name,
     parentPids: parents.map((parent) => parent.child.pid),
@@ -177,6 +180,19 @@ export async function teardownSandbox(sandbox, parents = []) {
     killedSurvivors: survivors,
     removed: !existsSync(sandbox.root),
   }
+}
+
+async function killSurvivors(sandbox) {
+  const survivors = sandboxProcesses(sandbox).map((entry) => entry.pid)
+  for (const pid of survivors) {
+    try {
+      process.kill(pid, "SIGKILL")
+    } catch {
+      // gone
+    }
+  }
+  await waitFor(() => survivors.every((pid) => !pidAlive(pid)), { timeoutMs: 10_000, intervalMs: 100 })
+  return survivors
 }
 
 export function settle(ms) {

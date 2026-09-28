@@ -30,6 +30,7 @@ function countingGate(answer: ExecutionMode): ExecutionModeGate & { readonly ens
       settled = answer
       return Promise.resolve(answer)
     },
+    warm: () => Promise.resolve(),
   }
 }
 
