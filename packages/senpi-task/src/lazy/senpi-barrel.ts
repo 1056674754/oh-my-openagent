@@ -125,6 +125,12 @@ export interface EnsuredSenpiHost {
   readonly instanceId?: string
   readonly generation?: number
   readonly engineVersion?: string
+  /**
+   * Ends the ensure's attach hold (senpi #2242): until then the host counts the ensuring process as an
+   * attached client and a transient host never starts its idle window. Absent on engine pins that
+   * predate the hold, so callers release it when present.
+   */
+  readonly release?: () => void
 }
 
 export type ProbeHostFn = (input: { readonly socket: string }) => Promise<SenpiHostProtocolInfo | undefined>
