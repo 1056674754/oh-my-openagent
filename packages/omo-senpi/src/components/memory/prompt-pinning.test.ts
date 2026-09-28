@@ -86,6 +86,28 @@ describe("session-pinned memory projection", () => {
     expect(records).toHaveLength(1)
   }, 30_000)
 
+  test("#given /recompile requested a refresh before a pinned session resumes #when a preview runs before its first turn #then the preview composes the refreshed bytes the real turn sends", async () => {
+    // given
+    const { repo, context } = await fixture()
+    const original = pinnedHandler(repo, context)
+    await original.dispatch(liveBranch(1))
+    await commitAs(repo, "other-session", "system/persona.md", "second")
+    const pins = createProjectionPins({ now: () => Number.MAX_SAFE_INTEGER })
+    pins.requestRefresh()
+    const resumed = pinnedHandler(repo, context, { pins })
+    const branch = [...liveBranch(1), pinEntry(original.records.at(-1))]
+
+    // when
+    const preview = await resumed.dispatch(branch, SESSION, true)
+    const real = await resumed.dispatch(branch)
+
+    // then
+    expect(real?.systemPrompt).toContain("second")
+    expect(preview?.systemPrompt).toBe(real?.systemPrompt)
+    expect(resumed.records).toHaveLength(1)
+    expect(resumed.repins).toEqual(["refresh"])
+  }, 30_000)
+
   test("#given another writer adds a file and edits persona between turns #when the next turns run #then the system prompt keeps its bytes and the change is announced once", async () => {
     // given
     const { repo, context } = await fixture()

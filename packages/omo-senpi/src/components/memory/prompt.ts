@@ -61,7 +61,6 @@ export function createMemoryPromptHandler(
 ): (payload: unknown, eventCtx?: unknown) => Promise<BeforeAgentStartEventResult | undefined> {
   const cache = options.cache ?? new MemoryBlockCache()
   const pins = options.pins ?? createProjectionPins()
-  const previewPins = createProjectionPins()
   const recordPin = options.recordPin ?? (() => undefined)
   const createRepo = options.createRepo ?? defaultCreateRepo
   // The pressure estimate is a pure function of the commit, like the compiled block above it. Without
@@ -78,16 +77,15 @@ export function createMemoryPromptHandler(
     if (context === undefined) return undefined
 
     const repo = createRepo(context)
+    // A preview (senpi's prompt-cache prewarm) keeps only the systemPrompt: compose at the revision the
+    // real turn will use, and record no pin, consume no watermark, announce no repin.
     const nudgeTurns = await options.resolveNudgeTurns?.(repo, session.id, context.identity)
     const soulNotice = preview ? undefined : await options.resolveSoulNotice?.(repo, session.id, context.identity)
-    const turn = await (preview ? previewPins : pins).advance({
-      repo,
-      sessionId: session.id,
-      branch: session.branch,
-      head: await repo.head(),
-      record: preview ? () => undefined : recordPin,
-    })
-    if (!preview && turn.repinned !== undefined && turn.repinned !== "first-turn") options.onRepin?.(session.id, turn.repinned)
+    const pinInput = { repo, sessionId: session.id, branch: session.branch, head: await repo.head() }
+    const turn: ProjectionTurn = preview
+      ? { revision: await pins.peek(pinInput) }
+      : await pins.advance({ ...pinInput, record: recordPin })
+    if (turn.repinned !== undefined && turn.repinned !== "first-turn") options.onRepin?.(session.id, turn.repinned)
     const block = await cache.compile(repo, `${MEMORY_PROMPT_TEMPLATE}:${context.identity}`, {
       agentId: context.identity,
     }, turn.revision)
