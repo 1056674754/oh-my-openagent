@@ -24,7 +24,8 @@ export const LATENCY_SCENARIOS = [
  * `max` rows pass when measured <= target; `equals` rows pass when measured === target.
  */
 export const DEFAULT_TARGETS = {
-  idle_rss_mb: { max: 200, unit: "MB", what: "idle shard endpoint RSS (supervisor + host tree), 0 sessions, 30 s after ensure" },
+  // Idle memory is judged on physical footprint only: RSS double-counts the clean file-backed pages the
+  // supervisor and the host both map (plan Budgets amendment 2026-09-28). RSS is still recorded in the idle section.
   idle_footprint_mb: { max: 170, unit: "MB", what: "idle shard endpoint physical footprint (supervisor + host tree)" },
   cold_p95_ms: { max: 12_000, unit: "ms", what: "cold first child: task call -> first child model request, p95" },
   warm_first_turn_p95_ms: { max: 4_000, unit: "ms", what: "pre-warmed (first-turn) first child, p95" },
@@ -41,7 +42,7 @@ export const DEFAULT_TARGETS = {
 
 /** Which target rows each section feeds; a skipped section contributes none and fails completeness. */
 const SECTION_ROWS = {
-  idle: ["idle_rss_mb", "idle_footprint_mb"],
+  idle: ["idle_footprint_mb"],
   marginal: [],
   totals: [],
   idle_exit: [
@@ -85,7 +86,7 @@ export function summarizeSamples(samples, extra = {}) {
   }
 }
 
-/** `--target idle_rss_mb=1` -> a max-row override; `--target d1_both_idled_out=false` -> an equals row. */
+/** `--target idle_footprint_mb=1` -> a max-row override; `--target d1_both_idled_out=false` -> an equals row. */
 export function applyTargetOverrides(targets, overrides) {
   const next = structuredClone(targets)
   for (const raw of overrides) {
@@ -124,7 +125,6 @@ function measuredFor(id, sections) {
   const latency = sections.latency?.scenarios ?? {}
   const exit = sections.idle_exit ?? {}
   switch (id) {
-    case "idle_rss_mb": return sections.idle?.sharded?.endpoint_rss_mb
     case "idle_footprint_mb": return sections.idle?.sharded?.endpoint_footprint_mb
     case "cold_p95_ms": return latency.cold_first_child?.p95_ms
     case "warm_first_turn_p95_ms": return latency.warm_first_turn?.p95_ms

@@ -4,7 +4,7 @@
 //
 //   node packages/omo-senpi/scripts/qa/task-host-e2e-shard-cost.mjs \
 //     --bin <compiled omo built from this branch> --before-bin <compiled R0 omo> --out <dir>
-//   ... [--samples 20] [--target idle_rss_mb=1]... [--skip <section>]... [--control] [--keep-sandbox]
+//   ... [--samples 20] [--target idle_footprint_mb=1]... [--skip <section>]... [--control] [--keep-sandbox]
 //   ... --reevaluate <shard-cost.json> [--target k=v]... [--skip <section>]...   (no processes)
 //
 // `SENPI_BIN` is accepted in place of `--bin` (a compiled omo binary: the branch's plugin and engine

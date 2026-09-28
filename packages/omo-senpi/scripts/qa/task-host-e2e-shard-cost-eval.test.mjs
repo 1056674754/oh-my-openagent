@@ -56,9 +56,9 @@ describe("evaluate", () => {
   })
 
   test("an impossible injected target exits 2 with exactly that row FAIL", () => {
-    const result = evaluate(completeReport(), { targets: applyTargetOverrides(DEFAULT_TARGETS, ["idle_rss_mb=1"]) })
+    const result = evaluate(completeReport(), { targets: applyTargetOverrides(DEFAULT_TARGETS, ["idle_footprint_mb=1"]) })
     expect(result.exitCode).toBe(2)
-    expect(result.rows.filter((row) => row.verdict === "FAIL").map((row) => row.id)).toEqual(["idle_rss_mb"])
+    expect(result.rows.filter((row) => row.verdict === "FAIL").map((row) => row.id)).toEqual(["idle_footprint_mb"])
   })
 
   test("a failed boolean assertion (d1) is a FAIL row, exit 2", () => {
