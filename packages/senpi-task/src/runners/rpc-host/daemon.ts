@@ -79,7 +79,7 @@ export function forgetTaskDaemon(socket: string, instanceId?: string): void {
 }
 
 /**
- * Attach to the machine-wide daemon, or create it from the launch spec. The engine owns every
+ * Attach to the task host listening on `input.socket`, or create it from the launch spec. The engine owns every
  * protocol decision: omo probes, asks `decideHostAction`, and either calls `ensureHost` or fails
  * with a typed `HostUnavailableError`. It never signals, replaces or takes over a host (I1).
  */
@@ -89,7 +89,7 @@ export async function ensureTaskDaemon(input: EnsureTaskDaemonInput): Promise<En
     throw new HostUnavailableError("win32", { fallbackAllowed: true })
   }
   // Under Node the host cannot arm its child reaper (it needs `bun:ffi`), so children orphaned by a
-  // terminated session worker stay zombies for the life of a machine-wide daemon - measured on
+  // terminated session worker stay zombies for the life of the host - measured on
   // every spawn API in todo 13's matrix. The per-child runner has no such path.
   if (!(ports.bunRuntimeAvailable ?? bunRuntimeAvailable(input.env))) {
     throw new HostUnavailableError("runtime", { fallbackAllowed: true })

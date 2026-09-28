@@ -104,9 +104,10 @@ export function isHostSessionHandle(handle: RpcChildHandle): handle is HostSessi
  * per-child `RpcProcessRunner` and the reason is warned ONCE per runner. Every other reason fails
  * closed with `host_unavailable`: a refused client must never start a second host beside the daemon.
  *
- * Two refusals are recoveries, not failures (omo#8563). A host above its memory refuse watermark
- * answers `host_memory_pressure` with a retry hint: the start WAITS for it (bounded) and asks
- * again - the one-process rule stands, so this never reaches the fallback. A lost transport under
+ * Two refusals are recoveries, not failures (omo#8563). A host from before senpi#2213 (which removed
+ * the RSS refuse watermark; current hosts never refuse an open for memory) may answer
+ * `host_memory_pressure` with a retry hint: the start WAITS for it (bounded) and asks again - the
+ * one-process rule stands, so this never reaches the fallback. A lost transport under
  * a live child is re-ensured and the same session path reopened with backoff; the handle stays.
  * A host whose socket accepts but whose loop does not answer is busy, not gone (omo#9067): the
  * start is attempted again at the same session path within the same bounded window.
