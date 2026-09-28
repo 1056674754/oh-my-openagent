@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 
+import { adaptRpcHandle } from "../../manager/child-handle"
+import { HOST_TURN_RESUMED_EVENT } from "../../manager/host-turn-resumed"
 import type { FakeHost } from "./__fixtures__/fake-host"
 import { createHostSessionHandle } from "./handle"
 import type { HostSessionChildHandle, HostSessionIdentity } from "./handle-port"
@@ -151,10 +153,38 @@ describe("host-session handle reattach", () => {
     await handle.dispose()
   })
 
+  test("#given a managed child mid-turn #when the host dies and the turn is re-prompted #then its managed stream reports the turn resumed before the continuation is sent", async () => {
+    // given
+    const host = await fakeHost()
+    const handle = await openWithReattach(host, "/tmp/sessions/reattach-resumed.jsonl", reopenOn(host))
+    const observed: string[] = []
+    const raw: string[] = []
+    adaptRpcHandle(handle).subscribe((event) => observed.push(event.type))
+    handle.subscribe((event) => raw.push(event.type))
+    await handle.startInitialPrompt("do the work")
+
+    // when
+    await host.restart()
+    const continuation = await host.waitForCommand("prompt")
+
+    // then: the managed stream (what the footer widget reads) learns the turn is live again; the
+    // host-event stream itself carries no synthesized event
+    expect(String(continuation.payload.message)).toContain(HOST_SESSION_REATTACH_TAG)
+    expect(observed).toEqual([HOST_TURN_RESUMED_EVENT])
+    expect(raw).toEqual([])
+    const reopened = host.sessions().find((session) => session.sessionPath === "/tmp/sessions/reattach-resumed.jsonl")
+    if (reopened === undefined) throw new Error("the host did not reopen the session")
+    host.completeTurn(reopened.routingId, "finished after the restart")
+    expect((await handle.waitForOutcome()).status).toBe("completed")
+    await handle.dispose()
+  })
+
   test("#given an idle child #when the host dies and comes back #then the handle reopens the path without re-prompting", async () => {
     // given
     const host = await fakeHost()
     const handle = await openWithReattach(host, "/tmp/sessions/reattach-c.jsonl", reopenOn(host))
+    const observed: string[] = []
+    adaptRpcHandle(handle).subscribe((event) => observed.push(event.type))
     await handle.startInitialPrompt("do the work")
     const first = host.sessions().find((session) => session.sessionPath === "/tmp/sessions/reattach-c.jsonl")
     if (first === undefined) throw new Error("the host did not open the session")
@@ -169,6 +199,8 @@ describe("host-session handle reattach", () => {
     expect(host.commands.filter((command) => command.type === "steer").map((command) => command.payload.message)).toEqual([
       "one more thing",
     ])
+    // no turn was running when the host died, so none is reported resumed
+    expect(observed).not.toContain(HOST_TURN_RESUMED_EVENT)
     expect(handle.hasExited()).toBe(false)
     await handle.dispose()
   })

@@ -49,6 +49,8 @@ export interface ReattachSubject extends HostShardEvents {
   readonly alive: () => boolean
   readonly turnInFlight: () => boolean
   readonly adopt: (next: HostSessionReattached) => void
+  // A turn in flight at the loss runs again on the new port: re-joined still streaming, or re-prompted.
+  readonly turnResumed: () => void
   readonly continueTurn: (prompt: string) => Promise<void>
   readonly giveUp: (refusal?: HostParkReason) => void
 }
@@ -93,8 +95,12 @@ export async function recoverLostTransport(subject: ReattachSubject, reattach: H
   })
   const rejoined = next.attached ? "attached" : "resumed"
   if (!turnWasInFlight) return report(rejoined, next.session.instanceId)
-  if (next.attached && (await stillStreaming(next.client, taskId))) return report(rejoined, next.session.instanceId)
+  if (next.attached && (await stillStreaming(next.client, taskId))) {
+    observe(taskId, subject.turnResumed)
+    return report(rejoined, next.session.instanceId)
+  }
   report("continued", next.session.instanceId)
+  observe(taskId, subject.turnResumed)
   await subject.continueTurn(reattachContinuationPrompt())
 }
 
