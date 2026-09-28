@@ -1,10 +1,7 @@
 import type { OmoTaskSettings } from "@oh-my-opencode/omo-config-core"
 import {
   readSessionRole,
-  registerStoreIndex,
   selectRevivalBatch,
-  StoreIndexUnavailableError,
-  taskStoreIndexPath,
   warmTaskHost,
   type ExecutionModeGate,
   type HostEndpointPort,
@@ -14,6 +11,7 @@ import { log } from "@oh-my-opencode/utils"
 
 import type { SenpiExtensionAPI } from "../../extension/types"
 import { runsInDesktopThreadHost, startsDelegation } from "./host-prewarm-intent"
+import { admitTaskStore } from "./store-admission"
 import type { LiveTaskContext } from "./runtime-context"
 import { createOncePerSessionGuard } from "./usage-guidance"
 
@@ -114,7 +112,7 @@ export function wireHostPrewarm(
 }
 
 async function warmHost(engine: HostPrewarmEngine): Promise<void> {
-  if (!(await admitSessionStore(engine))) return
+  if (!(await admitTaskStore(engine.host.agentDir, engine.stateDir, "host pre-warm"))) return
   const gate = engine.host.executionModeGate
   await gate.warm().catch(() => undefined)
   // Only a session whose children will run on its host warms one up; in-process children never open there.
@@ -126,18 +124,6 @@ async function warmHost(engine: HostPrewarmEngine): Promise<void> {
   })
 }
 
-// The spawn's admission precondition (`admitChildStore`): no endpoint before the store is indexed.
-// A failure is the spawn's to report, so the pre-warm only logs it.
-async function admitSessionStore(engine: HostPrewarmEngine): Promise<boolean> {
-  try {
-    await registerStoreIndex({ indexPath: taskStoreIndexPath(engine.host.agentDir), storeDir: engine.stateDir, now: Date.now })
-    return true
-  } catch (error) {
-    if (!(error instanceof StoreIndexUnavailableError)) throw error
-    log("omo-senpi task host pre-warm skipped: the task store index is unavailable", { error: error.message })
-    return false
-  }
-}
 
 function contextSessionId(eventCtx: unknown): string | undefined {
   if (typeof eventCtx !== "object" || eventCtx === null) return undefined

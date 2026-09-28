@@ -1,3 +1,14 @@
+## manager: an auto spawn admits its task store before asking the host gate
+
+- `manager.ts` `#autoExecutionMode`: with `task.default_execution_mode: "auto"` the first gate ask ensures the session's
+  task host, while the task store used to reach the agent-dir store index only later, in the host runner's admission.
+  When the index could not take the store, the spawn failed `store_index_unavailable` with a host already started.
+  `ManagerOptions.admitHostStore` now runs before the first ask; a false answer skips the ask and routes the spawn to
+  the host runner, whose own admission fails it exactly as before (same code, same record), so no host is started.
+  After the gate has settled nothing changes. `manager-auto-execution-mode.test.ts` pins both orders (rpc-host-sharding
+  todo 14 B1; the duty chose failing over an in-process fallback because an unwritable index usually means a broken
+  agent dir, and an in-process child would lose the index that `task_output`, cancel and resume rely on).
+
 ## runners: warm a task host with its `warm` command; export the store-index registration
 
 - `runners/rpc-host/host-warmup.ts`: `warmTaskHost({ socket, cwd })` sends `warm { cwd, kind: "worker", context }` with

@@ -19,6 +19,7 @@ export const SCENARIO_IDS = [
   "cross_endpoint_open_hazard",
   "idle_gc_index_resume",
   "store_index_registration_precondition",
+  "store_index_registration_precondition_auto",
   "retain_idle_resume",
   "retain_midturn_continuation",
   "migration_recorded_socket_wins",

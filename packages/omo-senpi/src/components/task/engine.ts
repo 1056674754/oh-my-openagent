@@ -51,6 +51,7 @@ import type { TeamMemberLivenessNotifier } from "./member-liveness"
 import { createManagerResidencyRegistry } from "./residency-registry"
 import { TaskRuntimeContext } from "./runtime-context"
 import { sharedTaskTerminalObservers, type TaskTerminalObservers } from "./terminal-observers"
+import { admitTaskStore } from "./store-admission"
 
 export interface TaskEngine {
   readonly manager: TaskManager
@@ -235,6 +236,9 @@ export function composeTaskEngine(deps: ComposeTaskEngineDeps): TaskEngine {
     resolveInheritedExtensions,
     rpcRespawnRunner: buildRespawnRunner(runnerContext),
     executionModeGate: host.executionModeGate,
+    ...(settings.process_runner === "host" && process.platform !== "win32"
+      ? { admitHostStore: () => admitTaskStore(host.agentDir, baseStore.stateDir, "auto execution mode") }
+      : {}),
     cwd: deps.cwd,
     destruction: {
       destroyResidentTask: (taskId, cause) =>

@@ -175,6 +175,7 @@ export function makeManager(options: {
   process?: ManagedRunner
   admit?: AdmitResident
   executionModeGate?: ExecutionModeGate
+  admitHostStore?: () => Promise<boolean>
 } = {}) {
   const project = options.project ?? tempProject()
   const store = options.store ?? createTaskRecordStore({ project_dir: project })
@@ -188,6 +189,7 @@ export function makeManager(options: {
     cwd: project,
     ...(options.admit !== undefined && { admit: options.admit }),
     ...(options.executionModeGate !== undefined && { executionModeGate: options.executionModeGate }),
+    ...(options.admitHostStore !== undefined && { admitHostStore: options.admitHostStore }),
   })
   return { manager, store, inProcess, process: processRunner, project }
 }
