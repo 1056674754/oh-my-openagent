@@ -31,8 +31,9 @@ describe("telemetry capture server temp-dir hygiene", () => {
     const previousPath = process.env.PATH
     let leaked = []
     try {
-      const fakeBun = join(fakeBin, "bun")
-      writeFileSync(fakeBun, "#!/bin/sh\nexit 42\n")
+      // win32 resolves the bare name through PATHEXT, so its fake is a batch file
+      const fakeBun = join(fakeBin, process.platform === "win32" ? "bun.cmd" : "bun")
+      writeFileSync(fakeBun, process.platform === "win32" ? "@exit /b 42\r\n" : "#!/bin/sh\nexit 42\n")
       chmodSync(fakeBun, 0o755)
       process.env.PATH = `${fakeBin}${delimiter}${previousPath ?? ""}`
       await expect(startCaptureServer()).rejects.toThrow()
