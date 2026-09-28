@@ -1,8 +1,10 @@
-export type EnsureFailureReason = "ensure_failed" | "ensure_timed_out"
+export type EnsureFailureReason = "ensure_failed" | "ensure_timed_out" | "host_busy"
 
 export function classifyEnsureFailure(error: unknown): EnsureFailureReason {
   if (error instanceof Error) {
-    if (error.name === "HostEnsureRefusedError") return "ensure_failed"
+    if (error.name === "HostEnsureRefusedError") {
+      return "reason" in error && error.reason === "host_busy" ? "host_busy" : "ensure_failed"
+    }
     const code = "code" in error && typeof error.code === "string" ? error.code : undefined
     if (code === "SQLITE_BUSY" || code === "ETIMEDOUT") return "ensure_timed_out"
     if (isDaemonReadinessTimeout(error.message)) return "ensure_timed_out"

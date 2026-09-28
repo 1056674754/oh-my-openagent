@@ -197,3 +197,68 @@ describe("host-session revival: attach by session path, drain deferral, daemon-l
     expect(store.load("st_0b000006")?.suspension_reason).toBeUndefined()
   })
 })
+
+describe("a deferred daemon-hosted child is retried in the background (omo#9069)", () => {
+  test("#given a daemon that did not answer when the parent reconciled #when it answers again #then the child is revived without another session start", async () => {
+    // given
+    const store = tempStore()
+    const identity = hostSession("st_0b000007")
+    let revived!: () => void
+    const done = new Promise<void>((resolve) => { revived = resolve })
+    const fixture = hostLifecycleDeps({
+      store,
+      hostPid: HOST_PID,
+      deferredRetryBackoffMs: [5_000, 15_000, 30_000],
+      onWait: (ms) => {
+        if (ms === 15_000) fixture.daemon.alive = true
+      },
+      respawn: () => {
+        revived()
+        return Promise.resolve(OK)
+      },
+    })
+    fixture.daemon.alive = false
+    seedRecord(store, { ...hostSessionRecordInput("st_0b000007", identity), status: "running", residency_state: "rpc_detached" })
+    const lifecycle = createTaskLifecycle(fixture.deps)
+
+    // when
+    const result = await lifecycle.reconcileOnSessionStart("parent-1")
+    await done
+
+    // then
+    expect(result.outcomes).toEqual([{ task_id: "st_0b000007", kind: "deferred", reason: "host_unreachable" }])
+    expect(fixture.waits).toEqual([5_000, 15_000])
+    expect(fixture.respawned).toEqual([{ task_id: "st_0b000007", sessionPath: identity.session_path }])
+  })
+
+  test("#given a deferred child that was cancelled meanwhile #when its retry wakes #then nothing is respawned", async () => {
+    // given
+    const store = tempStore()
+    const identity = hostSession("st_0b000008")
+    let woke!: () => void
+    const waited = new Promise<void>((resolve) => { woke = resolve })
+    const fixture = hostLifecycleDeps({
+      store,
+      hostPid: HOST_PID,
+      deferredRetryBackoffMs: [5_000],
+      onWait: () => {
+        store.transition("st_0b000008", { type: "cancel", timestamp: new Date().toISOString() })
+        fixture.daemon.alive = true
+        woke()
+      },
+      respawn: () => Promise.resolve(OK),
+    })
+    fixture.daemon.alive = false
+    seedRecord(store, { ...hostSessionRecordInput("st_0b000008", identity), status: "running", residency_state: "rpc_detached" })
+    const lifecycle = createTaskLifecycle(fixture.deps)
+
+    // when
+    await lifecycle.reconcileOnSessionStart("parent-1")
+    await waited
+    await Bun.sleep(0)
+
+    // then
+    expect(fixture.respawned).toEqual([])
+    expect(store.load("st_0b000008")?.status).toBe("cancelled")
+  })
+})
