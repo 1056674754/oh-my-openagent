@@ -78,6 +78,16 @@ pub(crate) fn stamp_event(
     Ok(())
 }
 
+/// Posts a pointer event through SkyLight alone: the route for events that
+/// carry a delta, which the public queue would deliver a second time.
+pub(crate) fn post_routed(pid: libc::pid_t, event: &CGEvent) -> CoreResult<()> {
+    let spi = required()?;
+    // SAFETY: `event` remains retained for the synchronous post and
+    // `post_to_pid` was atomically resolved with its exact ABI.
+    unsafe { (spi.post_to_pid)(pid, event_ptr(event)) };
+    Ok(())
+}
+
 /// Posts a pointer event through SkyLight and the public per-pid queue. The
 /// public post supplements a successful SkyLight post for plain AppKit; it is
 /// never a fallback.
