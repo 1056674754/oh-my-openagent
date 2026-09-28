@@ -72,6 +72,12 @@ const FINAL_TEXT = "omo e2e fallback child final text"
 // (builtin quick rung-1 dead, rung-2 healthy, no user fallback_models), "chain-exhausted"
 // (every available rung dead).
 const SCENARIO = process.env.OMO_FALLBACK_SCENARIO ?? "user-fallback"
+// Usage-limit scenarios (#8296): "limit-account" spends the whole mock account (every omo-fallback-mock
+// model answers a session limit, only omo-fallback-other serves); "limit-model" caps only limit-fable.
+const LIMIT_ERRORS: Readonly<Record<string, string>> = {
+  "limit-account": "You've hit your session limit · resets 3pm (Asia/Seoul)",
+  "limit-model": "You've hit your Fable weekly limit · resets Oct 2, 9am",
+}
 let parentCalls = 0
 
 export default function registerFallbackMockProvider(pi: ExtensionAPI): void {
@@ -84,6 +90,8 @@ export default function registerFallbackMockProvider(pi: ExtensionAPI): void {
       mockModel("parent", "Parent"),
       mockModel("dead-primary", "Dead primary"),
       mockModel("healthy-fallback", "Healthy fallback"),
+      mockModel("limit-fable", "Usage-limited primary"),
+      mockModel("limit-opus", "Same-account sibling"),
     ],
     streamSimple(model, context) {
       if (isChild(context)) {
@@ -96,7 +104,7 @@ export default function registerFallbackMockProvider(pi: ExtensionAPI): void {
             id: "fallback-task-call",
             name: "task",
             arguments: {
-              category: SCENARIO === "user-fallback" ? "fallbackcat" : "quick",
+              category: SCENARIO === "user-fallback" ? "fallbackcat" : SCENARIO in LIMIT_ERRORS ? "limitcat" : "quick",
               prompt: "complete through the configured fallback chain",
               run_in_background: false,
               name: "fallback-child",
@@ -116,6 +124,16 @@ export default function registerFallbackMockProvider(pi: ExtensionAPI): void {
     apiKey: "mock",
     api: "openai-completions",
     models: [{ ...mockModel("gpt-6-luna-fast", "Dead chain rung one"), reasoning: true }],
+    streamSimple(model, context) {
+      return streamMessage(childReply(model.id))
+    },
+  })
+  pi.registerProvider("omo-fallback-other", {
+    name: "omo runtime fallback second provider",
+    baseUrl: "file://omo-runtime-fallback-mock",
+    apiKey: "mock",
+    api: "openai-completions",
+    models: [mockModel("limit-kimi", "Other-provider rung")],
     streamSimple(model, context) {
       return streamMessage(childReply(model.id))
     },
@@ -151,6 +169,11 @@ export default function registerFallbackMockProvider(pi: ExtensionAPI): void {
 }
 
 function childReply(modelId: string): AssistantMessage {
+  const limitError = LIMIT_ERRORS[SCENARIO]
+  if (limitError !== undefined) {
+    const spent = modelId === "limit-fable" || (modelId === "limit-opus" && SCENARIO === "limit-account")
+    return spent ? assistant(modelId, "error", [], limitError) : assistant(modelId, "stop", [{ type: "text", text: FINAL_TEXT }])
+  }
   if (modelId === "healthy-fallback") {
     return assistant(modelId, "stop", [{ type: "text", text: FINAL_TEXT }])
   }

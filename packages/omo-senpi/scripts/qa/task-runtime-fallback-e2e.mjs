@@ -105,6 +105,45 @@ const scenarios = [
       ]) ? "PASS" : "FAIL",
     }),
   },
+  // Usage-limit scenarios (#8296): a visual-engineering-shaped chain, two rungs on one account and a
+  // third on another provider. An account-wide limit must reach the other provider without spending
+  // the same-account sibling; a limit that names one model must continue on that sibling.
+  ...[
+    // An in-process child hops inside senpi's own retry-fallback, which orders the spent account's
+    // sibling last only from senpi#2319 on; the task manager owns the hop on the process runners.
+    {
+      name: "limit-account",
+      finalModel: "omo-fallback-other/limit-kimi",
+      attempts: ["omo-fallback-mock/limit-fable", "omo-fallback-other/limit-kimi"],
+      senpiOwnedAttempts: [
+        ["omo-fallback-mock/limit-fable", "omo-fallback-other/limit-kimi"],
+        ["omo-fallback-mock/limit-fable", "omo-fallback-mock/limit-opus", "omo-fallback-other/limit-kimi"],
+      ],
+    },
+    { name: "limit-model", finalModel: "omo-fallback-mock/limit-opus", attempts: ["omo-fallback-mock/limit-fable", "omo-fallback-mock/limit-opus"] },
+  ].map((limit) => ({
+    name: limit.name,
+    omoConfig: {
+      categories: {
+        limitcat: {
+          model: "omo-fallback-mock/limit-fable",
+          fallback_models: ["omo-fallback-mock/limit-opus", "omo-fallback-other/limit-kimi"],
+        },
+      },
+    },
+    checks: (artifacts, stdoutText) => {
+      const attempts = JSON.stringify(artifacts.task?.fallback_attempts?.map((model) => `${model.provider}/${model.model_id}`))
+      const accepted = artifacts.task?.execution_mode === "in-process" && limit.senpiOwnedAttempts !== undefined
+        ? limit.senpiOwnedAttempts
+        : [limit.attempts]
+      return {
+        final_text: stdoutText.includes(finalText) ? "PASS" : "FAIL",
+        fallback_event: fallbackRecorded(artifacts.log),
+        final_model: artifacts.task?.model === limit.finalModel ? "PASS" : "FAIL",
+        fallback_attempts: accepted.some((expected) => JSON.stringify(expected) === attempts) ? "PASS" : "FAIL",
+      }
+    },
+  })),
   {
     name: "chain-exhausted",
     omoConfig: {},

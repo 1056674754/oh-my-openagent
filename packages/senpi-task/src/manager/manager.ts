@@ -1165,6 +1165,7 @@ class TaskManagerImpl implements TaskManager {
         to_model: nextModel.display,
         error_message: input.outcome.failure.message,
         ...(candidates.skipped.length === 0 ? {} : { skipped_models: candidates.skipped.map((model) => model.display) }),
+        ...(candidates.limit === undefined ? {} : { usage_limit: candidates.limit }),
       },
     })
 
