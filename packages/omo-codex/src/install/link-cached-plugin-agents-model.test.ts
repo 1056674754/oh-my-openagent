@@ -19,7 +19,7 @@ describe("managed agent model across re-sync", () => {
   test("#given an installed model LazyCodex bundled earlier #when agents are re-linked #then it upgrades to the new bundled model", async () => {
     const { codexHome, pluginRoot } = await makeAgentFixture()
     await writeInstalled(codexHome, "explorer", agentToml("explorer", "gpt-5.6-luna", "low"))
-    await writeInstalled(codexHome, "librarian", agentToml("librarian", "gpt-5.4-mini", "low"))
+    await writeInstalled(codexHome, "librarian", agentToml("librarian", "gpt-5.6-terra", "low"))
 
     await linkCachedPluginAgents({ codexHome, pluginRoot })
 
