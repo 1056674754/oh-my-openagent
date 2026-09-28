@@ -35,6 +35,14 @@ When a session's task host dies under running background children, every child a
 
 With one RPC host per parent session (and, in the Desktop, per thread), a crash no longer lands in one machine-wide endpoint. `process_crashed` already reads every endpoint directory's `crashes.jsonl` under `<agentDir>/rpc-host-daemon/`, and the claim fingerprint includes the endpoint directory. Two hosts' byte-identical records are therefore two reports, and each is still sent once. Each report now carries `shard_kind`: `p` for a per-session task host, `i` for a Desktop per-thread host, `none` for the legacy machine-wide endpoint or a crash outside any host, and `unknown` for an endpoint directory that names no socket. The kind comes from the endpoint's durable `endpoint.json`, or from the boot `settings.json` of a directory that predates it. A name counts only when its socket hashes to that directory. The shard key, socket path and owner session never leave the machine. The field is a flat string because the telemetry client drops object and `null` values.
 
+## 2026-09-29 - Adopt senpi 2026.9.28-7: app-server extensions, the host warm command, and the experimental /computer tip
+
+Every senpi pin moves from 2026.9.28-6 to 2026.9.28-7 (root devDependency, `omo-native`, the `omo-senpi` and `senpi-task` peer and dev pins, their pin tests, `bun.lock`, and the version comment in `packages/omo-native/bin/lib/provider-map.json`). The new engine carries:
+
+- **`senpi app-server` loads extensions passed with `--extension <path>`** into every thread, including through `app-server daemon start|restart` (#9117, senpi #2313).
+- **An RPC host can warm its prompt path without opening a session** (senpi #2314, #2318).
+- **The `/computer` introduction tip says computer use is experimental** (senpi #2315, #2316).
+
 ## 2026-09-28 - Adopt senpi 2026.9.28-6: GitHub Copilot Business and Enterprise requests reach the account's own host (#8662)
 
 Every senpi pin moves from 2026.9.28-5 to 2026.9.28-6 (root devDependency, `omo-native`, the `omo-senpi` and `senpi-task` peer and dev pins, their pin tests, `bun.lock`, and the version comment in `packages/omo-native/bin/lib/provider-map.json`). The new engine carries:
