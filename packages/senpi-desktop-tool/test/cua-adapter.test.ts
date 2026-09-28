@@ -1,6 +1,7 @@
 import type { ExecuteTool } from "@oh-my-opencode/senpi-desktop-service";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ComputerActionsInput } from "../src/cua-actions";
+import { ComputerActionsParams } from "../src/cua-actions";
 import { computerActionsPermissionParser, createComputerActionsTool } from "../src/cua-adapter";
 import { closeDesktops, desktopFixture, hostContext, methodsOf } from "./fixtures";
 
@@ -15,7 +16,9 @@ function adapter(env: Readonly<Record<string, string>> = {}) {
 	const fixture = desktopFixture({}, env);
 	const tool = createComputerActionsTool({ handle: fixture.handle, executeTool: noTools });
 	const act = (params: ComputerActionsInput) => tool.execute("call", params, undefined, undefined, hostContext());
-	return { ...fixture, act };
+	const actRaw = (params: Readonly<Record<string, unknown>>) =>
+		tool.execute("call", params, undefined, undefined, hostContext());
+	return { ...fixture, act, actRaw };
 }
 
 function failureCode(result: Awaited<ReturnType<ReturnType<typeof adapter>["act"]>>): unknown {
@@ -142,6 +145,47 @@ describe("computer_actions (gajae-code enforcement invariants)", HANG_GUARD, () 
 		expect(failureCode(result)).toBe("COMPUTER_COORD_INVALID");
 		expect(textOf(result)).toContain("Action 3 (click) failed");
 		expect([count(methodsOf(log), "click"), count(methodsOf(log), "typeText")]).toEqual([1, 0]);
+	});
+});
+
+describe("computer_actions arguments", HANG_GUARD, () => {
+	it("publishes one root object schema whose action enum includes batch", () => {
+		// Given
+		const schema = JSON.parse(JSON.stringify(ComputerActionsParams));
+
+		// When
+		const shape = { type: schema.type, anyOf: schema.anyOf, action: schema.properties.action.enum };
+
+		// Then
+		expect(shape).toEqual({
+			type: "object",
+			anyOf: undefined,
+			action: ["screenshot", "click", "double_click", "move", "drag", "scroll", "type", "keypress", "wait", "batch"],
+		});
+	});
+
+	it.each([
+		{ params: { action: "frobnicate" }, reason: 'computer_actions: unknown action "frobnicate"' },
+		{ params: { action: "click", x: 1 }, reason: 'computer_actions: action "click": must have required properties y' },
+		{ params: { action: "type", text: "hi", keys: ["a"] }, reason: 'computer_actions: action "type" does not take keys' },
+		{
+			params: { action: "batch", actions: [{ action: "screenshot" }, { action: "teleport" }] },
+			reason: 'computer_actions actions[1]: unknown action "teleport"',
+		},
+	])("refuses $params as COMPUTER_INVALID_ARGUMENTS before any engine starts", async ({ params, reason }) => {
+		// Given
+		const { actRaw, log } = adapter();
+
+		// When
+		const result = await actRaw(params);
+
+		// Then
+		expect({ isError: result.isError, code: failureCode(result), spawned: log.children.length }).toEqual({
+			isError: true,
+			code: "COMPUTER_INVALID_ARGUMENTS",
+			spawned: 0,
+		});
+		expect(textOf(result)).toContain(reason);
 	});
 });
 
