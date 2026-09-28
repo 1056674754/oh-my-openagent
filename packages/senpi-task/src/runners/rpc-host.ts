@@ -14,7 +14,8 @@ import {
   type EnsureTaskDaemonPort,
   type ShardResolver,
 } from "./rpc-host/child-endpoint"
-import { HostUnavailableError, ensureTaskDaemon, isHostIncompatible } from "./rpc-host/daemon"
+import { HostUnavailableError, ensureTaskDaemon } from "./rpc-host/daemon"
+import { recordedEndpointFailure } from "./rpc-host/endpoint-failure"
 import { onceNoticeSink, type HostNoticeSink } from "./rpc-host/host-notice"
 import { createReattachPort } from "./rpc-host/reattach-port"
 import { createHostSessionHandle } from "./rpc-host/handle"
@@ -161,7 +162,7 @@ export class RpcHostRunner {
       socket = await ensureChildEndpoint(this.endpoint, endpoint)
     } catch (error) {
       if (RunnerError.is(error)) throw error
-      if (endpoint.recorded) throw this.recordedEndpointFailure(error, endpoint.socket)
+      if (endpoint.recorded) throw recordedEndpointFailure(this.endpoint.notice, error, endpoint.socket)
       return await this.delegate(error, spec, isHostTransportError(error))
     }
     await recordSidecarStore(this.endpoint, socket)
@@ -173,33 +174,10 @@ export class RpcHostRunner {
       // check the session's own endpoint gets, since it is never ensured) must park the child too:
       // the fallback would reopen the retained session off its endpoint.
       if (endpoint.recorded && error instanceof HostUnavailableError) {
-        throw this.recordedEndpointFailure(error, endpoint.socket)
+        throw recordedEndpointFailure(this.endpoint.notice, error, endpoint.socket)
       }
       return await this.delegate(error, spec, false)
     }
-  }
-
-  /**
-   * A RECORDED endpoint is where the child's retained session lives, so nothing the ensure or the
-   * open answers there may send the child to the per-child fallback: an incompatible host parks it
-   * (`host_incompatible`), anything else fails closed with its own reason.
-   */
-  private recordedEndpointFailure(error: unknown, socket: string | undefined): RunnerError {
-    if (isHostIncompatible(error)) {
-      this.endpoint.notice("host_incompatible", socket)
-      return new RunnerError({
-        kind: "host_unavailable",
-        reason: "host_incompatible",
-        message: error instanceof Error ? error.message : String(error),
-        cause: error,
-      })
-    }
-    return new RunnerError({
-      kind: "host_unavailable",
-      message: error instanceof Error ? error.message : String(error),
-      reason: error instanceof HostUnavailableError ? error.reason : "host_unreachable",
-      cause: error,
-    })
   }
 
   /**
