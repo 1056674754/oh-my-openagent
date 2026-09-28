@@ -275,6 +275,12 @@ export async function runLauncher(args = process.argv.slice(2)) {
     process.exitCode = await runSelfUpdate(args)
     return
   }
+  // app-server takes the plugin after its subcommand: a leading --extension never reaches the
+  // engine's app-server dispatch. It loads into every thread, including the daemon's.
+  if (command === "app-server") {
+    await spawnSenpi(args.includes("--no-extensions") ? args : [...args, "--extension", join(packageRoot, "plugin")], false)
+    return
+  }
   if (earlyCommands.has(command) || command === "update") {
     await spawnSenpi(args, false)
     return

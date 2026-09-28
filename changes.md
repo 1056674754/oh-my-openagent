@@ -1,3 +1,7 @@
+## 2026-09-29 - `omo app-server` sessions get the OmO plugin (#9117)
+
+`omo app-server` launched the engine without the OmO plugin, so app-server threads had only the engine's builtin tools: no `task`/`task_send`/`task_cancel`/`task_output`, no `workpool`, `memory` or `lsp_*`, and clients never received `omo.task.updated`. The launcher (and the compiled binary) now passes the plugin to `app-server` and to every `app-server daemon` verb, after the subcommand where the engine reads it (senpi #2313); the daemon records it, so `restart` keeps it. Install, auth, config and the other early commands are unchanged.
+
 ## 2026-09-28 - The auto-format notice reaches the model when post-edit diagnostics are clean (#9123)
 
 When format-on-mutation rewrote a file after a `write`, `edit` or `apply_patch` and the post-edit LSP diagnostics came back clean, the `(OmO) auto-formatted ... re-read before exact-text edits` notice was dropped: the diagnostics step reported "nothing to add" and the LSP `tool_result` hook returned no replacement, discarding the notice the formatter step had already added. That is the default configuration and the most common outcome, so the model usually kept editing against the pre-format text. The notice now reaches the tool result whenever the formatter changed the file, whether diagnostics report errors, come back clean, or are disabled. A mutation the formatter leaves unchanged still adds nothing.
