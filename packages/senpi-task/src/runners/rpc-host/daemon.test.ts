@@ -13,6 +13,7 @@ import { DAEMON_LAUNCH_FIXTURE } from "./__fixtures__/daemon-launch"
 import {
   daemonLaunchOptions,
   ensureTaskDaemon,
+  forgetTaskDaemon,
   HostUnavailableError,
   resolveTaskHostSocket,
   TASK_DAEMON_REQUIRED_CAPABILITIES,
@@ -319,6 +320,25 @@ describe("ensureTaskDaemon", () => {
 
     // then
     expect(probesWhileCached).toBe(1)
+    expect(host.probes).toHaveLength(2)
+  })
+
+  test("#given a cached ensure #when its host generation is seen gone #then the next ensure probes again, and a stale generation's loss leaves it cached", async () => {
+    // given
+    const host = fakeHostPort({ host: protocolInfo({ instanceId: "instance-b" }) })
+    const input = ensureInput(host, { agentDir: join("/tmp", "agent-forget"), now: () => 1_000 })
+    const socket = join(input.agentDir, "rpc", "rpc.sock")
+    await ensureTaskDaemon(input)
+
+    // when
+    forgetTaskDaemon(socket, "instance-a")
+    await ensureTaskDaemon(input)
+    const probesAfterStaleLoss = host.probes.length
+    forgetTaskDaemon(socket, "instance-b")
+    await ensureTaskDaemon(input)
+
+    // then
+    expect(probesAfterStaleLoss).toBe(1)
     expect(host.probes).toHaveLength(2)
   })
 

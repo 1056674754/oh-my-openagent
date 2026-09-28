@@ -138,7 +138,7 @@ function ownHostUnreachable(socket: string, detail: string, cause?: unknown): Ru
  * here: `ensureTaskDaemon` releases it before returning, because its result is cached and shared.
  */
 export async function ensureChildEndpoint(ports: ChildEndpointPorts, endpoint: ChildEndpoint): Promise<string> {
-  if (endpoint.attachOnly || attachOnlyEndpoint(endpoint.socket, ports.ownHostSocket(), ports.insideHost())) {
+  if (!isEnsuredEndpoint(ports, endpoint)) {
     await attachOwnEndpoint(ports.probeHost, endpoint.socket)
     return endpoint.socket
   }
@@ -151,6 +151,11 @@ export async function ensureChildEndpoint(ports: ChildEndpointPorts, endpoint: C
     ...(endpoint.sidecarNotice === undefined ? {} : { sidecarNotice: endpoint.sidecarNotice }),
   })
   return daemon.socket
+}
+
+/** Whether `ensureChildEndpoint` ensures this endpoint, or only attaches to the host it lives on. */
+export function isEnsuredEndpoint(ports: ChildEndpointPorts, endpoint: ChildEndpoint): boolean {
+  return !endpoint.attachOnly && !attachOnlyEndpoint(endpoint.socket, ports.ownHostSocket(), ports.insideHost())
 }
 
 /** The sidecar's copy of the store list is informational: a failure is logged and noticed once. */

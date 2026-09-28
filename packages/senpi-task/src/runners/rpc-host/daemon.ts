@@ -11,6 +11,7 @@ import {
   senpiProbeHost,
   type EnsureHostInput,
   type HostEnginePolicy,
+  type SenpiHostProtocolInfo,
   type TaskDaemonHostPort,
 } from "../../lazy/senpi-barrel"
 import { daemonLaunchOptions, daemonLaunchProfileId } from "./launch-options"
@@ -152,11 +153,25 @@ interface DaemonCacheEntry {
   readonly socket: string
   readonly expiresAt: number
   readonly ensured: EnsuredTaskDaemon
+  // The host generation the entry vouches for, when the ensure learned it.
+  readonly hostInstanceId?: string
 }
 
 // One live entry per endpoint; a probe + decide round trip per child spawn would otherwise hit the
 // socket on every task.
 const cached = new Map<string, DaemonCacheEntry>()
+
+/**
+ * Drop the cached ensure for `socket`: its host was seen gone, so the next ensure probes again
+ * instead of vouching for a dead endpoint until the TTL runs out. With `instanceId`, an entry that
+ * already vouches for a different (newer) generation is kept.
+ */
+export function forgetTaskDaemon(socket: string, instanceId?: string): void {
+  const entry = cached.get(socket)
+  if (entry === undefined) return
+  if (instanceId !== undefined && entry.hostInstanceId !== undefined && entry.hostInstanceId !== instanceId) return
+  cached.delete(socket)
+}
 
 /**
  * Attach to the machine-wide daemon, or create it from the launch spec. The engine owns every
@@ -245,12 +260,15 @@ async function ensureTaskDaemonOnce(
   // this ensure's last use of the host, so the engine's attach hold (senpi #2242) ends with it: the
   // daemon is transient, and a hold kept for the life of this omo process would stop its idle exit.
   // Children attach on their own connections; the idle window (minutes) covers the gap.
-  let capabilities: readonly string[] | undefined
+  let answered: SenpiHostProtocolInfo | undefined = running
   try {
-    capabilities = running?.capabilities ?? (await host.probeHost({ socket: ensured.socket }))?.capabilities
+    answered ??= await host.probeHost({ socket: ensured.socket })
   } finally {
     ensured.release?.()
   }
+  const capabilities = answered?.capabilities
+  // A handoff's probe answer names the predecessor, so only the engine's own answer counts there.
+  const hostInstanceId = ensured.instanceId ?? (decision.action === "handoff" ? undefined : answered?.instanceId)
   const result: EnsuredTaskDaemon = {
     action: decision.action,
     reason: decision.reason,
@@ -263,7 +281,12 @@ async function ensureTaskDaemonOnce(
     ...(capabilities === undefined ? {} : { capabilities }),
   }
   if (decision.action === "start") await recordStartedEndpoint(input, ensured.socket, now)
-  cached.set(socket, { socket, expiresAt: now() + TASK_DAEMON_CACHE_TTL_MS, ensured: result })
+  cached.set(socket, {
+    socket,
+    expiresAt: now() + TASK_DAEMON_CACHE_TTL_MS,
+    ensured: result,
+    ...(hostInstanceId === undefined ? {} : { hostInstanceId }),
+  })
   return result
 }
 
