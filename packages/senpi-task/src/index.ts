@@ -374,6 +374,7 @@ export {
   NO_HOST_ENDPOINT,
   registerLifecycleDetachedRevivalRollback,
   registerLifecycleReattachPorts,
+  selectRevivalBatch,
 } from "./lifecycle"
 export type {
   AdmissionResult,
@@ -394,6 +395,7 @@ export type {
   ResidencyRegistry,
   RespawnPort,
   RespawnResult,
+  RevivalSelection,
   SuspendFailure,
   SuspendInput,
   SuspendSummary,

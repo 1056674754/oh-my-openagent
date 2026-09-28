@@ -17,6 +17,32 @@ endpoint alone - today's behavior, including `host_unavailable` as data when tha
 
 Tests: `live-surface-endpoints.test.ts` (new), `live-surface.test.ts`.
 
+## task: pre-warm the session's task host (rpc-host-sharding todo 9)
+
+`components/task/host-prewarm.ts` (new), wired from `index.ts` ahead of the session-start recovery
+chain; POSIX `task.process_runner: host` only, fire-and-forget, at most once per session id:
+
+- Revival pre-warm, always on: at `session_start`, every DISTINCT recorded `host_session.socket` of
+  this session's suspended host-session children (`persisted_only` / `rpc_detached`, pending, running
+  or interrupted, not killed) is ensured through the lifecycle's own endpoint port, so the host boots
+  while the reconcile scans records and the reconcile's revival ensure hits the per-socket cache. The
+  session's own endpoint is never ensured (a child inside `p-A` does not warm `p-A`), and nothing is
+  warmed when `resume_children` or `reattach_on_reconcile` is off.
+- `task.host_shard_prewarm: "session-start"` asks the execution-mode gate at `session_start`;
+  `"first-turn"` asks it on the first `input` or `before_agent_start` of the session (later prompts of
+  that session return before capturing any context); `"off"` (default)
+  does nothing beyond the revival pre-warm. The gate's memoization is unchanged, and a failed ensure
+  surfaces as the gate's `host_unavailable:*` notice, never as a turn error.
+
+The revival pre-warm warms only the hosts of the children the reconcile's admission batch will revive
+(senpi-task `selectRevivalBatch`, `residency_max_children` included): with a cap of 1 and three suspended
+children on three shards it boots one host, not three.
+
+`engine-host-wiring.ts` (new, pure move): the host runtime, the lifecycle and the runner context
+that reach a task host are composed there instead of in `engine.ts`.
+
+Tests: `host-prewarm.test.ts` (new).
+
 ## task: every session's process children run on its own host (rpc-host-sharding todo 8)
 
 `components/task/shard-routing.ts` (new): the session's shard identity is read at every call, never at
