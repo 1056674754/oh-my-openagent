@@ -3,7 +3,7 @@
 //! capabilities measured from what actually connected.
 
 use image::RgbaImage;
-use senpi_desktop_backend_atspi::{AtSpiAx, AxPermission};
+use senpi_desktop_backend_atspi::{AtSpiAx, AxPermission, WindowIds};
 use senpi_desktop_core::ax::AxBackend;
 use senpi_desktop_core::backend::{Backend, DeliveryMode, PointerEvent};
 use senpi_desktop_core::error::{CoreResult, DesktopError};
@@ -38,7 +38,9 @@ impl X11Backend<X11Connection, X11InputConnection> {
         Ok(Self {
             capture: X11Capture::new(selector)?,
             input: X11Input::connect(),
-            ax: AtSpiAx::new().ok(),
+            // X11 windows are XIDs, which AT-SPI cannot name: owners are
+            // joined to them by pid, title and geometry.
+            ax: AtSpiAx::new(WindowIds::Native).ok(),
             display_server: std::env::var("DISPLAY").ok(),
             focus_restore_owner: None,
             pointer_restore_owner: None,
