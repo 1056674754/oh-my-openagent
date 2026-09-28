@@ -9,10 +9,11 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs"
-import { tmpdir } from "node:os"
 import { join, relative, resolve } from "node:path"
 import { spawnSync } from "node:child_process"
 
+import { daemonDirectoryName } from "@code-yeongyu/senpi"
+import { runStatus as runProductionStatus } from "../bin/lib/daemon-operations.js"
 import { resolveSenpi } from "../bin/lib/package-paths.js"
 
 const PACKAGE_ROOT = resolve(import.meta.dir, "..")
@@ -30,9 +31,10 @@ afterEach(() => {
 })
 
 function sandbox() {
-  const agentDir = mkdtempSync(join(tmpdir(), "omo-daemon-real-"))
+  const agentDir = mkdtempSync("/tmp/dh41.")
   roots.push(agentDir)
   const socket = join(agentDir, "rpc", "shards", "p-aaaaaaaaaaaaaaaa.sock")
+  expect(Buffer.byteLength(`${socket}.next-99`)).toBeLessThanOrEqual(103)
   mkdirSync(join(agentDir, "rpc", "shards"), { recursive: true })
   const env = {
     ...process.env,
@@ -162,7 +164,18 @@ if (process.platform !== "win32") {
       const { agentDir, socket, env } = sandbox()
       const supervisorPid = ensureShard(socket, env)
       killShardUncleanly(supervisorPid)
-      expect(readdirSync(join(agentDir, "rpc-host-daemon"), { recursive: true }).length).toBeGreaterThan(0)
+      const endpointDir = join(agentDir, "rpc-host-daemon", daemonDirectoryName(socket))
+      const pointer = join(endpointDir, "host.pid")
+      const settings = join(endpointDir, "settings.json")
+      const generations = join(endpointDir, "generations")
+      expect(readFileSync(pointer, "utf8")).toContain("generation_dir")
+      expect(readFileSync(settings, "utf8")).toContain("idleExitMs")
+      const generationDirs = readdirSync(generations)
+      expect(generationDirs.length).toBeGreaterThan(0)
+      for (const generation of generationDirs) {
+        expect(readFileSync(join(generations, generation, "host.pid"), "utf8")).toContain("pid")
+        expect(readFileSync(join(generations, generation, "settings.json"), "utf8")).toContain("idleExitMs")
+      }
 
       await assertReadOnlyState(agentDir, () => {
         const status = runStatus(env)
@@ -172,12 +185,26 @@ if (process.platform !== "win32") {
       })
     })
 
-    test("#given the read-only state guard #when a mutant writes one file #then the guard turns red", async () => {
+    test("#given production status with a write mutant #when the read-only guard runs #then production turns red", async () => {
       const { agentDir } = sandbox()
       mkdirSync(join(agentDir, "rpc-host-daemon"), { recursive: true })
 
       await expect(assertReadOnlyState(agentDir, () => {
-        writeFileSync(join(agentDir, "rpc-host-daemon", "status-was-here"), "mutant\n")
+        runProductionStatus({
+          engine: {
+            run: () => ({ exitCode: 3, stdout: JSON.stringify({ endpoints: [] }), stderr: "" }),
+          },
+          agentDir,
+          env: {},
+          json: true,
+          stdout: { write() {} },
+          stderr: { write() {} },
+          _test: {
+            afterRead: () => {
+              writeFileSync(join(agentDir, "rpc-host-daemon", "status-was-here"), "mutant\n")
+            },
+          },
+        })
       })).rejects.toThrow("daemon status changed state")
     })
 

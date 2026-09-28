@@ -23,10 +23,11 @@ export function readAllEndpoints(engine, agentDir, env) {
   return { kind: "all", result, endpoints }
 }
 
-export function runStatus({ engine, agentDir, env, json, stdout, stderr }) {
+export function runStatus({ engine, agentDir, env, json, stdout, stderr, _test }) {
   const all = readAllEndpoints(engine, agentDir, env)
   if (all.kind === "legacy") return { legacy: true, result: all.result }
   if (all.result.stderr) stderr.write(all.result.stderr)
+  _test?.afterRead?.({ agentDir, endpoints: all.endpoints })
   if (all.endpoints.length === 0 && all.result.exitCode !== 0) {
     if (json) stdout.write(`${JSON.stringify(statusPayload([]))}\n`)
     else stdout.write("daemon: not running\n")

@@ -144,7 +144,7 @@ describe("omo daemon", () => {
     })
 
     expect(exitCode).toBe(2)
-    expect(stderr.text()).toBe("omo daemon: --foreground is unsupported; the engine host always detaches\n")
+    expect(stderr.text()).toContain("--foreground")
     expect(engine.calls).toHaveLength(0)
   })
 

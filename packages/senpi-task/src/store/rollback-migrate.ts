@@ -1,11 +1,8 @@
 import { createTaskRecordStore } from "./record-store"
+import { R0_FAILURE_REASONS, R0_SUSPENSION_REASONS } from "./rollback-r0-contract"
 
-const R0_SUSPENSION_REASONS = new Set(["daemon_unavailable", "host_draining"])
-const R0_FAILURE_REASONS = new Set([
-  "model_not_in_child_profile",
-  "catalog_probe_timed_out",
-  "catalog_probe_failed",
-])
+const r0SuspensionReasons = new Set<string>(R0_SUSPENSION_REASONS)
+const r0FailureReasons = new Set<string>(R0_FAILURE_REASONS)
 
 export type HostSessionMigrationPlan = {
   readonly store_dir: string
@@ -64,10 +61,10 @@ export function migrateHostSessionSockets(
       return {
         ...current,
         ...(moveSocket ? { host_session: { ...current.host_session, socket: options.to } } : {}),
-        ...(current.suspension_reason !== undefined && !R0_SUSPENSION_REASONS.has(current.suspension_reason)
+        ...(current.suspension_reason !== undefined && !r0SuspensionReasons.has(current.suspension_reason)
           ? { suspension_reason: undefined }
           : {}),
-        ...(current.failure_reason !== undefined && !R0_FAILURE_REASONS.has(current.failure_reason)
+        ...(current.failure_reason !== undefined && !r0FailureReasons.has(current.failure_reason)
           ? { failure_reason: undefined }
           : {}),
       }
@@ -94,7 +91,7 @@ function needsMigration(
 ): boolean {
   return (
     (record.host_session !== undefined && record.host_session.socket !== to) ||
-    (record.suspension_reason !== undefined && !R0_SUSPENSION_REASONS.has(record.suspension_reason)) ||
-    (record.failure_reason !== undefined && !R0_FAILURE_REASONS.has(record.failure_reason))
+    (record.suspension_reason !== undefined && !r0SuspensionReasons.has(record.suspension_reason)) ||
+    (record.failure_reason !== undefined && !r0FailureReasons.has(record.failure_reason))
   )
 }

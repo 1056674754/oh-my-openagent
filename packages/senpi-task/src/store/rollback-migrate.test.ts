@@ -10,7 +10,17 @@ import {
   type TaskStartFailureReason,
 } from "../state"
 import { createTaskRecordStore } from "./record-store"
+import {
+  R0_FAILURE_REASONS as PRODUCTION_R0_FAILURE_REASONS,
+  R0_SUSPENSION_REASONS as PRODUCTION_R0_SUSPENSION_REASONS,
+} from "./rollback-r0-contract"
 import { migrateHostSessionSockets, planHostSessionSocketMigration } from "./rollback-migrate"
+import {
+  parseR0PersistedReasons,
+  R0_SOURCE_COMMIT,
+  R0_SUSPENSION_REASONS,
+  R0_TASK_START_FAILURE_REASONS,
+} from "./__fixtures__/r0-v5.0.1-reasons"
 
 const roots: string[] = []
 
@@ -109,10 +119,14 @@ describe("rollback host-session migration", () => {
     const { storeDir, store, base } = storeFixture()
     const target = "/tmp/rpc.sock"
     let ordinal = 16
+    const knownRecordPaths: string[] = []
+    const r0SuspensionReasons = new Set<string>(R0_SUSPENSION_REASONS)
+    const r0FailureReasons = new Set<string>(R0_TASK_START_FAILURE_REASONS)
     for (const suspensionReason of SUSPENSION_REASONS) {
+      const taskId = `st_${ordinal.toString(16).padStart(8, "0")}`
       store.save({
         ...base,
-        task_id: `st_${ordinal.toString(16).padStart(8, "0")}`,
+        task_id: taskId,
         runner_kind: "host-session",
         suspension_reason: suspensionReason,
         host_session: {
@@ -122,54 +136,44 @@ describe("rollback host-session migration", () => {
           instance_id: `i-${ordinal}`,
         },
       })
+      if (r0SuspensionReasons.has(suspensionReason)) {
+        knownRecordPaths.push(join(storeDir, "tasks", `${taskId}.json`))
+      }
       ordinal += 1
     }
     for (const failureReason of TASK_START_FAILURE_REASONS) {
+      const taskId = `st_${ordinal.toString(16).padStart(8, "0")}`
       store.save({
         ...base,
-        task_id: `st_${ordinal.toString(16).padStart(8, "0")}`,
+        task_id: taskId,
         failure_kind: failureKindFor(failureReason),
         failure_reason: failureReason,
       })
+      if (r0FailureReasons.has(failureReason)) {
+        knownRecordPaths.push(join(storeDir, "tasks", `${taskId}.json`))
+      }
       ordinal += 1
     }
+    const knownBytesBefore = new Map(knownRecordPaths.map((path) => [path, readFileSync(path)]))
 
     const result = migrateHostSessionSockets(storeDir, { to: target, deadEndpoints: new Set() })
 
+    expect(R0_SOURCE_COMMIT).toBe("ebd01f84e")
+    expect(PRODUCTION_R0_SUSPENSION_REASONS).toEqual(R0_SUSPENSION_REASONS)
+    expect(PRODUCTION_R0_FAILURE_REASONS).toEqual(R0_TASK_START_FAILURE_REASONS)
     expect(result.sockets).toEqual([])
     expect(result.migrated).toBeGreaterThan(0)
     const taskFiles = Array.from(
       { length: ordinal - 16 },
       (_, index) => join(storeDir, "tasks", `st_${(index + 16).toString(16).padStart(8, "0")}.json`),
     )
-    for (const path of taskFiles) expect(() => parseR0Record(readFileSync(path, "utf8"))).not.toThrow()
-    const preservedSuspension = store.list().records.find((record) => record.suspension_reason === "host_draining")
-    const preservedFailure = store.list().records.find(
-      (record) => record.failure_reason === "model_not_in_child_profile",
-    )
-    expect(preservedSuspension?.suspension_reason).toBe("host_draining")
-    expect(preservedFailure?.failure_reason).toBe("model_not_in_child_profile")
+    for (const path of taskFiles) {
+      const record = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>
+      expect(() => parseR0PersistedReasons(record)).not.toThrow()
+    }
+    for (const [path, before] of knownBytesBefore) expect(readFileSync(path)).toEqual(before)
   })
 })
-
-const R0_SUSPENSION_REASONS = new Set(["daemon_unavailable", "host_draining"])
-const R0_FAILURE_REASONS = new Set([
-  "model_not_in_child_profile",
-  "catalog_probe_timed_out",
-  "catalog_probe_failed",
-])
-
-function parseR0Record(text: string): void {
-  const record = JSON.parse(text) as Record<string, unknown>
-  const suspensionReason = record["suspension_reason"]
-  if (suspensionReason !== undefined && !R0_SUSPENSION_REASONS.has(String(suspensionReason))) {
-    throw new Error(`R0 rejects suspension_reason ${String(suspensionReason)}`)
-  }
-  const failureReason = record["failure_reason"]
-  if (failureReason !== undefined && !R0_FAILURE_REASONS.has(String(failureReason))) {
-    throw new Error(`R0 rejects failure_reason ${String(failureReason)}`)
-  }
-}
 
 function failureKindFor(reason: TaskStartFailureReason) {
   if (
