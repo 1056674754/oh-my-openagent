@@ -1,5 +1,5 @@
 use super::{first_front_window, hand_back, HandBack, WindowInfo};
-use crate::front_app::user_front_pid;
+use crate::front_app::{restore_step, user_front_pid, RestoreStep};
 
 #[test]
 fn chooses_first_visible_normal_window_of_frontmost_process() {
@@ -126,4 +126,38 @@ fn with_no_regular_window_the_raw_front_process_is_kept() {
 
     // Then
     assert_eq!(front, Some(40));
+}
+
+#[test]
+fn a_restore_waits_while_the_previous_app_is_front() {
+    // Given: the previous app (5) is front again.
+    // When
+    let step = restore_step(5, Some(5), Some(7), |_| true);
+
+    // Then
+    assert_eq!(step, RestoreStep::Front);
+}
+
+#[test]
+fn a_restore_reclaims_the_front_from_the_engines_own_activation_or_an_accessory() {
+    // Given: the engine's target (7) or an accessory panel owner (40) holds the front, or none is known.
+    // When
+    let steps = [
+        restore_step(5, Some(7), Some(7), |_| true),
+        restore_step(5, Some(40), Some(7), |pid| pid != 40),
+        restore_step(5, None, Some(7), |_| true),
+    ];
+
+    // Then
+    assert_eq!(steps, [RestoreStep::Reclaim, RestoreStep::Reclaim, RestoreStep::Reclaim]);
+}
+
+#[test]
+fn a_restore_leaves_an_app_the_user_switched_to_in_front() {
+    // Given (#9056): after the action the user brought another regular app (9) to the front.
+    // When
+    let step = restore_step(5, Some(9), Some(7), |_| true);
+
+    // Then
+    assert_eq!(step, RestoreStep::UserMovedOn);
 }

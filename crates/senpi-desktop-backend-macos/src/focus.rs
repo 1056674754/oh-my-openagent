@@ -15,7 +15,7 @@ use senpi_desktop_core::types::{DesktopWindow, FrontWindow};
 
 use crate::ax;
 use crate::input::MacInput;
-use crate::front_app::current_front_pid;
+use crate::front_app::{current_front_pid, restore_step, RestoreStep};
 use crate::skylight;
 
 #[derive(Clone, Copy)]
@@ -132,7 +132,8 @@ const REACTIVATE_INTERVAL: Duration = Duration::from_millis(200);
 /// Restores the captured application and window: SkyLight selects the window,
 /// accessibility and AppKit activate the application, and the restore counts
 /// only once the live front app (see [`current_front_pid`]) has stayed that application for
-/// [`RESTORE_STABLE`], re-asking if a later activation takes the front back.
+/// [`RESTORE_STABLE`], re-asking while the engine's own activation (or an accessory panel) holds the
+/// front. When the user has switched to another regular app, the restore leaves it there (#9056).
 ///
 /// # Errors
 /// `FocusRestoreFailed`-worthy input error when the application is gone or does
@@ -147,24 +148,30 @@ pub(crate) fn restore_front_window(front: &FrontWindow) -> CoreResult<()> {
     if let Some(psn) = skylight::psn_for_process(pid, window_id) {
         let _ = skylight::set_front_process(&psn, window_id);
     }
+    let engine_activated = crate::front_app::last_engine_activation();
     skylight::activate_application(pid)?;
     let started = Instant::now();
     let mut front_since: Option<Instant> = None;
     let mut last_request = started;
     loop {
         let now = Instant::now();
-        if current_front_pid() == Some(pid) {
-            let since = *front_since.get_or_insert(now);
-            if now.duration_since(since) >= RESTORE_STABLE {
-                return Ok(());
+        match restore_step(pid, current_front_pid(), engine_activated, crate::front_app::is_regular) {
+            RestoreStep::Front => {
+                let since = *front_since.get_or_insert(now);
+                if now.duration_since(since) >= RESTORE_STABLE {
+                    return Ok(());
+                }
             }
-        } else {
-            front_since = None;
-            // An activation that lands after ours (e.g. a click on another app's floating window) takes the
-            // front back asynchronously; ask again rather than trusting the first observation.
-            if now.duration_since(last_request) >= REACTIVATE_INTERVAL {
-                let _ = skylight::activate_application(pid);
-                last_request = now;
+            // The user switched to another app after the action: leave it front and do not claim a restore
+            // (#9056); the previous app is simply no longer the one to put back.
+            RestoreStep::UserMovedOn => return Ok(()),
+            RestoreStep::Reclaim => {
+                front_since = None;
+                // Our own activation (or an accessory panel) still holds the front; ask again.
+                if now.duration_since(last_request) >= REACTIVATE_INTERVAL {
+                    let _ = skylight::activate_application(pid);
+                    last_request = now;
+                }
             }
         }
         if now.duration_since(started) >= RESTORE_DEADLINE {

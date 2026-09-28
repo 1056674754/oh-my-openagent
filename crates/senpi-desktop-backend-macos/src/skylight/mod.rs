@@ -150,13 +150,19 @@ pub(crate) fn with_foreground<T>(
     // The live user-visible front app, not WindowServer's raw front process (an
     // accessory panel owner, #9084) nor the engine's stale AppKit view.
     let previous = crate::front_app::current_front_pid();
+    crate::front_app::note_engine_activation(pid);
     activate_application(pid)?;
     let result = await_active(pid).and_then(|()| {
         thread::sleep(Duration::from_millis(40));
         action()
     });
     thread::sleep(Duration::from_millis(40));
-    if let Some(previous) = previous.filter(|&previous| previous != pid) {
+    let now_front = crate::front_app::current_front_pid();
+    let reclaim = crate::front_app::restore_step(0, now_front, Some(pid), crate::front_app::is_regular)
+        == crate::front_app::RestoreStep::Reclaim;
+    // Hand the front back only while our own activation (or an accessory panel) holds it; a regular app the
+    // user switched to during the action stays front (#9056).
+    if let Some(previous) = previous.filter(|&previous| previous != pid && reclaim) {
         if let Some((spi, psn)) = spi::foreground().and_then(|spi| psn_for_pid(spi.psn, previous).map(|psn| (spi, psn))) {
             // SAFETY: The PSN came from WindowServer for the live front app;
             // window id 0 restores that process after foreground input.
