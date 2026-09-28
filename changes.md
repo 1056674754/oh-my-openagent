@@ -1,3 +1,7 @@
+## 2026-09-28 - Computer use scrolls the same direction on every OS (#9055)
+
+A positive `dy` scrolled up on macOS but down on X11 and Windows, so the same `scroll(x, y, { dy })` call, and every `computer_actions` scroll from an OpenAI computer-use model (`scroll_y`), went the wrong way on macOS; at the top of a document it did nothing. The macOS backend now negates Quartz's wheel deltas, so on every OS a positive `dy` scrolls down and a positive `dx` scrolls right. The model-facing docs, the declarations and the `computer_actions` schema state the convention.
+
 ## 2026-09-28 - macOS computer use keeps the user's newer front app (#9056)
 
 After a background `type` or `press`, the macOS engine handed key focus back to the application that was front before the action, even when the user had switched to another application in the meantime. It read the front application from `NSWorkspace.frontmostApplication`, which in the engine (no AppKit run loop) can keep reporting an application the user already left. The front application now comes from WindowServer (`_SLPSGetFrontProcess`), with AppKit only as a fallback, and the hand-back leaves the front alone when a third application is front: the user's newer choice wins, as on X11 and Windows. Without a user switch the previous application is still restored.

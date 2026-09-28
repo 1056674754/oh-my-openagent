@@ -18,7 +18,7 @@ interface ComputerDragOptions extends ComputerDeliveryOptions {
 	modifiers?: string[];
 }
 
-/** Options for wheel scrolling; `dx`/`dy` are scroll units at the pointer position. */
+/** Options for wheel scrolling; `dx`/`dy` are scroll units at the pointer position. On every OS a positive `dy` scrolls down and a positive `dx` scrolls right. */
 interface ComputerScrollOptions extends ComputerDeliveryOptions {
 	dx?: number;
 	dy?: number;

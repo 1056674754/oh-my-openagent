@@ -14,6 +14,7 @@ computer.screenshot({ silent? }?) / win.screenshot({ silent? }?) → { target, f
 computer.click(x, y, { button?, count?, modifiers?, delivery? }?) / win.click(...) → None
 computer.doubleClick(x, y, opts?) / computer.move(x, y) / computer.drag([[x, y], …], { modifiers?, delivery? }?) / computer.scroll(x, y, { dx?, dy?, delivery? }?) → None
     Same helpers on a window handle: win.doubleClick, win.move, win.drag, win.scroll.
+    Scroll deltas on every OS: positive dy scrolls down, negative up; positive dx scrolls right.
 computer.type(text, { delivery? }?) / computer.press("cmd+shift+p" | keys[], { delivery? }?) → None
     Same helpers on a window handle: win.type, win.press.
 win.raise() → None
