@@ -1,3 +1,14 @@
+## 2026-09-28 - omo app-server loads the OmO plugin (#9117)
+
+### What changed
+
+- `bin/lib/launcher.js`: `omo app-server ...` (server and every `daemon` verb) appends `--extension <package>/plugin` after the subcommand instead of passing through bare. The engine's app-server reads `--extension` only there (senpi #2313); a leading flag never reaches its dispatch. `--no-extensions` still leaves the list to the caller.
+- `compile-entry.ts` `buildSenpiArgs`: the same placement for the compiled binary.
+
+### Tests
+
+`test/launcher.test.ts` asserts the server and `daemon start` argv end with the plugin extension and that `--no-extensions` passes through; `app-server` left the early-command passthrough table. `test/compile-entry.test.ts` covers the compiled path.
+
 ## 2026-09-28 - The doctor recognizes a Bun-installed omo on Windows (#8909)
 
 ### What changed
