@@ -77,6 +77,7 @@ export function parseTaskRecord(value: unknown, path: string, warnings?: string[
   const backgroundMode = readOptionalBackgroundMode(value)
   const reviveDeliveryUncertain = parseOptionalReviveDeliveryUncertainty(value)
   const resumedRunEpoch = readOptionalNumber(value, "resumed_run_epoch")
+  const startQueued = parseOptionalStartQueued(value)
   const runnerKind = readOptionalRunnerKind(value)
   const suspensionReason = readOptionalSuspensionReason(value)
   const failureKind = readOptionalTaskStartFailureKind(value)
@@ -137,6 +138,7 @@ export function parseTaskRecord(value: unknown, path: string, warnings?: string[
     ...(backgroundMode === undefined ? {} : { background_mode: backgroundMode }),
     ...(reviveDeliveryUncertain === undefined ? {} : { revive_delivery_uncertain: reviveDeliveryUncertain }),
     ...(resumedRunEpoch === undefined ? {} : { resumed_run_epoch: resumedRunEpoch }),
+    ...(startQueued === undefined ? {} : { start_queued: startQueued }),
     ...(suspensionReason === undefined ? {} : { suspension_reason: suspensionReason }),
     ...(runnerKind === undefined ? {} : { runner_kind: runnerKind }),
     ...(hostSession === undefined ? {} : { host_session: hostSession }),
@@ -153,6 +155,17 @@ function parseOptionalClosingChild(record: Record<string, unknown>): TaskRecord[
   const pid = readOptionalNumber(value, "pid")
   const hostSession = parseOptionalHostSession(value)
   return { ...(pid === undefined ? {} : { pid }), ...(hostSession === undefined ? {} : { host_session: hostSession }) }
+}
+
+function parseOptionalStartQueued(record: Record<string, unknown>): TaskRecord["start_queued"] {
+  const value = record["start_queued"]
+  if (value === undefined) return undefined
+  if (!isRecord(value)) throw new Error("start_queued is not an object")
+  return {
+    model: readString(value, "model"),
+    queued_at: readString(value, "queued_at"),
+    queue_position: readNumber(value, "queue_position"),
+  }
 }
 
 function parseOptionalReviveDeliveryUncertainty(record: Record<string, unknown>): TaskRecord["revive_delivery_uncertain"] {

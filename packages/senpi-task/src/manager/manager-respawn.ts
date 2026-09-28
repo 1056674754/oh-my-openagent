@@ -8,7 +8,7 @@ import { RunnerError } from "../runners/in-process/runner-error"
 import type { RpcChildHandle, RpcRunnerSpec } from "../runners/types"
 import type { TaskRecord } from "../state"
 import { adaptRpcHandle, discardManagedHandle, discardRpcHandle, type ManagedChildHandle } from "./child-handle"
-import { sessionTailNeedsContinuation } from "./interrupted-turn"
+import { sessionTailFinishedText, sessionTailNeedsContinuation } from "./interrupted-turn"
 import { buildRespawnManagedSpec, isTerminalRecord } from "./manager-helpers"
 import type { ManagedRunner, TrustedRespawnLaunchResolver } from "./types"
 
@@ -151,6 +151,7 @@ async function respawnProcess(input: {
     const switched = await handle.switchSession(sessionPath)
     if (switched.cancelled) return cleanupFailure(handle, "switch_session was cancelled")
     await continueInterruptedTurn(input.record, sessionPath, adaptRpcHandle(handle))
+    await adoptFinishedTurn(input.record, sessionPath, handle)
     return { ok: true, handle: adaptRpcHandle(handle) }
   } catch (error) {
     const cleaned = handle === undefined || await disposeRpc(handle)
@@ -191,6 +192,15 @@ async function continueInterruptedTurn(record: TaskRecord, sessionPath: string, 
   if (!isTerminalRecord(record) && await sessionTailNeedsContinuation(sessionPath, CONTINUATION_MESSAGE)) {
     await handle.followUp(CONTINUATION_MESSAGE)
   }
+}
+
+// The child finished its turn while no parent was attached (a handoff, a reload, a stalled host), so
+// no agent_end will ever arrive for it: settle the reopened handle with the transcript's final answer
+// and let the ordinary outcome tracking complete the record (omo#9069).
+async function adoptFinishedTurn(record: TaskRecord, sessionPath: string, handle: RpcChildHandle): Promise<void> {
+  if (isTerminalRecord(record) || handle.adoptFinishedTurn === undefined) return
+  const finished = await sessionTailFinishedText(sessionPath)
+  if (finished !== undefined) await handle.adoptFinishedTurn(finished)
 }
 
 async function cleanupFailure(handle: RpcChildHandle, reason: string): Promise<RespawnResult> {

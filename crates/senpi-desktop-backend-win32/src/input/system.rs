@@ -17,6 +17,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
 };
 
+use super::barrier;
+use super::cursor_placement::{self, Mover};
 use super::events::{key_event, mouse_event};
 use super::messages::absolute_coordinate;
 use super::native::{self, Window};
@@ -114,8 +116,31 @@ pub(super) fn claim_last_input() -> CoreResult<()> {
     send(&[mouse_event(MOUSEEVENTF_MOVE, 0, 0, 0)], None)
 }
 
+/// Puts the cursor on a physical virtual-desktop point and confirms it is
+/// there before the caller sends a button or wheel: the `SendInput` move,
+/// read back once the raw input thread routed it, then `SetCursorPos` when
+/// the cursor is still elsewhere (another process clipped or moved it).
+///
+/// # Errors
+/// `InputFailed` when a move is refused, the cursor cannot be read, or
+/// neither move put it on the point.
+pub(super) fn place_cursor(point: (i32, i32), target: Option<Window>) -> CoreResult<()> {
+    cursor_placement::place(
+        point,
+        |mover| match mover {
+            Mover::SendInput => move_to(point, target),
+            Mover::SetCursorPos => native::set_cursor(point.0, point.1),
+        },
+        || {
+            barrier::routed(target)?;
+            native::cursor()
+        },
+    )
+    .map(drop)
+}
+
 /// Moves the cursor to a physical virtual-desktop point.
-pub(super) fn move_to((x, y): (i32, i32), target: Option<Window>) -> CoreResult<()> {
+fn move_to((x, y): (i32, i32), target: Option<Window>) -> CoreResult<()> {
     // SAFETY: [FFI] `GetSystemMetrics` takes a scalar index and has no
     // preconditions.
     let (origin_x, origin_y, width, height) = unsafe {

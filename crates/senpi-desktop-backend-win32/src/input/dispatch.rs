@@ -3,7 +3,8 @@
 //!
 //! - `Target::Desktop`: enigo for keys and text, `SendInput` for the pointer.
 //! - `Target::Window` + foreground: the `SetForegroundWindow` focus guard
-//!   around `SendInput`.
+//!   around `SendInput`; pointer input first waits for the compositor to
+//!   present the raised window ([`compositor`]).
 //! - `Target::Window` + background: `PostMessageW` when the toolkit class
 //!   matrix accepts the event, else `BackgroundUnavailable` - never a silent
 //!   fallback to the foreground.
@@ -19,7 +20,7 @@ use senpi_desktop_core::types::{DesktopPoint, Target};
 use super::held::{Held, HeldKey, Route};
 use super::keys::{chord_virtual_keys, named_virtual_key, Stroke, VK_MENU};
 use super::native::{self, Window};
-use super::{background, system};
+use super::{background, compositor, system};
 use crate::ax::Win32Ax;
 use crate::capture::{all_displays, logical_bounds, physical_point, PhysicalRect};
 use crate::integrity::IntegrityRid;
@@ -78,6 +79,7 @@ impl Win32Input {
             (Target::Desktop, _) => self.system_pointer(event, None),
             (Target::Window(id), DeliveryMode::Foreground) => {
                 self.with_foreground(id, |this, target| {
+                    compositor::await_next_present();
                     this.system_pointer(event, Some(target))
                 })
             }

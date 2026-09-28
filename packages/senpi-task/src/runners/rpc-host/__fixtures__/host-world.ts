@@ -201,6 +201,7 @@ function connectParent(input: ConnectParentInput): ParentSession {
       maxDrainAttempts: input.options.maxDrainAttempts ?? 3,
       defaultRetryAfterMs: 2_000,
       daemonLossBackoffMs: [1_000, 4_000, 16_000],
+      deferredRetryBackoffMs: [],
       wait: (ms) => {
         waits.push(ms)
         return Promise.resolve()
