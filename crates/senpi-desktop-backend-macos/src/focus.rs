@@ -36,10 +36,12 @@ fn first_front_window(windows: &[WindowInfo], pid: u32) -> Option<u32> {
 /// The frontmost application's first visible, normal-layer WindowServer window.
 /// AX provides its title, not its identity: AXFocusedWindow may be behind it.
 pub(crate) fn front_window() -> CoreResult<Option<FrontWindow>> {
-    let Some(app) = NSWorkspace::sharedWorkspace().frontmostApplication() else {
+    let Some(pid) = current_front_pid() else {
         return Ok(None);
     };
-    let pid = app.processIdentifier();
+    let Some(app) = NSRunningApplication::runningApplicationWithProcessIdentifier(pid) else {
+        return Ok(None);
+    };
     let Ok(pid_u32) = u32::try_from(pid) else {
         return Ok(None);
     };
@@ -159,10 +161,49 @@ pub(crate) fn restore_key_focus(input: &mut MacInput, front: &FrontWindow) -> Co
     let Ok(prev_pid) = libc::pid_t::try_from(front.pid) else {
         return Ok(());
     };
-    if input.take_last_activated().is_some() {
-        reactivate(prev_pid);
+    let activated = input.take_last_activated().map(|(pid, _)| pid);
+    match hand_back(prev_pid, activated, current_front_pid()) {
+        HandBack::Reactivate => reactivate(prev_pid),
+        HandBack::AlreadyFront => {}
+        // The user moved to another application during the action; that newer
+        // choice wins over the snapshot (as on X11 and Windows).
+        HandBack::UserMovedOn => return Ok(()),
     }
     mark_key_window(front)
+}
+
+/// What key-focus hand-back does, from the snapshot, the application the
+/// engine made key, and the live front application.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HandBack {
+    /// The engine's activation is still in effect: give focus back.
+    Reactivate,
+    /// The snapshot's application is front already.
+    AlreadyFront,
+    /// A third application is front: the user moved on; leave it.
+    UserMovedOn,
+}
+
+pub(crate) fn hand_back(
+    previous: libc::pid_t,
+    activated: Option<libc::pid_t>,
+    front: Option<libc::pid_t>,
+) -> HandBack {
+    match front {
+        Some(front) if front == previous => HandBack::AlreadyFront,
+        Some(front) if Some(front) != activated => HandBack::UserMovedOn,
+        _ if activated.is_some() => HandBack::Reactivate,
+        _ => HandBack::AlreadyFront,
+    }
+}
+
+/// WindowServer's front process, or AppKit's view when the SPI is missing.
+fn current_front_pid() -> Option<libc::pid_t> {
+    skylight::front_pid().or_else(|| {
+        NSWorkspace::sharedWorkspace()
+            .frontmostApplication()
+            .map(|app| app.processIdentifier())
+    })
 }
 
 /// The AX belt-and-braces half: mark `front`'s window main and focused.
