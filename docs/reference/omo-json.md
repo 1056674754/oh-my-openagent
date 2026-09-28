@@ -283,6 +283,21 @@ Deprecated keys accepted for back-compat and rewritten by migration:
 
 These are the only deprecated keys the strict agent schema accepts. `textVerbosity`, `fallback_models`, `thinking`, and `maxTokens` are category / model-entry keys, not agent keys (see [Model references and model strings](#model-references-and-model-strings)).
 
+#### Codex managed agent roles
+
+In the Codex edition, `[codex].agents.<role>` (and `profiles.<P>.[codex].agents.<role>`) sets the model of a LazyCodex-managed agent role such as `explorer`, `librarian`, `plan`, `metis`, `momus`, or `lazycodex-worker-medium`. Every install and marketplace bootstrap writes `model` and `reasoning` into `$CODEX_HOME/agents/<role>.toml` (`reasoning` becomes `model_reasoning_effort`; `off` becomes `none`, `auto` keeps the bundled effort; a `gpt-6-luna:low` suffix is split the same way). Only the `[codex]` block counts: shared base `agents` hold OpenCode model ids and never reach Codex. Removing an entry returns the role to the bundled default on the next sync, and a role name LazyCodex does not manage produces a warning.
+
+```jsonc
+{
+  "[codex]": {
+    "agents": {
+      "explorer": { "model": "gpt-6-luna", "reasoning": "low" },
+      "librarian": { "model": "gpt-6-luna" }
+    }
+  }
+}
+```
+
 #### Builtin agents
 
 The Senpi task engine ships four builtin curated agents: `explore` and `librarian` are always spawnable through the task tool with zero configuration, for example `task(subagent_type: "explore", ...)`, while `plan-consultant` and `plan-reviewer` are plan-gated: spawnable only after the user requests the `ulw-plan` workflow, a `.omo/plans/*.md` artifact was touched, and `ulw-execute` was never invoked. They are read-only research and review specialists; implementation and orchestration agents stay category-routed (architecture consults go through `task(category: "architect")`).

@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **`thread_read` labels tool results as `tool`.** A thread read from a live host now marks tool results with role `tool`, the same as a thread read from its transcript file. Models that read `thread_read` output see one role for tool results on both paths.
 
+### Fixed
+
+**LazyCodex keeps the model you picked for a subagent role.** ([#5245](https://github.com/code-yeongyu/oh-my-openagent/issues/5245)) Every reinstall and marketplace auto-update copied the bundled agent files over `~/.codex/agents/` and put `explorer`, `librarian` and the other roles back on the bundled model, even when you had changed it. A model you set in those files now survives updates; a model LazyCodex wrote itself still moves to the new default. For a durable choice, set `[codex].agents.<role>.model` (and `reasoning`) in `~/.omo/omo.jsonc`; each sync applies it, and removing it restores the bundled default.
+
 ## [5.1.0] - 2026-09-28
 
 5.1.0 adds computer use to OmO Native as an experimental feature, and fixes Claude subscription logins across many sessions, GitHub Copilot tokens and hosts, goals that looped on a rejected login, and a long list of background task problems. `omo update` installs it, or run:

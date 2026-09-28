@@ -1,3 +1,17 @@
+## 2026-09-29 - LazyCodex agent sync keeps a user's model and applies `[codex].agents` overrides (#5245)
+
+`packages/omo-codex/src/install/link-cached-plugin-agents.ts` still copies each bundled agent TOML over
+`$CODEX_HOME/agents/<role>.toml`, but now restores a hand-edited `model` the way it already restored
+`model_reasoning_effort` and `service_tier`, then applies `[codex].agents.<role>.model` / `reasoning` from omo.jsonc.
+A per-agent receipt, `agents/.lazycodex-agent-models.json` (`agent-model-overrides.ts`), records the model LazyCodex
+wrote (bundled or override) and any override reasoning: an installed value that differs is a hand edit, one that
+matches follows the next bundled default, so a removed override does not stick. Installs from before the receipt fall
+back to the list of models bundled agents have ever shipped (`managed-agent-model-defaults.ts`).
+`codex-agent-config.ts` (was `codex-default-role-config.ts`) reads only the `[codex]` block and
+`profiles.<P>.[codex]`, never shared base `agents`, whose OpenCode model ids share role names such as `librarian`.
+The installer's agent linking moved to `install-codex-agents.ts`; both the installer and the bootstrap `setup` step warn
+about override names LazyCodex does not manage. `install-dist/install-local.mjs` is regenerated.
+
 ## 2026-09-29 - Docs and schema: the task-host pre-warm uses the host's `warm` command, is admitted like a spawn, and warms Desktop threads on intent
 
 `docs/reference/omo-daemon.md` (Pre-warm): the warm registers the session's task store in `rpc/task-stores.json`
