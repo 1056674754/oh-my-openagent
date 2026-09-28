@@ -19,7 +19,6 @@ import {
   TASK_DAEMON_CACHE_TTL_MS,
   TASK_DAEMON_PROTOCOL_VERSION,
   TASK_DAEMON_REQUIRED_CAPABILITIES,
-  resolveTaskHostSocket,
   type EnsuredTaskDaemon,
   type EnsureTaskDaemonInput,
   type HostUnavailableReason,
