@@ -14,6 +14,7 @@ computer.screenshot({ silent? }?) / win.screenshot({ silent? }?) → { target, f
 computer.click(x, y, { button?, count?, modifiers?, delivery? }?) / win.click(...) → None
 computer.doubleClick(x, y, opts?) / computer.move(x, y) / computer.drag([[x, y], …], { modifiers?, delivery? }?) / computer.scroll(x, y, { dx?, dy?, delivery? }?) → None
     Same helpers on a window handle: win.doubleClick, win.move, win.drag, win.scroll.
+    dx/dy are pixels, the same unit on every OS; one mouse-wheel notch is about 40 px, so dy: 120 scrolls about three notches.
     Scroll direction is semantic and the same on every OS: positive dy moves the view toward the end of the content (negative toward the start), positive dx toward the right edge; the natural-scrolling setting does not change it.
 computer.type(text, { delivery? }?) / computer.press("cmd+shift+p" | keys[], { delivery? }?) → None
     Same helpers on a window handle: win.type, win.press.

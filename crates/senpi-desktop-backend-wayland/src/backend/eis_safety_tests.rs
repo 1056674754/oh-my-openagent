@@ -139,8 +139,8 @@ fn scroll_delta_is_emitted_as_discrete_wheel_units() {
         PointerEvent::Scroll {
             x: 50.0,
             y: 60.0,
-            dx: 1.0,
-            dy: -2.0,
+            dx: 40.0,
+            dy: -80.0,
         },
     );
 

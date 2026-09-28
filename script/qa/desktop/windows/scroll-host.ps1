@@ -2,7 +2,9 @@
 # scrolled to its middle so a wheel step either way moves it, for the scroll-direction scenarios of
 # script/qa/desktop/windows.ts. Prints `ready <hwnd>` once the window is shown and runs until the
 # driver kills it; every wheel, focus and activation event the window sees is appended to $EventLog,
-# so a scenario can tell a wheel that never arrived from one that arrived and did not scroll.
+# so a scenario can tell a wheel that never arrived from one that arrived and did not scroll. Before
+# `ready`, the log also gets `lineHeight <px>`: the EDIT's own distance between two consecutive lines,
+# so a scenario converts lines scrolled into pixels without assuming a font.
 # Run with `powershell.exe -STA`.
 param(
 	[Parameter(Mandatory = $true)][string]$Title,
@@ -39,6 +41,10 @@ $form.Add_Activated({ Write-HostEvent "form activated textboxFocused=$($box.Focu
 $form.Add_Shown({
 	# EM_LINESCROLL down by FirstVisibleLine lines leaves that zero-based line at the top.
 	[void][QaScrollHost]::SendMessageW($box.Handle, 0x00B6, [IntPtr]::Zero, [IntPtr]$FirstVisibleLine)
+	# EM_POSFROMCHAR of the first characters of two consecutive lines, in the EDIT's client pixels.
+	$top = $box.GetPositionFromCharIndex($box.GetFirstCharIndexFromLine($FirstVisibleLine)).Y
+	$next = $box.GetPositionFromCharIndex($box.GetFirstCharIndexFromLine($FirstVisibleLine + 1)).Y
+	Write-HostEvent "lineHeight $($next - $top)"
 	[Console]::Out.WriteLine("ready $($form.Handle.ToInt64())")
 	[Console]::Out.Flush()
 })

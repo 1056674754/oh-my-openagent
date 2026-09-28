@@ -30,9 +30,17 @@ done
 // The focus holder only has to stay mapped; it blocks on its own tty until teardown stops its group.
 const HOLDER_SCRIPT = "stty -echo; while IFS= read -r _; do :; done";
 
-// A long, wide, read-only document opened mid-content both ways. Every view change rewrites the
-// report file (atomically) with the text index at the view's top-left pixel: `<line>.<column>`.
+// A long, wide, read-only document opened mid-content both ways. Every view change, and every
+// pointer motion into or inside the widget, rewrites the report file (atomically) with the text
+// index at the view's top-left pixel, the widget's own line height in pixels (0 until measured), the
+// root point of the last pointer motion it handled, and its own root origin:
+// `<line>.<column> <lineHeight> <markX>,<markY> <originX>,<originY>`. X delivers a client's events
+// in order, so once a pointer motion sent after a scroll shows up as the mark, the view reported
+// with it includes every wheel click queued before it.
 const SCROLL_SCRIPT = `set report [lindex $argv 0]
+set lineHeight 0
+set mark 0,0
+set origin 0,0
 wm title . ${SCROLL_TITLE}
 wm geometry . +40+300
 text .t -wrap none -width 40 -height 10 -yscrollcommand record -xscrollcommand record
@@ -44,16 +52,21 @@ for {set i 1} {$i <= 200} {incr i} {
 # Tk 8.6 binds only buttons 4/5; 6/7 scroll left/right in the X11 wheel convention GTK and Qt follow.
 bind .t <6> {%W xview scroll -4 units}
 bind .t <7> {%W xview scroll 4 units}
+bind .t <Motion> {set mark %X,%Y; record}
+bind .t <Enter> {set mark %X,%Y; record}
 proc record args {
-	global report
+	global report lineHeight mark origin
 	set f [open $report.tmp w]
-	puts $f [.t index @0,0]
+	puts $f "[.t index @0,0] $lineHeight $mark $origin"
 	close $f
 	file rename -force $report.tmp $report
 }
 .t yview scroll 100 units
 .t xview scroll 40 units
 update
+# The height of the display line at the top of the view, as laid out by the widget itself.
+set lineHeight [lindex [.t dlineinfo @0,0] 3]
+set origin [winfo rootx .t],[winfo rooty .t]
 record
 `;
 
@@ -66,8 +79,19 @@ export interface X11Stage {
 }
 
 export type Pastes = { readonly count: number; readonly last: string };
-/** The scroll fixture's top-left text index; line 0 before it reported. */
-export type ScrollView = { readonly line: number; readonly column: number };
+type RootPoint = { readonly x: number; readonly y: number };
+/**
+ * The scroll fixture's top-left text index, line height in pixels, the root point of the last
+ * pointer motion it handled, and its widget's root origin; zeros before it reported.
+ */
+export type ScrollView = {
+	readonly line: number;
+	readonly column: number;
+	readonly lineHeight: number;
+	readonly mark: RootPoint;
+	readonly origin: RootPoint;
+};
+const NO_SCROLL_VIEW: ScrollView = { line: 0, column: 0, lineHeight: 0, mark: { x: 0, y: 0 }, origin: { x: 0, y: 0 } };
 
 function freeDisplay(): number {
 	for (let display = 140; display < 240; display++) {
@@ -120,20 +144,34 @@ export class X11Observer {
 	/** What the scroll fixture reported about its own view. */
 	scrollView(): ScrollView {
 		try {
-			const match = /^(\d+)\.(\d+)$/.exec(readFileSync(this.scrollFile, "utf8").trim());
-			return match === null ? { line: 0, column: 0 } : { line: Number(match[1]), column: Number(match[2]) };
+			const report = readFileSync(this.scrollFile, "utf8").trim();
+			const match = /^(\d+)\.(\d+) (\d+) (-?\d+),(-?\d+) (-?\d+),(-?\d+)$/.exec(report);
+			if (match === null) return NO_SCROLL_VIEW;
+			const [line, column, lineHeight, markX, markY, originX, originY] = match.slice(1).map(Number);
+			return {
+				line: line ?? 0,
+				column: column ?? 0,
+				lineHeight: lineHeight ?? 0,
+				mark: { x: markX ?? 0, y: markY ?? 0 },
+				origin: { x: originX ?? 0, y: originY ?? 0 },
+			};
 		} catch {
-			return { line: 0, column: 0 };
+			return NO_SCROLL_VIEW;
 		}
 	}
 
-	/** The view once it differs from `from`; the unchanged view when the hang guard expires first. */
-	async scrollViewMoved(from: ScrollView): Promise<ScrollView> {
-		const moved = (): boolean => {
-			const seen = this.scrollView();
-			return seen.line !== from.line || seen.column !== from.column;
+	/**
+	 * Moves the pointer to `marker` (a root point inside the scroll fixture that differs from its last
+	 * mark) and returns the view the fixture reported with that motion: every wheel event queued
+	 * before the motion is already applied to it. The last report when the hang guard expires first.
+	 */
+	async scrollViewAfter(marker: RootPoint): Promise<ScrollView> {
+		await this.stdout(["xdotool", "mousemove", String(marker.x), String(marker.y)]);
+		const marked = (): boolean => {
+			const { mark } = this.scrollView();
+			return mark.x === marker.x && mark.y === marker.y;
 		};
-		await until(moved, "the scroll fixture's view to move").catch(() => undefined);
+		await until(marked, "the scroll fixture to report the marker motion").catch(() => undefined);
 		return this.scrollView();
 	}
 
@@ -202,6 +240,9 @@ export async function startX11(procs: Processes, runDir: string): Promise<{ stag
 	});
 	const [targetWindow = "", otherWindow = "", scrollWindow = ""] = windows;
 	await until(() => observe.pastes().count === 0, "the target xterm script to start");
-	await until(() => observe.scrollView().line > 0, "the scroll fixture to report its view");
+	await until(() => {
+		const view = observe.scrollView();
+		return view.line > 0 && view.lineHeight > 0;
+	}, "the scroll fixture to report its view and line height");
 	return { stage: { display, target: targetWindow, other: otherWindow, scroll: scrollWindow, env }, observe };
 }

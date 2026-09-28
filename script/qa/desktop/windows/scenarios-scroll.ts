@@ -20,8 +20,15 @@ const WHEEL_CONTROL_SCRIPT = fileURLToPath(new URL("./wheel-control.ps1", import
 /** One SendInput wheel of three notches toward the end of the content (WHEEL_DELTA is 120). */
 const CONTROL_WHEEL_DELTA = -360
 
-/** Three wheel notches: the win32 backend maps every 100 units of delta to one notch. */
-const SCROLL_DELTA = 300
+/** Scroll deltas are pixels on every OS; the win32 backend sends one notch per 40 px, so 3 notches. */
+const SCROLL_DELTA = 120
+/**
+ * The distance the view may move for SCROLL_DELTA px. Three notches at Windows' default of three
+ * lines per notch (SPI_GETWHEELSCROLLLINES) are 9 lines, about 117 px at the EDIT's 13 px default
+ * font; 0.5x..2x admits other fonts, DPI and lines-per-notch settings, and still rejects the old
+ * 100-units-per-notch rule (1 notch, about 39 px).
+ */
+const DISTANCE_BOUNDS = { min: SCROLL_DELTA / 2, max: SCROLL_DELTA * 2 } as const
 
 type DeliveryMode = "background" | "foreground"
 
@@ -70,6 +77,13 @@ function hostEvents(window: ScrollWindow): string[] {
     .filter((line) => line !== "")
 }
 
+/** The `lineHeight <px>` the scroll host measured on its own EDIT; 0 when it recorded none. */
+function lineHeight(window: ScrollWindow): number {
+  const recorded = hostEvents(window).find((event) => event.startsWith("lineHeight "))
+  const pixels = Number(recorded?.slice("lineHeight ".length))
+  return Number.isFinite(pixels) ? pixels : 0
+}
+
 function scrollDirection(mode: DeliveryMode): Scenario {
   return {
     name: `scroll-direction-${mode}`,
@@ -96,12 +110,16 @@ function scrollDirection(mode: DeliveryMode): Scenario {
         const afterNegative = firstVisibleLine(after, document.id)
         const control = mode === "foreground" ? await controlWheel(engine, document, front) : undefined
         const frontEvents = hostEvents(front)
+        const linePixels = lineHeight(document)
+        const pixelsMoved = (afterPositive - start) * linePixels
         return verdict({
           checks: [
             ["front-raised-before", String(before.foreground) === front.id],
             ["document-opens-mid-content", start === SCROLL_DOCUMENT.firstVisibleLine],
             ["positive-dy-succeeded", down.error === undefined],
             ["positive-dy-moves-toward-end", afterPositive > start],
+            ["line-height-measured", linePixels > 0],
+            ["positive-dy-distance-within-bounds", pixelsMoved >= DISTANCE_BOUNDS.min && pixelsMoved <= DISTANCE_BOUNDS.max],
             ["negative-dy-succeeded", up.error === undefined],
             ["negative-dy-moves-toward-start", afterNegative >= 0 && afterNegative < afterPositive],
             ["negative-dy-returns-to-start", afterNegative === start],
@@ -117,6 +135,10 @@ function scrollDirection(mode: DeliveryMode): Scenario {
             front: front.id,
             deliveryMode: mode,
             delta: SCROLL_DELTA,
+            lineHeight: linePixels,
+            linesMoved: afterPositive - start,
+            pixelsMoved,
+            distanceBounds: DISTANCE_BOUNDS,
             point: { x: at.x, y: at.y },
             firstVisibleLine: { before: start, afterPositiveDy: afterPositive, afterNegativeDy: afterNegative },
             frontFirstVisibleLine: { before: firstVisibleLine(before, front.id), after: firstVisibleLine(after, front.id) },
