@@ -43,7 +43,7 @@
     "packages/omo-native/bin/lib/agent-dir.js: omo doctor",
     "packages/omo-native/bin/lib/bun-bin-shim.js: /bin/omo",
     "packages/omo-native/bin/lib/category-coverage.js: omo doctor",
-    "packages/omo-native/bin/lib/daemon.js: omo doctor",
+    "packages/omo-native/bin/lib/daemon-doctor-report.js: omo doctor",
     "packages/omo-native/bin/lib/doctor.js: omo doctor x2",
     "packages/omo-native/bin/lib/launcher.js: omo ulw-loop",
     "packages/omo-native/category-coverage-entry.ts: omo doctor",
