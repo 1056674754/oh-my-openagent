@@ -15,8 +15,9 @@ afterEach(() => {
 
 describe("formatter tool-result content", () => {
   for (const toolName of ["write", "edit", "apply_patch"]) {
-    for (const diagnosticsEnabled of [true, false]) {
-      it(`#given ${toolName} formats a file #when diagnostics are ${diagnosticsEnabled ? "enabled" : "disabled"} #then the hook returns only text blocks`, async () => {
+    for (const diagnostics of ["errors", "clean", "disabled"] as const) {
+      const diagnosticsEnabled = diagnostics !== "disabled"
+      it(`#given ${toolName} formats a file #when diagnostics are ${diagnostics} #then the notice reaches the result as a text block`, async () => {
         // given
         const cwd = mkdtempSync(join(tmpdir(), "omo-formatter-content-"))
         roots.push(cwd)
@@ -38,7 +39,7 @@ describe("formatter tool-result content", () => {
           postEdit: {
             runDiagnostics: async (path) => {
               diagnosedPaths.push(path)
-              return "TS2322"
+              return diagnostics === "errors" ? "TS2322" : ""
             },
           },
         }).register(pi, {
@@ -62,7 +63,7 @@ describe("formatter tool-result content", () => {
 
         // then
         expect(results).toEqual([{
-          content: diagnosticsEnabled
+          content: diagnostics === "errors"
             ? [original, textBlock, textBlock]
             : [original, textBlock],
         }])
@@ -72,4 +73,36 @@ describe("formatter tool-result content", () => {
       })
     }
   }
+
+  it("#given the formatter leaves the file unchanged #when diagnostics are clean #then the hook adds nothing", async () => {
+    // given
+    const cwd = mkdtempSync(join(tmpdir(), "omo-formatter-content-"))
+    roots.push(cwd)
+    const filePath = join(cwd, "sample.ts")
+    writeFileSync(filePath, "const value = 1;\n")
+    const pi = new FakeExtensionAPI()
+    pi.cwd = cwd
+    createLspComponent({
+      formatter: createFormatterStep({
+        markers: () => ["biome.json"],
+        daemonFormat: async () => ({ details: { status: "unchanged" } }),
+      }),
+      postEdit: { runDiagnostics: async () => "" },
+    }).register(pi, {
+      logger: { info() {}, warn() {}, error() {} },
+      config: { getFlag: (name) => pi.getFlag(name) },
+    })
+
+    // when
+    const results = await pi.dispatch("tool_result", {
+      toolCallId: "format-call",
+      toolName: "write",
+      input: { path: filePath },
+      content: [{ type: "text", text: "mutation complete" }],
+      isError: false,
+    })
+
+    // then
+    expect(results).toEqual([undefined])
+  })
 })
