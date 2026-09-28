@@ -282,10 +282,6 @@ export type TaskManagerOptions = {
   // capability check). Absent -> `auto` reads as in-process, which is what a wiring without a
   // daemon (tests, a pinned engine without the host surface) must do.
   readonly executionModeGate?: ExecutionModeGate
-  // Registers this engine's task store in the agent-dir store index before an `auto` spawn's first
-  // gate ask ensures a host; false = the index cannot take it (the spawn then fails on its own
-  // admission as store_index_unavailable). Absent where no host can be ensured.
-  readonly admitHostStore?: () => Promise<boolean>
 }
 
 export type TaskManager = {

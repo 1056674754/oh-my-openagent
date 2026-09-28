@@ -926,11 +926,6 @@ class TaskManagerImpl implements TaskManager {
     const gate = this.#options.executionModeGate
     if (gate === undefined || this.#options.config.default_execution_mode !== "auto") return {}
     if (spec.execution_mode !== undefined || plan.agentExecutionMode !== undefined) return {}
-    // The first ask would ensure this session's host, so the store must be in the agent-dir index
-    // first (the host runner's admission precondition). A store the index cannot take goes to the
-    // host runner, whose own admission fails the spawn as store_index_unavailable - no host started.
-    const admit = this.#options.admitHostStore
-    if (admit !== undefined && gate.current() === undefined && !(await admit())) return { autoMode: "process" }
     return { autoMode: await gate.ensure() }
   }
 

@@ -1,8 +1,9 @@
 ## task: one store admission for the host pre-warm and the auto spawn; the index row runs in auto mode
 
 - `components/task/store-admission.ts` (`admitTaskStore`) registers the engine's task store in the agent-dir store index or
-  answers false. The host pre-warm and the manager's `admitHostStore` (wired in `engine.ts` for the POSIX `host` runner)
-  both use it, so the two paths that would ensure a host before the runner cannot drift.
+  answers false. The host pre-warm and the host execution-mode gate both use it, so the two paths that would ensure a host before the runner cannot drift.
+- The host execution-mode gate (`createHostExecutionModeGate`, POSIX `host` runner) passes it as the gate's `admit`; the
+  engine hands the gate its store directory through `createEngineHostRuntime(..., { storeDir })`.
 - `scripts/qa/task-host-e2e-shards.mjs`: `store_index_registration_precondition` also runs as
   `store_index_registration_precondition_auto` in the default `auto` mode, where the gate ask would otherwise ensure a
   host before the store is indexed. The matrix is 25 rows.

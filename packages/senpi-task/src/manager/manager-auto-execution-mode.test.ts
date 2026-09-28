@@ -142,55 +142,6 @@ describe("manager auto execution mode", () => {
     expect(host.specs).toHaveLength(0)
   })
 
-  test("#given auto and a task store the index cannot register #when a child starts #then no host is ensured and the process runner reports its own admission failure", async () => {
-    // given
-    const counter = { calls: 0 }
-    const host = hostSessionRunner()
-    const inProcess = new FakeRunner()
-    const { manager } = makeManager({
-      config: settings({ default_execution_mode: "auto" }),
-      inProcess,
-      process: host.runner,
-      executionModeGate: gateOf("process", counter),
-      admitHostStore: () => Promise.resolve(false),
-    })
-
-    // when
-    await manager.start(baseSpec())
-
-    // then
-    expect(counter.calls).toBe(0)
-    expect(host.specs).toHaveLength(1)
-    expect(inProcess.startedSpecs).toHaveLength(0)
-  })
-
-  test("#given auto and a task store the index registers #when a child starts #then the gate decides as before", async () => {
-    // given
-    const counter = { calls: 0 }
-    const admissions: string[] = []
-    const host = hostSessionRunner()
-    const { manager } = makeManager({
-      config: settings({ default_execution_mode: "auto" }),
-      process: host.runner,
-      executionModeGate: createExecutionModeGate(() => {
-        admissions.push("gate")
-        counter.calls += 1
-        return Promise.resolve("process")
-      }),
-      admitHostStore: () => {
-        admissions.push("store")
-        return Promise.resolve(true)
-      },
-    })
-
-    // when
-    await manager.start(baseSpec())
-
-    // then
-    expect(admissions).toEqual(["store", "gate"])
-    expect(host.specs).toHaveLength(1)
-  })
-
   test("#given two children in one parent session #when both start under auto #then the daemon was asked exactly once", async () => {
     // given
     const counter = { calls: 0 }

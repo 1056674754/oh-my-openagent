@@ -67,6 +67,13 @@ export interface ExecutionModeGateHooks {
   readonly onEnsureFailure?: (error: unknown) => void
   /** A failed `warm()`: nothing is settled. */
   readonly onWarmFailure?: (error: unknown) => void
+  /**
+   * The host runner's admission precondition, checked before the first ask (which may ensure the
+   * session's host): the task store is durably in the agent-dir store index. False = the index cannot
+   * take it; that spawn goes to the host runner, whose own admission fails it as
+   * `store_index_unavailable`, and nothing is settled, so the next spawn asks again.
+   */
+  readonly admit?: () => Promise<boolean>
 }
 
 export function createExecutionModeGate(
@@ -80,9 +87,8 @@ export function createExecutionModeGate(
     resolved = mode
     return mode
   }
-  const ensure = (): Promise<ExecutionMode> => {
+  const settle = (): Promise<ExecutionMode> => {
     if (settled !== undefined) return settled
-    if (warming !== undefined) return warming.then((mode) => mode ?? ensure())
     settled = resolve()
       .catch((error: unknown): ExecutionMode => {
         hooks.onEnsureFailure?.(error)
@@ -90,6 +96,13 @@ export function createExecutionModeGate(
       })
       .then(keep)
     return settled
+  }
+  const ensure = (): Promise<ExecutionMode> => {
+    if (settled !== undefined) return settled
+    if (warming !== undefined) return warming.then((mode) => mode ?? ensure())
+    const admit = hooks.admit
+    if (admit === undefined) return settle()
+    return admit().then((admitted): Promise<ExecutionMode> | ExecutionMode => (admitted ? settle() : "process"))
   }
   return {
     current: () => resolved,

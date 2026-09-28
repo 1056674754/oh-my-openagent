@@ -37,7 +37,7 @@ export interface EngineHostWiring {
  */
 export function composeEngineHostWiring(input: EngineHostWiringInput): EngineHostWiring {
   const { pi, omoConfig, settings, runtime, baseStore, generations } = input
-  const host = input.host ?? createEngineHostRuntime(settings, runtime, pi)
+  const host = input.host ?? createEngineHostRuntime(settings, runtime, pi, { storeDir: baseStore.stateDir })
   const lifecycle = createTaskLifecycle({ ...input.lifecycle, config: settings,
     hostEndpoint: host.hostEndpoint,
     revivePolicy: {

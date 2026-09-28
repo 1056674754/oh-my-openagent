@@ -126,6 +126,45 @@ describe("host execution mode gate", () => {
     })
   }
 
+  test("#given an agent dir whose store index cannot be written #when the first spawn asks the gate #then no host is ensured", async () => {
+    // given - a regular file where the rpc directory would go makes the index unwritable
+    const agentDir = mkdtempSync(join(tmpdir(), "omo-gate-admit-"))
+    const storeDir = mkdtempSync(join(tmpdir(), "omo-gate-store-"))
+    await Bun.write(join(agentDir, "rpc"), "not a directory")
+    const notices = createHostNotices(() => {})
+    const settings = settingsOf()
+    let ensures = 0
+    const gate = createHostExecutionModeGate({
+      settings,
+      platform: "darwin",
+      agentDir,
+      env: {},
+      notices,
+      storeDir,
+      routing: routingFor({
+        settings,
+        notices,
+        ensureDaemon: () => {
+          ensures += 1
+          return Promise.reject(new Error("must not ensure"))
+        },
+      }),
+    })
+
+    try {
+      // when
+      const mode = await gate.ensure()
+
+      // then - the spawn goes to the host runner, which reports store_index_unavailable itself
+      expect(mode).toBe("process")
+      expect(ensures).toBe(0)
+      expect(gate.current()).toBeUndefined()
+    } finally {
+      rmSync(agentDir, { recursive: true, force: true })
+      rmSync(storeDir, { recursive: true, force: true })
+    }
+  })
+
   test("#given a daemon advertising session context and generation handoff #when the gate resolves #then process mode is the effective default", async () => {
     // given
     const notices = createHostNotices(() => {})

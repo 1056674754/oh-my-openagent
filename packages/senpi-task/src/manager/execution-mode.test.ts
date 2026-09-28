@@ -258,3 +258,46 @@ describe("ExecutionModeGate.warm (the task-host pre-warm)", () => {
     expect(g.gate.current()).toBe("in-process")
   })
 })
+
+describe("execution-mode gate store admission", () => {
+  test("#given a task store the index cannot take #when a spawn asks #then nothing is resolved and the spawn goes to the host runner", async () => {
+    // given
+    let resolves = 0
+    const gate = createExecutionModeGate(() => {
+      resolves += 1
+      return Promise.resolve("process")
+    }, { admit: () => Promise.resolve(false) })
+
+    // when
+    const mode = await gate.ensure()
+
+    // then
+    expect(mode).toBe("process")
+    expect(resolves).toBe(0)
+    expect(gate.current()).toBeUndefined()
+  })
+
+  test("#given a store the index takes after a failure #when the next spawn asks #then the gate resolves once and keeps it", async () => {
+    // given
+    const answers = [false, true, true]
+    const order: string[] = []
+    const gate = createExecutionModeGate(() => {
+      order.push("resolve")
+      return Promise.resolve("in-process")
+    }, {
+      admit: () => {
+        order.push("admit")
+        return Promise.resolve(answers.shift() ?? true)
+      },
+    })
+
+    // when
+    const first = await gate.ensure()
+    const second = await gate.ensure()
+    const third = await gate.ensure()
+
+    // then
+    expect([first, second, third]).toEqual(["process", "in-process", "in-process"])
+    expect(order).toEqual(["admit", "admit", "resolve"])
+  })
+})
