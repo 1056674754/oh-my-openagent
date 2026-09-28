@@ -12,6 +12,7 @@
 //! actually came back. Some compositors (GNOME, KDE) show a consent dialog
 //! the first time; wlroots' portal does not.
 
+mod eis_region;
 pub mod layout;
 #[cfg(test)]
 mod layout_tests;

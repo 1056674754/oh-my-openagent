@@ -8,38 +8,7 @@
 
 use senpi_desktop_core::types::DesktopDisplay;
 
-/// One libei device region, in the compositor's logical coordinates.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct EisRegion {
-    pub x: u32,
-    pub y: u32,
-    pub width: u32,
-    pub height: u32,
-    /// Physical pixels per logical pixel; `<= 0` or non-finite when unset.
-    pub scale: f32,
-}
-
-impl EisRegion {
-    fn right(&self) -> u64 {
-        u64::from(self.x) + u64::from(self.width)
-    }
-
-    fn bottom(&self) -> u64 {
-        u64::from(self.y) + u64::from(self.height)
-    }
-
-    fn overlaps(&self, other: &Self) -> bool {
-        u64::from(self.x) < other.right()
-            && u64::from(other.x) < self.right()
-            && u64::from(self.y) < other.bottom()
-            && u64::from(other.y) < self.bottom()
-    }
-
-    fn reported_scale(&self) -> Option<f64> {
-        let scale = f64::from(self.scale);
-        (scale.is_finite() && scale > 0.0).then_some(scale)
-    }
-}
+pub use super::eis_region::EisRegion;
 
 /// Scales two regions may differ by and still be one scale (f32 on the wire).
 const SCALE_EPSILON: f64 = 1e-3;
