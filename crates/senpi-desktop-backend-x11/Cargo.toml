@@ -8,6 +8,7 @@ license.workspace = true
 crate-type = ["rlib"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
+arboard.workspace = true
 image.workspace = true
 libc.workspace = true
 parking_lot.workspace = true

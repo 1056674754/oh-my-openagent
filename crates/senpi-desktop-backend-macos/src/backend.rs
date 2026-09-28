@@ -15,10 +15,12 @@ use senpi_desktop_core::types::{
 
 use crate::ax::{is_trusted, MacAx};
 use crate::capture::{MacCapture, Screencapture};
+use crate::clipboard::Clipboard;
 use crate::input::{CanaryMode, CanaryResult, MacInput, CANARY_STOP_REASON};
 
 pub struct MacosBackend {
     capture: MacCapture,
+    clipboard: Clipboard,
     input: MacInput,
     ax: MacAx,
 }
@@ -27,6 +29,7 @@ impl MacosBackend {
     pub fn new(display: DisplaySelector) -> CoreResult<Self> {
         Ok(Self {
             capture: MacCapture::new(display, Screencapture::system()),
+            clipboard: Clipboard::default(),
             input: MacInput::new(CanaryMode::Session)?,
             ax: MacAx::new(),
         })
@@ -133,6 +136,14 @@ impl Backend for MacosBackend {
     fn type_text(&mut self, target: &Target, text: &str, mode: DeliveryMode) -> CoreResult<()> {
         Self::require_input_permission()?;
         self.input.type_text(target, text, mode, &self.capture)
+    }
+
+    fn clipboard_read(&mut self) -> CoreResult<String> {
+        self.clipboard.read()
+    }
+
+    fn clipboard_write(&mut self, text: &str) -> CoreResult<()> {
+        self.clipboard.write(text)
     }
 
     fn type_text_interruptible(

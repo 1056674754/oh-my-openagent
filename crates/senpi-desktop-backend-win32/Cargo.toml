@@ -14,6 +14,7 @@ senpi-desktop-core = { path = "../senpi-desktop-core" }
 senpi-desktop-safety = { path = "../senpi-desktop-safety" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+arboard.workspace = true
 enigo.workspace = true
 image.workspace = true
 parking_lot.workspace = true

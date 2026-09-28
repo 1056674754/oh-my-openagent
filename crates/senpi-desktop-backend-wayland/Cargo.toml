@@ -8,6 +8,7 @@ license.workspace = true
 crate-type = ["rlib"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
+arboard.workspace = true
 ashpd.workspace = true
 futures = "=0.3.32"
 image.workspace = true

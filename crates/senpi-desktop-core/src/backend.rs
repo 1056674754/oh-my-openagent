@@ -98,6 +98,8 @@ pub trait Backend: Send {
         mode: DeliveryMode,
     ) -> CoreResult<()>;
     fn type_text(&mut self, target: &Target, text: &str, mode: DeliveryMode) -> CoreResult<()>;
+    fn clipboard_read(&mut self) -> CoreResult<String>;
+    fn clipboard_write(&mut self, text: &str) -> CoreResult<()>;
     /// Backends with incremental text delivery check between Unicode scalars
     /// and report each fully delivered scalar. The default preserves the
     /// existing one-call behavior for backends without incremental input.

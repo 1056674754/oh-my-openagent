@@ -8,6 +8,7 @@ license.workspace = true
 crate-type = ["rlib"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
+arboard.workspace = true
 core-graphics.workspace = true
 foreign-types.workspace = true
 image.workspace = true

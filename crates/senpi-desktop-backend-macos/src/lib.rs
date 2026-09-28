@@ -7,6 +7,7 @@
 mod ax;
 mod backend;
 mod capture;
+mod clipboard;
 mod cursor;
 mod focus;
 mod input;
