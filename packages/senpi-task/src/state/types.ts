@@ -169,6 +169,12 @@ export type TaskNotification = {
   readonly liveness_notified_epoch?: number
 }
 
+export type StartQueued = {
+  readonly model: string
+  readonly queued_at: string
+  readonly queue_position: number
+}
+
 export type ReviveDeliveryUncertainty = {
   readonly run_epoch: number
   readonly message_sha256: string
@@ -300,6 +306,12 @@ export type TaskRecord = TaskRecordInput & TaskStartFailureRecordFields & {
   readonly run_stats?: TaskRunStats
   readonly notification: TaskNotification
   readonly revive_delivery_uncertain?: ReviveDeliveryUncertainty
+  // The run_epoch of a run the child started on its own after an earlier run had already settled
+  // (a monitor or background job woke it): its completion is announced as a resumed turn's result.
+  readonly resumed_run_epoch?: number
+  // A start-time fallback whose model lane was full: the child is waiting for a slot, not running yet.
+  // Cleared when the slot is granted and the launch begins.
+  readonly start_queued?: StartQueued
   // Why this record is suspended, when the reason is NOT "its session went away": the daemon was
   // unreachable for the whole bounded reconcile, or an old generation never finished draining.
   // Cleared by the revival that succeeds.

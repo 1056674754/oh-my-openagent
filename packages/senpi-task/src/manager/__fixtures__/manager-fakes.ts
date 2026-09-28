@@ -42,6 +42,7 @@ export type FakeHandle = {
   park(reason: SuspensionReason): void
   waitForSubscription(): Promise<void>
   waitForUnsubscription(): Promise<void>
+  selfResume(): void
 }
 
 export function makeHandle(taskId: string, pid?: number): FakeHandle {
@@ -59,6 +60,7 @@ export function makeHandle(taskId: string, pid?: number): FakeHandle {
   let unsubscribeCalls = 0
   const subscriptionWaiters: Array<() => void> = []
   const unsubscriptionWaiters: Array<() => void> = []
+  const resumedListeners = new Set<() => void>()
   const handle: ManagedChildHandle = {
     task_id: taskId,
     sessionId: `sess-${taskId}`,
@@ -85,6 +87,10 @@ export function makeHandle(taskId: string, pid?: number): FakeHandle {
       return () => parkWatches.delete(listener)
     },
     waitForOutcome: () => outcome,
+    onSelfResumed: (listener) => {
+      resumedListeners.add(listener)
+      return () => resumedListeners.delete(listener)
+    },
     lastAssistantText: () => undefined,
     dispose: async () => {},
   }
@@ -115,6 +121,9 @@ export function makeHandle(taskId: string, pid?: number): FakeHandle {
     waitForUnsubscription: () => unsubscribeCalls > 0
       ? Promise.resolve()
       : new Promise((resolve) => unsubscriptionWaiters.push(resolve)),
+    selfResume: () => {
+      for (const listener of [...resumedListeners]) listener()
+    },
   }
 }
 

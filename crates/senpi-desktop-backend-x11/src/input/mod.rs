@@ -5,6 +5,7 @@
 //! `BackgroundUnavailable`, never retried in the foreground.
 
 mod connection;
+mod connection_events;
 mod focus;
 mod held;
 mod keys;
@@ -42,6 +43,7 @@ use server::{FakeInput, SentEvent, Spot};
 pub struct X11Input<S = X11InputConnection> {
     server: S,
     held: Held,
+    last_pointer_motion: Option<DesktopPoint>,
 }
 
 impl X11Input<X11InputConnection> {
@@ -57,6 +59,7 @@ impl<S: InputServer> X11Input<S> {
         Self {
             server,
             held: Held::default(),
+            last_pointer_motion: None,
         }
     }
 
@@ -69,6 +72,7 @@ impl<S: InputServer> X11Input<S> {
     /// `WindowNotFound` for a malformed id, `BackgroundUnavailable` for a
     /// filtering toolkit, `InputFailed` when a request fails.
     pub fn pointer(&mut self, target: &Target, event: &PointerEvent, mode: DeliveryMode) -> CoreResult<()> {
+        self.last_pointer_motion = None;
         match (target, mode) {
             (Target::Desktop, _) => self.pointer_xtest(event),
             (Target::Window(id), DeliveryMode::Foreground) => {
@@ -79,6 +83,10 @@ impl<S: InputServer> X11Input<S> {
                 self.pointer_send_event(window, event)
             }
         }
+    }
+
+    pub(crate) const fn last_pointer_motion(&self) -> Option<DesktopPoint> {
+        self.last_pointer_motion
     }
 
     /// # Errors
@@ -96,9 +104,10 @@ impl<S: InputServer> X11Input<S> {
         check_stop: &dyn Fn() -> CoreResult<()>,
         delivered: &mut dyn FnMut(),
     ) -> CoreResult<()> {
+        let keymap = self.server.keymap()?;
         let strokes = text
             .chars()
-            .map(|ch| self.server.keymap().strokes(KeyName::Char(ch)))
+            .map(|ch| keymap.strokes(KeyName::Char(ch)))
             .collect::<CoreResult<Vec<_>>>()?;
         self.deliver_keys(target, mode, "text", |this, route| {
             for chord in &strokes {
@@ -113,9 +122,10 @@ impl<S: InputServer> X11Input<S> {
     /// # Errors
     /// As [`Self::type_text`].
     pub fn key_chord(&mut self, target: &Target, keys: &[KeyName], mode: DeliveryMode) -> CoreResult<()> {
+        let keymap = self.server.keymap()?;
         let mut strokes = Vec::with_capacity(keys.len());
         for &key in keys {
-            strokes.extend(self.server.keymap().strokes(key)?);
+            strokes.extend(keymap.strokes(key)?);
         }
         self.deliver_keys(target, mode, "key", |this, route| this.chord(route, &strokes))
     }

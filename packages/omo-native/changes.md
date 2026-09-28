@@ -358,3 +358,32 @@ This is a source cleanup in the compiled launcher, before extension loading.
 ### Expected merge conflict zones
 
 The import list in `compile-entry.ts`. No runtime behavior or Windows paths changed.
+
+## 2026-09-28 - compiled omo update resolves channel, flavor and destination
+
+### What changed
+
+`omo update` on a compiled release binary now asks GitHub for the newest release on the build's
+own channel (stable builds only move to stable releases, betas follow the newest release of either
+kind), picks the asset the binary was built as, and prints a version-pinned command that downloads
+beside the running executable and swaps it in (`mv` on POSIX, `Move-Item` on Windows, no
+`chmod` there). An up-to-date binary says so; a failed lookup exits 1 with the releases page.
+`script/build-omo-binary.ts` stamps `releaseTarget` (for example `linux-x64-musl`) into the
+embedded runtime-manifest.json, outside the payload digest. The TUI update notice of a compiled
+release build now says `omo update`. Logic lives in `compiled-update.ts`.
+
+### Why
+
+The old line always fetched `releases/latest/download/omo-<os>-<arch>` into the current
+directory: musl and baseline builds got the glibc / AVX2 asset, the running binary was never
+replaced, the GitHub Latest badge (which betas also receive) moved stable users to betas, and the
+Windows line ended in `chmod`.
+
+### Why an extension could not handle it
+
+`omo update` is answered by the compiled entry before any extension loads.
+
+### Expected merge conflict zones
+
+`updateHint` / the `main()` fast path in `compile-entry.ts`, and the manifest write in
+`script/build-omo-binary.ts`.

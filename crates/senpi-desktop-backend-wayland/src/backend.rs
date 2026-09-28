@@ -159,6 +159,14 @@ impl Backend for WaylandBackend {
         self.prepare_input(target, "keyboard input")?.type_text(text)
     }
 
+    fn clipboard_read(&mut self) -> CoreResult<String> {
+        senpi_desktop_core::clipboard::read_text()
+    }
+
+    fn clipboard_write(&mut self, text: &str) -> CoreResult<()> {
+        senpi_desktop_core::clipboard::write_text(text)
+    }
+
     fn type_text_interruptible(
         &mut self,
         target: &Target,
@@ -196,6 +204,8 @@ impl Backend for WaylandBackend {
 
 #[cfg(test)]
 mod capture_tests;
+#[cfg(test)]
+mod eis_safety_tests;
 #[cfg(test)]
 mod eis_tests;
 #[cfg(test)]

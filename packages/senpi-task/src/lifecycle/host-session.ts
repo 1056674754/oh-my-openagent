@@ -26,8 +26,8 @@ export function hostSessionResumePath(record: TaskRecord | null | undefined): st
 export type HostSessionProbe = {
   daemonAlive(hostSession: HostSessionIdentity): Promise<boolean>
   sessionLive(hostSession: HostSessionIdentity): Promise<boolean>
-  /** Drop the cached snapshot so the NEXT pass asks the daemon again. */
-  refresh(): void
+  /** Refresh one recorded endpoint, or all snapshots when starting a reconcile/TTL pass. */
+  refresh(socket?: string): void
 }
 
 /**
@@ -79,7 +79,10 @@ export function createHostSessionProbe(ports: HostSessionProbePorts): HostSessio
     daemonAlive: async (hostSession) => (await snapshot(hostSession.socket)).daemonAlive,
     sessionLive: async (hostSession) =>
       (await snapshot(hostSession.socket)).livePaths.has(canonicalSessionPath(hostSession.session_path)),
-    refresh: () => passes.clear(),
+    refresh: (socket) => {
+      if (socket === undefined) passes.clear()
+      else passes.delete(socket)
+    },
   }
 }
 
@@ -114,6 +117,8 @@ export type HostSessionRetryPolicy = {
   readonly maxDrainAttempts: number
   readonly defaultRetryAfterMs: number
   readonly daemonLossBackoffMs: readonly number[]
+  /** Background retries of a reconcile that deferred a daemon-hosted child; spans a handoff drain. */
+  readonly deferredRetryBackoffMs: readonly number[]
   readonly wait: (ms: number) => Promise<void>
 }
 
@@ -121,6 +126,7 @@ export const DEFAULT_HOST_SESSION_RETRY_POLICY: HostSessionRetryPolicy = {
   maxDrainAttempts: 10,
   defaultRetryAfterMs: 2_000,
   daemonLossBackoffMs: [1_000, 4_000, 16_000],
+  deferredRetryBackoffMs: [5_000, 15_000, 30_000, 60_000, 120_000, 300_000, 300_000, 300_000, 300_000, 300_000],
   wait: (ms) =>
     new Promise((resolve) => {
       setTimeout(resolve, ms).unref?.()

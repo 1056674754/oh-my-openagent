@@ -72,6 +72,10 @@ The daemon launch spec is unchanged: no memory knob.
 
 Tests: `shard-routing.test.ts` (new), `host-runner-selection.test.ts`.
 
+## skill commands: bare `/ulw-execute` and every bundled skill name dispatch like `/skill:` (#9042)
+
+`/ulw-execute <plan>`, the command the ulw-plan handoff and the Native guides tell users to run, was not a command: senpi only expands `/skill:<name>`, so the text reached the model verbatim, no skill body was injected, and the `ulw` in it armed ultrawork, which made the run look started. The new `skill-commands` component rewrites a leading `/<bundled-skill>` into `/skill:<bundled-skill>` in the input event, ahead of every other omo input handler, with the submission's source unchanged, so ultrawork, skill pointers, the ulw-plan gate and the continuation resets see exactly what a typed `/skill:` command gives them. A prompt template or another command with the same name keeps the name; a disabled or unloaded bundled skill gets a warning notice instead of reaching the model. The TUI autocomplete lists each bare name above its `skill:<name>` row. `documented-commands.test.ts` scans the shipped SKILL.md files and the Native guides and fails on a backticked `/command` that nothing registers.
+
 ## computer use: forward the macOS canary policy (#8945)
 ## 2026-09-27 - Persist mailbox operations without whole-queue rewrites
 

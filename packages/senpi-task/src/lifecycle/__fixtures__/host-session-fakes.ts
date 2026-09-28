@@ -93,6 +93,9 @@ export type HostLifecycleInput = {
   readonly respawn?: LifecycleDeps["respawn"]
   readonly config?: Record<string, unknown>
   readonly maxDrainAttempts?: number
+  readonly deferredRetryBackoffMs?: readonly number[]
+  /** Runs inside every recorded wait, so a test can move the daemon between retries. */
+  readonly onWait?: (ms: number) => void
 }
 
 /** Lifecycle deps wired to a fake daemon, a recorded signaller, and a recorded (never real) wait. */
@@ -135,8 +138,10 @@ export function hostLifecycleDeps(input: HostLifecycleInput): HostLifecycleFixtu
       maxDrainAttempts: input.maxDrainAttempts ?? 10,
       defaultRetryAfterMs: 2_000,
       daemonLossBackoffMs: [1_000, 4_000, 16_000],
+      deferredRetryBackoffMs: input.deferredRetryBackoffMs ?? [],
       wait: (ms) => {
         waits.push(ms)
+        input.onWait?.(ms)
         return Promise.resolve()
       },
     },

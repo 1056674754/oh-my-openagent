@@ -1,4 +1,4 @@
-use super::{first_front_window, WindowInfo};
+use super::{first_front_window, hand_back, HandBack, WindowInfo};
 
 #[test]
 fn chooses_first_visible_normal_window_of_frontmost_process() {
@@ -62,4 +62,20 @@ fn returns_none_when_no_normal_on_screen_window_matches() {
     let selected = first_front_window(&windows, 7);
     // Then: no window identity is falsely captured.
     assert_eq!(selected, None);
+}
+
+#[test]
+fn hand_back_reactivates_only_while_the_engine_activation_is_front() {
+    // Given: Terminal (10) was front, the engine made TextEdit (20) key.
+    // Then: TextEdit still front -> give focus back to Terminal.
+    assert_eq!(hand_back(10, Some(20), Some(20)), HandBack::Reactivate);
+    // Terminal already front again -> nothing to do.
+    assert_eq!(hand_back(10, Some(20), Some(10)), HandBack::AlreadyFront);
+    // The user switched to Finder (30) meanwhile -> leave Finder front.
+    assert_eq!(hand_back(10, Some(20), Some(30)), HandBack::UserMovedOn);
+    // The engine made nothing key and the snapshot is not front -> the user moved on.
+    assert_eq!(hand_back(10, None, Some(30)), HandBack::UserMovedOn);
+    // The front application is unknown -> keep the previous behaviour.
+    assert_eq!(hand_back(10, Some(20), None), HandBack::Reactivate);
+    assert_eq!(hand_back(10, None, None), HandBack::AlreadyFront);
 }

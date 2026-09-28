@@ -1,6 +1,7 @@
 import type { RunnerOutcome } from "../in-process/child-handle"
 import { isBusyChildRejection, type RpcStreamingBehavior } from "../rpc/delivery-semantics"
-import { agentEndOutcome, exitTurnOutcome, promptFailureOutcome } from "../rpc/turn-outcome"
+import { exitTurnOutcome, promptFailureOutcome } from "../rpc/turn-outcome"
+import { createTurnSettlement, sessionIsIdle } from "../rpc/turn-settlement"
 import type { ChildEventListener, ChildExitOutcome, RpcTerminalAssistantMessage } from "../types"
 import {
   classifySessionExit,
@@ -41,6 +42,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
   const eventListeners = new Set<ChildEventListener>()
   const parkedListeners = new Set<(event: HostSessionParked) => void>()
   const turnResumedListeners = new Set<() => void>()
+  const resumedListeners = new Set<() => void>()
   let reachedIdle = false
   let sessionId: string | undefined
   let finalText: string | undefined
@@ -62,7 +64,20 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     for (const waiter of outcomeWaiters.splice(0)) waiter(settled)
   }
 
+  const settlement = createTurnSettlement({
+    settle: settleTurn,
+    abortedByUser: () => abortedByUser,
+    baseline: () => turnBaseline,
+    finalText: () => finalText,
+  })
+
   const onSessionEvent = (event: Parameters<ChildEventListener>[0]): void => {
+    // A run the child starts on its own after its turn settled (a monitor or background job woke it)
+    // is a new turn: the next outcome is that run's, never the settled one again (omo#9069).
+    if (event.type === "agent_start" && turnOutcome !== undefined && outcome === undefined) {
+      beginTurn()
+      for (const listener of resumedListeners) listener()
+    }
     if (event.type === "message_end") {
       const terminal = extractTerminalAssistantMessage(event.message)
       if (terminal !== undefined) {
@@ -70,9 +85,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
         finalText = terminal.text ?? finalText
       }
     }
-    if (event.type === "agent_end" && event.willRetry === false) {
-      settleTurn(abortedByUser ? { status: "cancelled" } : agentEndOutcome(event, turnBaseline, finalText))
-    }
+    settlement.observe(event)
   }
 
   const stopHeartbeat = startHostHeartbeat({
@@ -91,15 +104,19 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     outcome = built
     eventListeners.clear()
     turnResumedListeners.clear()
+    resumedListeners.clear()
     stopHeartbeat()
     flush(idleWaiters)
-    if (turnOutcome === undefined) settleTurn(exitTurnOutcome(built, finalText))
+    if (turnOutcome === undefined) settleTurn(settlement.pending() ?? exitTurnOutcome(built, finalText))
     for (const waiter of exitWaiters.splice(0)) waiter(built)
   }
 
   // A parked session is NOT an exit: the child keeps its status and its transcript, and the manager
   // parks the record (`rpc_detached`) until a later turn reopens the session from its JSONL.
   const park = (event: HostSessionParked): void => {
+    // A parked session is idle on the host: an outcome held for `agent_idle` is final (omo#9069).
+    const held = settlement.pending()
+    if (turnOutcome === undefined && held !== undefined) settleTurn(held)
     parked = true
     stopHeartbeat()
     for (const listener of parkedListeners) listener(event)
@@ -220,6 +237,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     detached = true
     eventListeners.clear()
     turnResumedListeners.clear()
+    resumedListeners.clear()
     stopHeartbeat()
     await client.detach()
   }
@@ -267,6 +285,17 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     onTurnResumed: (listener) => {
       turnResumedListeners.add(listener)
       return () => turnResumedListeners.delete(listener)
+    },
+    adoptFinishedTurn: async (finalResponse) => {
+      if (turnOutcome !== undefined || settlement.pending() !== undefined) return
+      // A state read that fails is not proof of idleness, and must never cost the reattach: stay busy.
+      const state = await client.getState().catch(() => undefined)
+      if (state === undefined || !sessionIsIdle(state)) return
+      if (turnOutcome === undefined && settlement.pending() === undefined) settleTurn({ status: "completed", finalResponse })
+    },
+    onSelfResumed: (listener) => {
+      resumedListeners.add(listener)
+      return () => resumedListeners.delete(listener)
     },
     waitForIdle: () =>
       reachedIdle || outcome ? Promise.resolve() : new Promise<void>((resolve) => idleWaiters.push(resolve)),

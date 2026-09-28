@@ -243,6 +243,36 @@ describe("computer-use component", () => {
     expect(host.active).not.toContain("computer")
   })
 
+  test("#given cua_adapter #when /computer on then off runs #then computer_actions joins and leaves the active set with computer", async () => {
+    // given
+    const { pi, engine } = register({ block: { cuaAdapter: true } })
+    const host = pi as HostApi
+
+    // when
+    await runCommand(pi, "on")
+    await engine.nth("stopPath.start", 1)
+    const whileOn = host.getActiveTools()
+    await runCommand(pi, "off")
+    await engine.nth("session.close", 1)
+
+    // then
+    expect(whileOn).toEqual(expect.arrayContaining(["read", "bash", "computer", "computer_actions"]))
+    expect(host.getActiveTools()).toEqual(["read", "bash"])
+  })
+
+  test("#given no cua_adapter #when /computer on runs #then only computer is activated", async () => {
+    // given
+    const { pi, engine } = register({})
+    const host = pi as HostApi
+
+    // when
+    await runCommand(pi, "on")
+    await engine.nth("stopPath.start", 1)
+
+    // then
+    expect(host.getActiveTools()).toEqual(["read", "bash", "computer"])
+  })
+
   test("#given an enabled host #when resources_discover fires #then the computer skill path is contributed", async () => {
     // given
     const { pi } = register({})

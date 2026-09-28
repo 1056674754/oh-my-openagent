@@ -108,13 +108,23 @@ impl PortalCapture {
     ) -> CoreResult<(RgbaImage, FrameGeometry)> {
         self.selected_display_allowed()?;
         let runtime = portal_runtime()?;
-        match self.screencast.capture(runtime) {
-            Ok((image, displays)) => {
+        let force_screenshot = matches!(
+            &self.selector,
+            DisplaySelector::Id(id) if id == PORTAL_DISPLAY_ID
+        );
+        match (!force_screenshot)
+            .then(|| self.screencast.capture(runtime))
+            .transpose()
+        {
+            Ok(Some((image, displays))) => {
+                let (image, displays) = pipewire::select_capture(&self.selector, image, displays)?;
                 self.probe = Probe::Granted;
                 self.displays = displays;
                 return match target {
                     Target::Desktop => Ok((image, FrameGeometry::for_displays(&self.displays))),
-                    Target::Window(id) => pipewire::crop_window(&image, &self.displays, windows()?, id),
+                    Target::Window(id) => {
+                        pipewire::crop_window(&image, &self.displays, windows()?, id)
+                    }
                 };
             }
             Err(CastError::Refused(message)) => {
@@ -124,6 +134,7 @@ impl PortalCapture {
             Err(CastError::Unavailable(reason) | CastError::Failed(reason)) => {
                 self.screencast_fallback = Some(reason);
             }
+            Ok(None) => {}
         }
         if let Target::Window(id) = target {
             let cast = self.screencast_fallback.as_deref().unwrap_or("not tried");

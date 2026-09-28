@@ -70,6 +70,7 @@ describe("runtime fallback over a live daemon session", () => {
         // when
         host.emitRecord(original.routingId, { type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "provider failed" } })
         host.emitRecord(original.routingId, { type: "agent_end", willRetry: false, messages: [] })
+        host.emitRecord(original.routingId, { type: "agent_idle" })
 
         // then
         if (acknowledged) {

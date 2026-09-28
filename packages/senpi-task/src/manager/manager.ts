@@ -14,6 +14,7 @@ import { createTaskRecord, isSpawnSpecV1, parseTaskId, syncTaskIdFloor } from ".
 import { resolvedReasoningFields } from "../state/resolved-reasoning"
 import { TaskIdSpaceExhaustedError } from "../state/id"
 import type { ResolvedModelRecord, TaskRecord, TaskRunStats } from "../state"
+import { reopenSelfResumedTurn, type SelfResumedTurnPorts } from "./self-resumed-turn"
 import { createSteeringEngine } from "../steering"
 import type { CancelOptions, CancelOutcome, DestructionPort, InterruptOutcome, SendInput, SendOutcome, SteeringEngine, SteeringPort } from "../steering"
 import { discardManagedHandle, releaseOnDispose, releaseSupersededHandle, type ManagedChildHandle, type ManagedChildListener } from "./child-handle"
@@ -103,7 +104,7 @@ type TaskManagerImplOptions = TaskManagerOptions & {
 }
 
 type LaunchOutcome =
-  | { readonly ok: true; readonly run_epoch?: number; readonly resolved_model?: ResolvedModelRecord }
+  | { readonly ok: true; readonly run_epoch?: number; readonly resolved_model?: ResolvedModelRecord; readonly queue_position?: number }
   | {
     readonly ok: false
     readonly error: string
@@ -474,8 +475,9 @@ class TaskManagerImpl implements TaskManager {
       return {
         kind: "started",
         task_id: finalRecord.task_id,
-        status: "running",
+        status: launched.queue_position === undefined ? "running" : "pending",
         name: registration.name,
+        ...(launched.queue_position === undefined ? {} : { queue_position: launched.queue_position }),
         ...startParts,
         // A start-time chain fallback rewrote both before the child came up, so the caller must be
         // told the model it actually got and the epoch its completion will arrive under.
@@ -770,7 +772,9 @@ class TaskManagerImpl implements TaskManager {
         // reproduce identically on the next entry, so only an admission refusal walks the chain.
         const advanced = this.#advanceStartFallback(context, error)
         if (advanced !== undefined) {
-          if (advanced.kind === "queued") return { ok: true, run_epoch: advanced.runEpoch, resolved_model: advanced.resolvedModel }
+          if (advanced.kind === "queued") {
+            return { ok: true, run_epoch: advanced.runEpoch, resolved_model: advanced.resolvedModel, queue_position: advanced.queuePosition }
+          }
           if (advanced.kind === "stale") {
             this.#releaseSlot(record.task_id, model, record.notification.run_epoch)
             this.#settleWaiters(record.task_id)
@@ -841,7 +845,7 @@ class TaskManagerImpl implements TaskManager {
   #advanceStartFallback(
     context: LaunchContext,
     error: unknown,
-  ): { kind: "retry"; context: LaunchContext } | { kind: "queued"; runEpoch: number; resolvedModel: ResolvedModelRecord | undefined } | { kind: "stale" } | undefined {
+  ): { kind: "retry"; context: LaunchContext } | { kind: "queued"; runEpoch: number; resolvedModel: ResolvedModelRecord | undefined; queuePosition: number } | { kind: "stale" } | undefined {
     if (!RunnerError.is(error) || error.failure.kind !== "model_unavailable") return undefined
     const record = this.#tryLoad(context.record.task_id)
     // A stop (or another owner) that landed while this start was refusing must end the walk here.
@@ -897,10 +901,16 @@ class TaskManagerImpl implements TaskManager {
     if (this.#concurrency.tryAcquire(nextModel.display, record.task_id, nextEpoch)) {
       return { kind: "retry", context: nextContext }
     }
-    this.#concurrency.enqueue(nextModel.display, record.task_id, nextEpoch, () => {
+    const queuePosition = this.#concurrency.enqueue(nextModel.display, record.task_id, nextEpoch, () => {
       void this.#launchRuntimeFallback(nextContext)
     })
-    return { kind: "queued", runEpoch: nextEpoch, resolvedModel: nextModel }
+    // The fallback model's lane is full: nothing runs until a slot frees. Say so on the record
+    // instead of leaving a bare `running` with no child behind it (omo#9069).
+    const queued = { model: nextModel.display, queued_at: nowIso(this.#now), queue_position: queuePosition }
+    this.#options.store.mutate(record.task_id, (fresh) =>
+      fresh.notification.run_epoch === nextEpoch ? { ...fresh, start_queued: queued } : fresh)
+    this.#options.store.appendEvent(record.task_id, { type: "task_start_queued", payload: queued })
+    return { kind: "queued", runEpoch: nextEpoch, resolvedModel: nextModel, queuePosition }
   }
 
   /**
@@ -1000,6 +1010,19 @@ class TaskManagerImpl implements TaskManager {
   // One child subscription feeds BOTH durable facts: the JSONL transcript log and the run-stats
   // tracker whose snapshot lands on the terminal record. Looked up per event so a revive can
   // swap in a fresh tracker without resubscribing.
+  get #selfResumedPorts(): SelfResumedTurnPorts {
+    return {
+      store: this.#options.store,
+      now: this.#now,
+      liveHandle: (taskId) => this.#live.get(taskId)?.handle,
+      liveModel: (taskId) => this.#live.get(taskId)?.model,
+      tryLoad: (taskId) => this.#tryLoad(taskId) ?? null,
+      waitForTerminal: (taskId) => this.waitFor(taskId),
+      reserveForRevive: (taskId) => this.#reserveForRevive(taskId),
+      trackOutcome: (taskId, handle, model, epoch) => this.#outcome.trackOutcome(taskId, handle, model, epoch),
+    }
+  }
+
   #subscribeChildFacts(handle: ManagedChildHandle, taskId: string): () => void {
     const transcript = subscribeTranscriptLog(handle, this.#options.store, taskId)
     this.#runStats.set(taskId, createRunStatsTracker(this.#now(), this.#now))
@@ -1007,9 +1030,15 @@ class TaskManagerImpl implements TaskManager {
       if (event.type === "retry_fallback_exhausted") this.#nativeFallbackExhaustions.add(handle)
       this.#runStats.get(taskId)?.accept(event)
     })
+    const resumed = handle.onSelfResumed?.(() => {
+      this.#runStats.set(taskId, createRunStatsTracker(this.#now(), this.#now))
+      void reopenSelfResumedTurn(this.#selfResumedPorts, taskId, handle).catch((error: unknown) =>
+        log("senpi-task self-resumed turn reopen failed", { taskId, error: String(error) }))
+    })
     return () => {
       transcript()
       stats()
+      resumed?.()
     }
   }
 
@@ -1302,6 +1331,11 @@ class TaskManagerImpl implements TaskManager {
   }
 
   async #launchRuntimeFallback(context: LaunchContext): Promise<void> {
+    this.#options.store.mutate(context.record.task_id, (fresh) => {
+      if (fresh.start_queued === undefined) return fresh
+      const { start_queued: _granted, ...rest } = fresh
+      return rest
+    })
     // Checked before anything starts: a cancel, an interrupt or another owner that moved the task while
     // this launch waited (for the old rung's close, or for capacity) must not get a child started.
     if (!this.#ownsLaunch(context, this.#tryLoad(context.record.task_id))) {

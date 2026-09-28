@@ -26,6 +26,7 @@ import type { HostSessionChildHandle, HostSessionIdentity, HostSessionPort } fro
 import { HostSessionClient, type OpenedHostSession } from "./rpc-host/session-client"
 import { probeWithEngine, type HostProtocolProbe } from "./rpc-host/session-transport"
 import { openHostSessionWithAdmission } from "./rpc-host/admission"
+import { waitOutBusyHost } from "./rpc-host/busy-host"
 import { openTaskHostSession } from "./rpc-host/open-session"
 import { resolveChildSessionPath } from "./rpc-host/session-context"
 import type { HostSessionOpenInput } from "./rpc-host/session-transport"
@@ -111,6 +112,8 @@ export function isHostSessionHandle(handle: RpcChildHandle): handle is HostSessi
  * answers `host_memory_pressure` with a retry hint: the start WAITS for it (bounded) and asks
  * again - the one-process rule stands, so this never reaches the fallback. A lost transport under
  * a live child is re-ensured and the same session path reopened with backoff; the handle stays.
+ * A host whose socket accepts but whose loop does not answer is busy, not gone (omo#9067): the
+ * start is attempted again at the same session path within the same bounded window.
  */
 export class RpcHostRunner {
   private readonly options: RpcHostRunnerOptions
@@ -160,36 +163,45 @@ export class RpcHostRunner {
     await this.modelAdmission(spec)
     const endpoint = resolveChildEndpoint(this.endpoint, spec)
     const keyed = endpoint.shardKey === undefined ? spec : { ...spec, treeKey: endpoint.shardKey, shardKey: endpoint.shardKey }
+    const sessionPath =
+      spec.resumeSessionPath ??
+      resolveChildSessionPath(spec.state_dir, spec.task_id, new Date(this.now()), randomUUID())
     await admitChildStore(this.endpoint)
-    for (let retried = false; ; retried = true) {
-      let socket: string
-      try {
-        socket = await ensureChildEndpoint(this.endpoint, endpoint)
-      } catch (error) {
-        if (RunnerError.is(error)) throw error
-        if (endpoint.recorded) throw recordedEndpointFailure(this.endpoint.notice, error, endpoint.socket)
-        return await this.delegate(error, spec, isHostTransportError(error))
-      }
-      await recordSidecarStore(this.endpoint, socket)
-      try {
-        return await this.openChild(keyed, socket)
-      } catch (error) {
-        if (RunnerError.is(error)) throw error
-        // The host refusing the OPEN on a recorded endpoint (e.g. a missing capability - the only
-        // check the session's own endpoint gets, since it is never ensured) must park the child too:
-        // the fallback would reopen the retained session off its endpoint.
-        if (endpoint.recorded && error instanceof HostUnavailableError) {
-          throw recordedEndpointFailure(this.endpoint.notice, error, endpoint.socket)
+    return await waitOutBusyHost(async () => {
+      for (let retried = false; ; retried = true) {
+        let socket: string
+        try {
+          socket = await ensureChildEndpoint(this.endpoint, endpoint)
+        } catch (error) {
+          if (RunnerError.is(error)) throw error
+          if (endpoint.recorded) throw recordedEndpointFailure(this.endpoint.notice, error, endpoint.socket)
+          return await this.delegate(error, spec, isHostTransportError(error))
         }
-        // An ensure answered from the cache can vouch for a host that died moments ago: drop it and
-        // ensure once more, which starts the endpoint again.
-        if (!retried && isHostGone(error) && isEnsuredEndpoint(this.endpoint, endpoint)) {
-          forgetTaskDaemon(socket)
-          continue
+        await recordSidecarStore(this.endpoint, socket)
+        try {
+          return await this.openChild(keyed, socket, sessionPath)
+        } catch (error) {
+          if (RunnerError.is(error)) throw error
+          // A recorded session never falls back to another endpoint, even when this host's
+          // capability refusal would allow a fresh child to start in its own process.
+          if (endpoint.recorded && error instanceof HostUnavailableError) {
+            throw recordedEndpointFailure(this.endpoint.notice, error, endpoint.socket)
+          }
+          // An ensure answered from the cache can vouch for a host that died moments ago: drop it
+          // and ensure this same endpoint once more.
+          if (!retried && isHostGone(error) && isEnsuredEndpoint(this.endpoint, endpoint)) {
+            forgetTaskDaemon(socket)
+            continue
+          }
+          return await this.delegate(error, spec, false)
         }
-        return await this.delegate(error, spec, false)
       }
-    }
+    }, {
+      now: this.now,
+      sleep: this.sleep,
+      waitMs: this.admissionWaitMs,
+      onWarning: this.onWarning,
+    })
   }
 
   /**
@@ -221,11 +233,8 @@ export class RpcHostRunner {
     return await fallback.start(spec)
   }
 
-  private async openChild(spec: RpcRunnerSpec, socket: string): Promise<RpcChildHandle> {
+  private async openChild(spec: RpcRunnerSpec, socket: string, sessionPath: string): Promise<RpcChildHandle> {
     const client = this.createClient(socket)
-    const sessionPath =
-      spec.resumeSessionPath ??
-      resolveChildSessionPath(spec.state_dir, spec.task_id, new Date(this.now()), randomUUID())
     // The daemon lstat()s the JSONL's directory before it opens the session and refuses with
     // ENOENT when it is missing. A child process used to create that directory for itself; on the
     // daemon path the client names the path, so the client creates the directory.
