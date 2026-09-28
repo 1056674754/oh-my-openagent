@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { createHash } from "node:crypto"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { delimiter, join } from "node:path"
 import {
   compiledBannerLines,
   answerCompiledFastPath,
@@ -384,6 +384,41 @@ describe("embedded runtime provisioning", () => {
     }
     expect(output.join("\n")).toContain("PASS plugin manifest: plugin/package.json")
     expect(output.join("\n")).toContain("INFO omo 9.2.1 (engine: senpi 2026.8.28; scheme nodef)")
+  })
+
+  test("compiled doctor reports an npm omo-ai that the standalone binary shadows on PATH", async () => {
+    const root = temp()
+    writeFileSync(join(root, "package.json"), JSON.stringify({ version: "9.2.1" }))
+    const home = join(root, "home")
+    const binary = Buffer.concat([Buffer.from("omo-binary"), Buffer.alloc(4096, 1)])
+    mkdirSync(join(home, ".omo", "binary-runtime", "9.2.1"), { recursive: true })
+    writeFileSync(join(home, ".omo", "binary-runtime", "9.2.1", "omo"), binary)
+    mkdirSync(join(root, "local-bin"), { recursive: true })
+    writeFileSync(join(root, "local-bin", "omo"), binary)
+    const bunRoot = join(root, "bun")
+    const pkg = join(bunRoot, "install", "global", "node_modules", "omo-ai")
+    mkdirSync(join(pkg, "bin"), { recursive: true })
+    writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "omo-ai", version: "9.2.0" }))
+    writeFileSync(join(pkg, "bin", "omo.js"), "#!/usr/bin/env node\n")
+    mkdirSync(join(bunRoot, "bin"), { recursive: true })
+    symlinkSync(join(pkg, "bin", "omo.js"), join(bunRoot, "bin", "omo"))
+    const output: string[] = []
+    const originalLog = console.log
+    const originalExitCode = process.exitCode
+    console.log = (value?: unknown) => { output.push(String(value)) }
+    try {
+      await runCompiledLauncher(["doctor"], root, "2026.8.28", root, {
+        env: { PATH: [join(root, "local-bin"), join(bunRoot, "bin")].join(delimiter), BUN_INSTALL: bunRoot },
+        homeDir: home,
+        platform: "linux",
+      })
+    } finally {
+      console.log = originalLog
+      process.exitCode = originalExitCode
+    }
+    const warning = output.join("\n").split("\n").find((line) => line.startsWith("WARN more than one OmO install is on PATH:"))
+    expect(warning).toContain("(standalone omo binary 9.2.1) runs when you type omo")
+    expect(warning).toContain("omo-ai@9.2.0")
   })
 
   test("version uses the manifest engine pin without a provisioned senpi package", async () => {
