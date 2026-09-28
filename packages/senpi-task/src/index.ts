@@ -251,6 +251,7 @@ export type {
   TerminateOptions,
 } from "./runners"
 export {
+  HOST_TURN_RESUMED_EVENT,
   NameRegistry,
   TaskConcurrency,
   adaptInProcessHandle,
