@@ -55,7 +55,7 @@ pub(crate) fn windows<B: AtSpiBus>(bus: &mut B) -> CoreResult<Vec<DesktopWindow>
 }
 
 /// The children of `app` that are frames, dialogs, or windows.
-fn frames<B: AtSpiBus>(bus: &mut B, app: &B::Node) -> BusResult<Vec<B::Node>> {
+pub(crate) fn frames<B: AtSpiBus>(bus: &mut B, app: &B::Node) -> BusResult<Vec<B::Node>> {
     let children = bus.children(app)?;
     Ok(children
         .into_iter()
@@ -80,7 +80,7 @@ fn app_for_window<B: AtSpiBus>(bus: &mut B, win: &DesktopWindow) -> BusResult<B:
 }
 
 /// Sum of edge differences between a frame's extents and the window's rect.
-fn bounds_distance(extents: Extents, win: &DesktopWindow) -> u64 {
+pub(crate) fn bounds_distance(extents: Extents, win: &DesktopWindow) -> u64 {
     let gap = |a: i64, b: i64| (a - b).unsigned_abs();
     gap(extents.x.into(), win.x.into())
         + gap(extents.y.into(), win.y.into())

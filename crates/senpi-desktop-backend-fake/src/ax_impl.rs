@@ -74,7 +74,7 @@ impl AxBackend for FakeBackend {
         self.ax_tree.attributes(node_id(h)?)
     }
 
-    fn owner(&mut self, h: &AxHandle) -> CoreResult<AxOwner> {
+    fn owner(&mut self, h: &AxHandle, _windows: &[DesktopWindow]) -> CoreResult<AxOwner> {
         self.begin(FakeMethod::AxOwner)?;
         let window = self.ax_tree.window_of(node_id(h)?)?;
         Ok(match window {

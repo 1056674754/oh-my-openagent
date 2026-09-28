@@ -56,15 +56,14 @@ impl Worker {
         Ok(Response::Unit)
     }
 
-    /// The id of the window that owns `handle`, re-checked against the live
-    /// window list: it must still be listed and still contain (`x`, `y`).
+    /// The id of the window that owns `handle`, named in the live window
+    /// list: it must be listed and still contain (`x`, `y`).
     fn owner_window(&mut self, reference: &str, handle: &AxHandle, x: f64, y: f64) -> CoreResult<String> {
-        let AxOwner::Window(id) = self.ax_parts()?.0.owner(handle)? else {
+        let windows = self.backend()?.windows()?;
+        let AxOwner::Window(id) = self.ax_parts()?.0.owner(handle, &windows)? else {
             return Err(refuse_unknown_owner(reference));
         };
-        let window = self
-            .backend()?
-            .windows()?
+        let window = windows
             .into_iter()
             .find(|window| window.id == id)
             .ok_or_else(|| {

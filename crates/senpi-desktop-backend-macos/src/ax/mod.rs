@@ -118,7 +118,7 @@ impl AxBackend for MacAx {
     }
 
     /// `AXWindow`'s CGWindowID: the id `windows()` lists.
-    fn owner(&mut self, h: &AxHandle) -> CoreResult<AxOwner> {
+    fn owner(&mut self, h: &AxHandle, _windows: &[DesktopWindow]) -> CoreResult<AxOwner> {
         Ok(element::owner_window_id(element(h)?)
             .map_or(AxOwner::Unknown, |id| AxOwner::Window(id.to_string())))
     }

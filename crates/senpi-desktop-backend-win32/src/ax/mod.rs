@@ -200,7 +200,7 @@ impl AxBackend for Win32Ax {
     }
 
     /// The top-level HWND above the element's nearest native window handle.
-    fn owner(&mut self, h: &AxHandle) -> CoreResult<AxOwner> {
+    fn owner(&mut self, h: &AxHandle, _windows: &[DesktopWindow]) -> CoreResult<AxOwner> {
         let element = Self::element(h)?;
         Ok(self
             .host_root(element)

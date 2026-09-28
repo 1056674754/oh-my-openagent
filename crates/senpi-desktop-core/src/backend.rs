@@ -187,9 +187,10 @@ pub trait AxBackend {
     fn focused_element(&mut self) -> CoreResult<Option<AxHandle>>;
     fn attributes(&mut self, h: &AxHandle) -> CoreResult<Vec<(String, String)>>;
 
-    /// The window that owns `h`, read live from the platform. Backends that
+    /// The window that owns `h`, read live from the platform and named as
+    /// `windows` (the live [`Backend::windows`]) lists it. Backends that
     /// cannot name it keep this default.
-    fn owner(&mut self, _h: &AxHandle) -> CoreResult<AxOwner> {
+    fn owner(&mut self, _h: &AxHandle, _windows: &[DesktopWindow]) -> CoreResult<AxOwner> {
         Ok(AxOwner::Unknown)
     }
 }

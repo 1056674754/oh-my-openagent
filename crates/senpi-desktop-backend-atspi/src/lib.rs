@@ -10,6 +10,7 @@ mod apps;
 mod bus;
 mod connection;
 mod live;
+mod owner;
 mod permission;
 mod props;
 mod text;
@@ -30,9 +31,9 @@ pub const BACKEND_NAME: &str = env!("CARGO_PKG_NAME");
 pub enum WindowIds {
     /// `windows()` lists AT-SPI frames by object id (Wayland).
     AtSpiFrames,
-    /// `windows()` lists ids AT-SPI cannot name (X11 XIDs), so every
-    /// element's owner is unknown.
-    Foreign,
+    /// `windows()` lists native ids AT-SPI cannot name (X11 XIDs): a frame
+    /// is joined to one by pid, title and geometry (`owner::correlate_owner`).
+    Native,
 }
 
 /// The AT-SPI accessibility backend. Handles wrap `B::Node` in core's
@@ -53,11 +54,12 @@ impl AtSpiAx<LiveBus> {
 }
 
 impl<B: AtSpiBus> AtSpiAx<B> {
-    /// A backend over `bus` whose owners are unknown (`WindowIds::Foreign`).
+    /// A backend over `bus` for a host with native window ids
+    /// (`WindowIds::Native`).
     pub const fn with_bus(bus: B) -> Self {
         Self {
             bus,
-            window_ids: WindowIds::Foreign,
+            window_ids: WindowIds::Native,
         }
     }
 
@@ -129,14 +131,17 @@ impl<B: AtSpiBus> AxBackend for AtSpiAx<B> {
         props::attributes(&mut self.bus, Self::node(h)?)
     }
 
-    /// The element's frame, whose object id is a window id only when
-    /// `windows()` lists frames.
-    fn owner(&mut self, h: &AxHandle) -> CoreResult<AxOwner> {
-        if self.window_ids == WindowIds::Foreign {
+    /// The element's frame: its object id when `windows()` lists frames,
+    /// else the one native window in `windows` it provably is.
+    fn owner(&mut self, h: &AxHandle, windows: &[DesktopWindow]) -> CoreResult<AxOwner> {
+        let Some(frame) = apps::frame_of(&mut self.bus, Self::node(h)?)? else {
             return Ok(AxOwner::Unknown);
-        }
-        let frame = apps::frame_of(&mut self.bus, Self::node(h)?)?;
-        Ok(frame.map_or(AxOwner::Unknown, |frame| AxOwner::Window(self.bus.object_id(&frame))))
+        };
+        let id = match self.window_ids {
+            WindowIds::AtSpiFrames => Some(self.bus.object_id(&frame)),
+            WindowIds::Native => owner::native_owner(&mut self.bus, &frame, windows)?,
+        };
+        Ok(id.map_or(AxOwner::Unknown, AxOwner::Window))
     }
 }
 
@@ -146,6 +151,8 @@ mod action_tests;
 mod fake;
 #[cfg(test)]
 mod live_tests;
+#[cfg(test)]
+mod owner_correlate_tests;
 #[cfg(test)]
 mod owner_tests;
 #[cfg(test)]

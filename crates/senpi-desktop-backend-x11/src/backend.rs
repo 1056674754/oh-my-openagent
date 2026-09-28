@@ -38,8 +38,9 @@ impl X11Backend<X11Connection, X11InputConnection> {
         Ok(Self {
             capture: X11Capture::new(selector)?,
             input: X11Input::connect(),
-            // X11 windows are XIDs, which AT-SPI cannot name: owners stay unknown.
-            ax: AtSpiAx::new(WindowIds::Foreign).ok(),
+            // X11 windows are XIDs, which AT-SPI cannot name: owners are
+            // joined to them by pid, title and geometry.
+            ax: AtSpiAx::new(WindowIds::Native).ok(),
             display_server: std::env::var("DISPLAY").ok(),
             focus_restore_owner: None,
             pointer_restore_owner: None,
