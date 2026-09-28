@@ -35,6 +35,14 @@ When a session's task host dies under running background children, every child a
 
 With one RPC host per parent session (and, in the Desktop, per thread), a crash no longer lands in one machine-wide endpoint. `process_crashed` already reads every endpoint directory's `crashes.jsonl` under `<agentDir>/rpc-host-daemon/`, and the claim fingerprint includes the endpoint directory. Two hosts' byte-identical records are therefore two reports, and each is still sent once. Each report now carries `shard_kind`: `p` for a per-session task host, `i` for a Desktop per-thread host, `none` for the legacy machine-wide endpoint or a crash outside any host, and `unknown` for an endpoint directory that names no socket. The kind comes from the endpoint's durable `endpoint.json`, or from the boot `settings.json` of a directory that predates it. A name counts only when its socket hashes to that directory. The shard key, socket path and owner session never leave the machine. The field is a flat string because the telemetry client drops object and `null` values.
 
+## 2026-09-28 - Adopt senpi 2026.9.28-6: GitHub Copilot Business and Enterprise requests reach the account's own host (#8662)
+
+Every senpi pin moves from 2026.9.28-5 to 2026.9.28-6 (root devDependency, `omo-native`, the `omo-senpi` and `senpi-task` peer and dev pins, their pin tests, `bun.lock`, and the version comment in `packages/omo-native/bin/lib/provider-map.json`). The new engine carries:
+
+- **GitHub Copilot Business and Enterprise accounts no longer get `421 Misdirected Request` (#8662, senpi #2309, #2310).** The API host now comes from the account's own token exchange (`endpoints.api`, then the token's `proxy-ep`, then the GitHub Enterprise domain), with the individual host only as a last resort, for login, refresh, inference, `/btw`, and native web search. A 421 now says what happened and includes the GitHub request id.
+- **Each RPC host supervisor uses about 12 MB less memory (senpi #2311).** The supervisor no longer loads the CLI parser or the provider model catalog.
+- **The Devin model seed and SWE-2 prompt preset list only the lanes Devin serves (senpi #2306, #2308).**
+
 ## 2026-09-28 - Adopt senpi 2026.9.28-5: GitHub Copilot recovers from a revoked token instead of failing every model (senpi #2297)
 
 Every senpi pin moves from 2026.9.28-4 to 2026.9.28-5 (root devDependency, `omo-native`, the `omo-senpi` and `senpi-task` peer and dev pins, their pin tests, `bun.lock`, and the version comment in `packages/omo-native/bin/lib/provider-map.json`). The new engine carries:
