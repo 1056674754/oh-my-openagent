@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// omo-codex-install:b161c9d9101498a8c04c5b6bde31d1ec567d93ea20eead56a3e004839a51b32c:2cb11b2701fe0e3cf600caf2c7aa1e2c3b32ef982b50deb453d831ff3cfaa535
+// omo-codex-install:31415998ac402a9c8be1bdbc7a7b62e12a6aa6d404b82de06418dbb7f11d9f79:7b8a7cb7c4fbc88421ae065df8a36278ced214d3248befd23e6c8b0fefb7c624
 var __esm = (fn, res, err) => () => {
   if (fn)
     try {
@@ -16822,7 +16822,7 @@ var OmoTaskSettingsSchema = object({
   process_runner: _enum(["host", "child-process"]).default("host"),
   host_engine_policy: _enum(["upgrade", "fallback"]).default("upgrade"),
   host_idle_exit_ms: number2().int().positive().optional(),
-  host_shard_prewarm: _enum(["off", "first-turn", "session-start"]).default("off"),
+  host_shard_prewarm: _enum(["off", "first-turn", "session-start"]).default("first-turn"),
   default_concurrency: number2().int().nonnegative().default(5),
   global_concurrency: number2().int().nonnegative().default(8),
   provider_concurrency: record(string2(), number2().int().nonnegative()).optional(),
