@@ -4,6 +4,7 @@
 
 mod actions;
 mod foreground;
+mod point_owner;
 pub(crate) mod element;
 mod props;
 mod tree;
@@ -14,6 +15,7 @@ use senpi_desktop_core::types::DesktopWindow;
 
 pub use self::element::is_trusted;
 pub(crate) use self::foreground::{make_frontmost, prepare_foreground_input};
+pub(crate) use self::point_owner::ensure_points_owned;
 use self::element::{element, handle};
 
 #[derive(Debug, Default)]

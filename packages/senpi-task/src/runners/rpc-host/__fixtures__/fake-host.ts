@@ -190,6 +190,7 @@ export async function startFakeHost(options: FakeHostOptions = {}): Promise<Fake
       table.setStreaming(routingId, false)
       sendTo(routingId, { type: "message_end", message })
       sendTo(routingId, { type: "agent_end", willRetry: false, messages: [message] })
+      sendTo(routingId, { type: "agent_idle" })
     },
     evict: (sessionPath) => {
       const parked = table.park(sessionPath)

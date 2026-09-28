@@ -8,6 +8,7 @@ import { createInterface } from "node:readline"
 import { fileURLToPath } from "node:url"
 
 import { asObject, type Engine, type Json } from "./engine"
+import { imageOf, stillTracked } from "./process-identity"
 import { hangGuard, probeUntil } from "./until"
 import { removeTreeSync } from "../../../../test-support/remove-tree"
 
@@ -50,15 +51,11 @@ async function waitForWindow(engine: Engine, matches: (window: QaWindow) => bool
   return window
 }
 
-function isAlive(pid: number): boolean {
-  const listed = spawnSync("tasklist", ["/FI", `PID eq ${pid}`, "/NH", "/FO", "CSV"], { encoding: "utf8" })
-  return listed.stdout.includes(`"${pid}"`)
-}
-
 export class QaWorkspace {
   readonly dir = mkdtempSync(join(tmpdir(), "omo-desktop-qa-"))
   readonly receipts: string[] = []
-  private readonly pids = new Set<number>()
+  /** Tracked pid -> the image it ran when tracked; a recycled pid is never killed or counted. */
+  private readonly pids = new Map<number, string>()
 
   receipt(line: string): void {
     this.receipts.push(line)
@@ -66,7 +63,13 @@ export class QaWorkspace {
 
   private track(child: ChildProcess, label: string): void {
     if (child.pid === undefined) throw new Error(`could not spawn ${label}`)
-    this.pids.add(child.pid)
+    this.remember(child.pid)
+  }
+
+  /** Records `pid` with its current image; a process that already exited needs no teardown. */
+  private remember(pid: number): void {
+    const image = imageOf(pid)
+    if (image !== undefined) this.pids.set(pid, image)
   }
 
   async notepad(engine: Engine, tag: string): Promise<Notepad> {
@@ -77,7 +80,7 @@ export class QaWorkspace {
     const name = basename(path)
     const window = await waitForWindow(engine, (candidate) => candidate.title.includes(name), `Notepad ${name}`)
     // Packaged Notepad hands the document to a process other than the one spawned.
-    if (window.pid !== null) this.pids.add(window.pid)
+    if (window.pid !== null) this.remember(window.pid)
     return { ...window, content }
   }
 
@@ -114,15 +117,15 @@ export class QaWorkspace {
   }
 
   trackEngine(engine: Engine): void {
-    this.pids.add(engine.pid)
+    this.remember(engine.pid)
   }
 
   teardown(): string[] {
-    for (const pid of this.pids) {
-      if (isAlive(pid)) spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { encoding: "utf8" })
+    for (const [pid, image] of this.pids) {
+      if (stillTracked(pid, image)) spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { encoding: "utf8" })
     }
-    const alive = [...this.pids].filter(isAlive)
-    this.receipt(`killed tracked pids ${[...this.pids].join(",") || "(none)"}`)
+    const alive = [...this.pids].filter(([pid, image]) => stillTracked(pid, image)).map(([pid]) => pid)
+    this.receipt(`killed tracked pids ${[...this.pids.keys()].join(",") || "(none)"}`)
     this.receipt(alive.length === 0 ? "procs 0" : `procs ${alive.length} alive: ${alive.join(",")}`)
     // Notepad can hold its file briefly after taskkill; rmSync retries EBUSY on its own.
     removeTreeSync(this.dir, { maxRetries: 10, retryDelay: 200 })

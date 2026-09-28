@@ -263,6 +263,14 @@ export async function buildRuntimeManifest(
   return { omoAiVersion: options.omoAiVersion, enginePin: options.enginePin, manifestSha, entries }
 }
 
+/**
+ * The embedded runtime-manifest.json. `releaseTarget` names the release asset this binary was built as
+ * (musl / baseline included) so `omo update` fetches the same flavor; it is outside the payload digest.
+ */
+export function runtimeManifestFileContent(manifest: RuntimeManifest, releaseTarget: string): string {
+  return `${JSON.stringify({ marker: "OMO_RUNTIME_MANIFEST_V1", ...manifest, releaseTarget })}\n`
+}
+
 /** Fails loud when a compiled binary exceeds the per-binary size budget. */
 export function assertBinarySizeBudget(
   target: string,
@@ -551,11 +559,7 @@ export async function buildReleaseBinary(
       buildInfo: options.buildInfo,
       engineBuild: releaseEngineBuildStamp(stamp),
     })
-    writeFileSync(
-      join(stageDir, RUNTIME_MANIFEST_REL_PATH),
-      `${JSON.stringify({ marker: "OMO_RUNTIME_MANIFEST_V1", ...manifest })}\n`,
-      "utf8",
-    )
+    writeFileSync(join(stageDir, RUNTIME_MANIFEST_REL_PATH), runtimeManifestFileContent(manifest, target.target), "utf8")
 
     mkdirSync(outDir, { recursive: true })
     const binaryPath = join(outDir, target.binaryName)
