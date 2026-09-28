@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { delimiter, dirname, join, parse, relative } from "node:path"
-import { migrationReport, scanOmoBins, shadowingOmoBins } from "../bin/lib/doctor-migration.js"
+import { migrationReport, resolveMigrationEnvironment, scanOmoBins, shadowingOmoBins } from "../bin/lib/doctor-migration.js"
 import { runDoctor } from "../bin/lib/doctor.js"
 import { updateTarget } from "../bin/lib/package-paths.js"
 
@@ -75,6 +75,10 @@ function report(sandbox: Sandbox, pathDirs: string[], extraEnv: Record<string, s
     homeDir: sandbox.home,
     platform: "linux",
   }, RESTORE)
+}
+
+function resolveEnv(sandbox: Sandbox, pathDirs: string[]) {
+  return resolveMigrationEnvironment({ env: { PATH: pathDirs.join(delimiter), BUN_INSTALL: sandbox.bunRoot }, platform: "linux", homeDir: sandbox.home })
 }
 
 afterEach(() => {
@@ -338,6 +342,91 @@ describe("omo doctor migration checks", () => {
       expect(existsSync(join(sandbox.npmBin, "omo"))).toBe(true)
       expect(existsSync(join(sandbox.npmPrefix, "lib", "node_modules", "oh-my-openagent", "package.json"))).toBe(true)
       expect(readFileSync(opencodeConfig, "utf8")).toBe(original)
+    })
+  })
+
+  describe("#given a standalone omo release binary on PATH", () => {
+    const BINARY = Buffer.concat([Buffer.from("\x7fELF-omo"), Buffer.alloc(200_000, 7), Buffer.from("tail")])
+
+    function provision(sandbox: Sandbox, version: string, bytes: Buffer = BINARY): string {
+      const provisioned = join(sandbox.home, ".omo", "binary-runtime", version, "omo")
+      writeFile(provisioned, "")
+      writeFileSync(provisioned, bytes)
+      return provisioned
+    }
+
+    function installStandalone(sandbox: Sandbox, bytes: Buffer = BINARY): string {
+      const dir = join(sandbox.root, "local-bin")
+      writeFile(join(dir, "omo"), "")
+      writeFileSync(join(dir, "omo"), bytes)
+      return dir
+    }
+
+    test("#then a copy of the provisioned binary ahead of omo-ai is reported as an OmO install, not an unknown file", () => {
+      const sandbox = createSandbox()
+      provision(sandbox, "5.0.1")
+      const standaloneDir = installStandalone(sandbox)
+      installBunNative(sandbox)
+
+      const lines = report(sandbox, [standaloneDir, sandbox.bunBin])
+
+      expect(lines.some((line) => line.includes("unknown owner"))).toBe(false)
+      expect(lines).toHaveLength(1)
+      expect(lines[0]).toStartWith(`WARN more than one OmO install is on PATH: ${join(standaloneDir, "omo")} (standalone omo binary 5.0.1) runs when you type omo`)
+      expect(lines[0]).toContain("omo-ai@5.0.0-0.beta.89")
+      expect(lines[0]).toContain("bun remove -g omo-ai")
+    })
+
+    test("#then omo-ai ahead of the standalone binary names omo-ai as the one that runs", () => {
+      const sandbox = createSandbox()
+      provision(sandbox, "5.0.1")
+      const standaloneDir = installStandalone(sandbox)
+      installBunNative(sandbox)
+
+      const lines = report(sandbox, [sandbox.bunBin, standaloneDir])
+
+      expect(lines).toHaveLength(1)
+      expect(lines[0]).toContain("(omo-ai@5.0.0-0.beta.89) runs when you type omo")
+      expect(lines[0]).toContain(`remove ${join(standaloneDir, "omo")}`)
+    })
+
+    test("#then a symlink into binary-runtime is standalone even with no copy elsewhere", () => {
+      const sandbox = createSandbox()
+      const provisioned = provision(sandbox, "5.0.1")
+      const linkDir = join(sandbox.root, "link-bin")
+      mkdirSync(linkDir, { recursive: true })
+      symlinkSync(provisioned, join(linkDir, "omo"))
+
+      expect(scanOmoBins(resolveEnv(sandbox, [linkDir]))[0]).toMatchObject({ kind: "standalone", owner: { version: "5.0.1" } })
+      expect(report(sandbox, [linkDir])).toEqual([])
+    })
+
+    test("#then a same-size file with different bytes stays foreign", () => {
+      const sandbox = createSandbox()
+      provision(sandbox, "5.0.1")
+      const other = Buffer.from(BINARY)
+      other[other.length - 1] = 0
+      const dir = installStandalone(sandbox, other)
+      installBunNative(sandbox)
+
+      const lines = report(sandbox, [dir, sandbox.bunBin])
+
+      expect(lines).toHaveLength(1)
+      expect(lines[0]).toContain("(unknown owner)")
+    })
+
+    test("#then a foreign omo ahead of the standalone binary points the fix at the binary's directory", () => {
+      const sandbox = createSandbox()
+      provision(sandbox, "5.0.1")
+      const standaloneDir = installStandalone(sandbox)
+      const foreignDir = join(sandbox.root, "custom-bin")
+      writeFile(join(foreignDir, "omo"), "#!/bin/sh\necho other\n")
+
+      const lines = report(sandbox, [foreignDir, standaloneDir])
+
+      expect(lines).toHaveLength(1)
+      expect(lines[0]).toStartWith("WARN another omo precedes the standalone omo binary on PATH:")
+      expect(lines[0]).toContain(`move ${standaloneDir} ahead of ${foreignDir}`)
     })
   })
 

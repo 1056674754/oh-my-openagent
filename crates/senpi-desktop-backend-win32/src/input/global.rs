@@ -1,7 +1,9 @@
 //! Pointer input on the system input queue (`SendInput`), shared by the
 //! desktop and the foreground routes. enigo's absolute move normalizes
 //! against the primary monitor only (`SM_CXSCREEN`), so every move goes
-//! through the virtual-desktop `SendInput` path instead.
+//! through the virtual-desktop `SendInput` path instead, and is confirmed
+//! on the intended point ([`system::place_cursor`]) before any button, drag
+//! step or wheel follows it.
 
 use senpi_desktop_core::backend::{MouseButton, PointerEvent};
 use senpi_desktop_core::error::{CoreResult, DesktopError};
@@ -27,7 +29,7 @@ impl Win32Input {
                 count,
                 modifiers,
             } => {
-                system::move_to(to_physical(*x, *y)?, target)?;
+                system::place_cursor(to_physical(*x, *y)?, target)?;
                 self.holding(Via::SendInput(target), &modifier_virtual_keys(*modifiers), |this| {
                     for _ in 0..*count {
                         this.system_button(*button, true, target)?;
@@ -36,7 +38,7 @@ impl Win32Input {
                     Ok(())
                 })
             }
-            PointerEvent::Move { x, y } => system::move_to(to_physical(*x, *y)?, target),
+            PointerEvent::Move { x, y } => system::place_cursor(to_physical(*x, *y)?, target),
             PointerEvent::Drag {
                 path,
                 button,
@@ -45,19 +47,19 @@ impl Win32Input {
                 let Some(&(x, y)) = path.first() else {
                     return Err(DesktopError::input_failed("drag path is empty"));
                 };
-                system::move_to(to_physical(x, y)?, target)?;
+                system::place_cursor(to_physical(x, y)?, target)?;
                 self.holding(Via::SendInput(target), &modifier_virtual_keys(*modifiers), |this| {
                     this.system_button(*button, true, target)?;
                     let movement = path
                         .iter()
                         .skip(1)
-                        .try_for_each(|&(x, y)| system::move_to(to_physical(x, y)?, target));
+                        .try_for_each(|&(x, y)| system::place_cursor(to_physical(x, y)?, target));
                     let release = this.system_button(*button, false, target);
                     movement.and(release)
                 })
             }
             PointerEvent::Scroll { x, y, dx, dy } => {
-                system::move_to(to_physical(*x, *y)?, target)?;
+                system::place_cursor(to_physical(*x, *y)?, target)?;
                 let horizontal = scroll_steps(*dx).saturating_mul(WHEEL_DELTA);
                 let vertical = scroll_steps(*dy).saturating_mul(-WHEEL_DELTA);
                 if horizontal != 0 {

@@ -2,7 +2,7 @@
 
 OmO Native can capture your desktop, inspect windows and accessibility trees, and send mouse and keyboard input to native applications. The `computer` tool is backed by the `senpi-desktop-engine` binary. The OmO Senpi component registers the tool when a session loads, but starts the engine only when the tool is first used. Computer use is available on macOS, Linux and Windows. It does not drive web pages through a browser API; for pages, use the `browser` skill.
 
-The tool's parameters and permission classification are in [the computer tool reference](../reference/computer.md). This feature belongs to OmO Native; the same `computer` block does not enable it in the OpenCode or Codex editions.
+The tool's parameters and permission classification are in [the computer tool reference](../reference/computer.md). Scroll amounts are pixels on every OS, and one mouse-wheel notch is about 40 px, so the same scroll moves a similar distance on macOS, Linux and Windows. This feature belongs to OmO Native; the same `computer` block does not enable it in the OpenCode or Codex editions.
 
 ## Turn it on
 
@@ -64,6 +64,8 @@ OmO picks the backend from the session: `WAYLAND_DISPLAY` wins over `DISPLAY` (a
 ### Windows
 
 Capture uses the native display and window APIs with per-monitor DPI awareness, and accessibility uses UI Automation. Windows' UIPI refuses input from a normal process to an application running elevated (as administrator); run OmO at the same integrity level as the application you want it to drive. Accessibility fallback does not bypass that check.
+
+Foreground pointer input waits until the compositor shows the raised target, and confirms the cursor is on the requested point before it clicks, drags or scrolls; if the cursor cannot be placed there, the action fails with `InputFailed` and no button or wheel is sent.
 
 Background delivery depends on the target toolkit and the requested action. Chromium rejects posted input; WPF rejects posted pointer and text input, and posted keys unless it owns the foreground. XAML, WinUI, Tk, GTK, terminal and embedded Chromium hosts have action-specific restrictions. A rejected, unmodified single left click can use UI Automation's Invoke action when the target exposes it, except for Chromium. Other unsupported actions report `BackgroundUnavailable`; choose an accessibility action or request foreground delivery explicitly. Background drags that start on a title bar or resize border are refused before any input.
 
