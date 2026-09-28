@@ -268,6 +268,10 @@ Tests: `rpc-host-endpoint.test.ts`, `lifecycle/host-session-endpoint.test.ts`,
 `manager/host-session-park.test.ts`, `rpc-host/daemon-shard.test.ts`, `rpc-host/store-index.test.ts`,
 `rpc-host/own-endpoint.test.ts`.
 
+## 2026-09-29 - Runtime fallback tries another provider first after an account-wide usage limit (#8296)
+
+A task child that died on a usage limit (a Claude session or weekly limit, a monthly quota, a Codex usage limit) was handed to the next rung in list order, so a chain like `claude-fable-5-1 -> claude-opus-5-5 -> kimi-k3` on one Claude account spent a child start on Opus, which fails the same way, before reaching Kimi. `manager/credential-failure.ts` adds `usageLimitScope`: a limit that names a model, a model family or premium models is `model`-scoped and keeps list order, so a Fable-only weekly cap continues on Opus; any other usage limit is `account`-scoped and moves the spent provider's rungs behind every other provider's, keeping them as the last resort instead of dropping them. `runtimeFallbackCandidates` reports the scope as `limit`, and the `task_model_fallback` event records it as `usage_limit`. Credential rejections keep dropping the provider's rungs as before. The runtime-fallback QA driver gains `limit-account` and `limit-model` scenarios on a two-provider chain.
+
 ## `builtinCategoryChainCandidates`: a category's builtin chain against the live registry (#9111)
 
 `category/resolver.ts` exports `builtinCategoryChainCandidates(category, registry)`: the category's builtin fallback chain (retired names mapped to their replacement) with every rung resolved to its first available provider, in chain order. `model-chain.ts` `availableChainCandidates` is the shared rung resolution `chainRungCandidates` now uses for the rungs after the selection. `resolveCategory` is unchanged: a user-forced model still keeps its own chain for task routing; memory sidecars append these rungs themselves so a refused pin is not their only model.
