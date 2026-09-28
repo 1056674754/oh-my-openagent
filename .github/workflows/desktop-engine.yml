@@ -99,34 +99,6 @@ jobs:
       - name: Verify release asset assembly without publishing
         run: bun test script/desktop-engine-release.test.ts script/release-desktop-engine-target.test.ts script/publish-release-platform-workflow.test.ts
 
-      - name: TEMP Windows Python cold-start probe (#9004, removed before merge)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $py = (Get-Command python).Source
-          $pyHome = Split-Path $py
-          "python=$py"
-          try { Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled, AMRunningMode, AntivirusEnabled | Format-List | Out-String } catch { "defender status unavailable: $_" }
-          $fresh = Join-Path $env:RUNNER_TEMP ("pyfresh-" + [guid]::NewGuid())
-          $copy = Measure-Command { Copy-Item -Recurse $pyHome $fresh }
-          "copy_ms=$([int]$copy.TotalMilliseconds)"
-          foreach ($label in 'fresh-cold-concurrent', 'fresh-warm-concurrent') {
-            $times = 1..3 | ForEach-Object -Parallel {
-              $sw = [Diagnostics.Stopwatch]::StartNew()
-              & (Join-Path $using:fresh 'python.exe') -c 'import json, sys, re, inspect'
-              "$($sw.ElapsedMilliseconds)"
-            } -ThrottleLimit 3
-            "$label ms=$($times -join ',')"
-          }
-          $orig = 1..3 | ForEach-Object -Parallel {
-            $sw = [Diagnostics.Stopwatch]::StartNew()
-            & $using:py -c 'import json, sys, re, inspect'
-            "$($sw.ElapsedMilliseconds)"
-          } -ThrottleLimit 3
-          "installed-concurrent ms=$($orig -join ',')"
-          Remove-Item -Recurse -Force $fresh
-          "fresh_removed=$(-not (Test-Path $fresh))"
-
       - name: Desktop package tests
         env:
           OMO_PACKAGE_DIR: ${{ runner.temp }}/omo-desktop-ci-engine
