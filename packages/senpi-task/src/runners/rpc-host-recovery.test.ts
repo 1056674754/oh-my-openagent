@@ -88,6 +88,53 @@ describe("RpcHostRunner transport recovery", () => {
     for (const { client } of served) await client.detach()
   })
 
+  test("#given a reattached child whose continuation prompt times out #when the new host never answers it #then the turn fails as an undelivered prompt and no rejection escapes (omo#9093)", async () => {
+    // given - the client the runner creates for the new host never answers a prompt
+    const host = await fakeHost()
+    let created = 0
+    const runner = runnerOver(host, {
+      ...NO_WAIT,
+      createClient: (socketPath) => {
+        const client = new HostSessionClient({ socketPath, ports: { probeProtocolInfo: () => host.probeProtocolInfo() } })
+        created += 1
+        if (created === 2) {
+          const send = client.send.bind(client)
+          client.send = (command) =>
+            command.type === "prompt"
+              ? Promise.reject(new Error("Timeout waiting for response to prompt. Stderr: "))
+              : send(command)
+        }
+        return client
+      },
+    })
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason)
+    }
+    process.on("unhandledRejection", onUnhandled)
+    try {
+      const handle = await runner.start(childSpec())
+      const settled = handle.waitForOutcome?.()
+      if (settled === undefined) throw new Error("a host-session handle reports its turn outcome")
+
+      // when
+      await host.restart()
+      const outcome = await settled
+      await new Promise((resolve) => setImmediate(resolve))
+
+      // then
+      expect(outcome).toMatchObject({
+        status: "error",
+        failure: { kind: "child-prompt-failed", message: "Timeout waiting for response to prompt. Stderr: " },
+      })
+      expect(unhandled).toEqual([])
+      expect(handle.exitOutcome()).toBeUndefined()
+      await handle.terminate()
+    } finally {
+      process.off("unhandledRejection", onUnhandled)
+    }
+  })
+
   test("#given a child mid-turn #when the daemon never comes back #then the child ends crashed with transport_gone after the retries", async () => {
     // given
     const host = await fakeHost()
