@@ -50,7 +50,6 @@ pub(super) struct RequiredSpi {
 /// The SPI needed only for foreground delivery and focus restore.
 pub(super) struct ForegroundSpi {
     pub(super) set_front: SLPSSetFrontProcessWithOptionsFn,
-    pub(super) get_front: SLPSGetFrontProcessFn,
     pub(super) psn: PsnLookup,
 }
 
@@ -179,7 +178,6 @@ fn resolve_foreground() -> Option<ForegroundSpi> {
     ensure_skylight_loaded()?;
     Some(ForegroundSpi {
         set_front: symbol(c"_SLPSSetFrontProcessWithOptions")?,
-        get_front: symbol(c"_SLPSGetFrontProcess")?,
         psn: lookup()?,
     })
 }
