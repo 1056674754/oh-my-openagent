@@ -10,11 +10,12 @@ mod preflight;
 pub mod xkb;
 
 use reis::ei;
-use reis::event::Device;
+use reis::event::{Device, DeviceCapability};
 use reis::tokio::EiConvertEventStream;
 use senpi_desktop_core::error::{CoreResult, DesktopError};
 use tokio::runtime::Runtime;
 
+use crate::capture::layout::EisRegion;
 use crate::portal::portal_runtime;
 use crate::portal::remote_desktop::{self, Granted, PortalSession};
 use xkb::KeyboardLayout;
@@ -98,6 +99,33 @@ impl Libei {
             ));
         }
         Ok(libei)
+    }
+
+    /// The logical layout the compositor maps absolute pointer input into:
+    /// the distinct regions of every resumed absolute pointer.
+    ///
+    /// # Errors
+    /// `InputFailed` when the device state cannot be refreshed.
+    pub fn regions(&mut self) -> CoreResult<Vec<EisRegion>> {
+        self.refresh_devices()?;
+        let mut regions = Vec::new();
+        let pointers = self
+            .devices
+            .iter()
+            .filter(|device| device.resumed && device.device.has_capability(DeviceCapability::PointerAbsolute));
+        for region in pointers.flat_map(|device| device.device.regions()) {
+            let region = EisRegion {
+                x: region.x,
+                y: region.y,
+                width: region.width,
+                height: region.height,
+                scale: region.scale,
+            };
+            if !regions.contains(&region) {
+                regions.push(region);
+            }
+        }
+        Ok(regions)
     }
 }
 

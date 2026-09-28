@@ -25,7 +25,7 @@ use image::{imageops, RgbaImage};
 use senpi_desktop_core::types::DesktopDisplay;
 use tokio::runtime::Runtime;
 
-use super::layout::EisRegion;
+use super::layout::{monitor_size, EisRegion};
 use screencast::Cast;
 pub(super) use selection::select_capture;
 pub use window::crop_window;
@@ -107,8 +107,25 @@ fn grab_all(
 
 /// Monitors sit at their logical positions; pixels scale by frame / logical
 /// size (a HiDPI monitor streams more pixels than its logical size).
+/// A stream's logical size: reported by the portal, else proven by the
+/// libei region at its position, else unknown (the pixel size stands in so
+/// the image can still be shown).
+fn logical_size(monitor: &screencast::MonitorStream, image: &RgbaImage, eis: Option<&[EisRegion]>) -> ((u32, u32), Geometry) {
+    let reported = monitor
+        .size
+        .and_then(|(w, h)| Some((u32::try_from(w).ok()?, u32::try_from(h).ok()?)))
+        .filter(|(w, h)| *w > 0 && *h > 0);
+    if let Some(size) = reported {
+        return (size, Geometry::Reported);
+    }
+    match eis.and_then(|regions| monitor_size(monitor.position, image.width(), image.height(), regions)) {
+        Some(size) => (size, Geometry::FromEis),
+        None => ((image.width(), image.height()), Geometry::Unknown),
+    }
+}
+
 fn composite(frames: &[(screencast::MonitorStream, RgbaImage)], eis: Option<&[EisRegion]>) -> Composite {
-    let _ = eis;
+    let mut geometry = Geometry::Reported;
     let min_x = frames
         .iter()
         .map(|(monitor, _)| monitor.position.0)
@@ -123,11 +140,12 @@ fn composite(frames: &[(screencast::MonitorStream, RgbaImage)], eis: Option<&[Ei
         .iter()
         .enumerate()
         .map(|(index, (monitor, image))| {
-            let (logical_w, logical_h) = monitor
-                .size
-                .and_then(|(w, h)| Some((u32::try_from(w).ok()?, u32::try_from(h).ok()?)))
-                .filter(|(w, h)| *w > 0 && *h > 0)
-                .unwrap_or((image.width(), image.height()));
+            let ((logical_w, logical_h), source) = logical_size(monitor, image, eis);
+            geometry = match (geometry, source) {
+                (Geometry::Unknown, _) | (_, Geometry::Unknown) => Geometry::Unknown,
+                (Geometry::FromEis, _) | (_, Geometry::FromEis) => Geometry::FromEis,
+                (Geometry::Reported, Geometry::Reported) => Geometry::Reported,
+            };
             let scale = f64::from(image.width()) / f64::from(logical_w);
             let x = monitor.position.0 - min_x;
             let y = monitor.position.1 - min_y;
@@ -169,7 +187,7 @@ fn composite(frames: &[(screencast::MonitorStream, RgbaImage)], eis: Option<&[Ei
     Composite {
         image: canvas,
         displays,
-        geometry: Geometry::Reported,
+        geometry,
     }
 }
 
