@@ -25,6 +25,8 @@ The run only starts when the memory model's context window is known to fit the w
 
 ### Fixed
 
+**A task waiting for a free slot no longer claims it has started.** ([#9069](https://github.com/code-yeongyu/oh-my-openagent/issues/9069)) When a task's first model could not be used and it moved to the next model in its chain while that model had no free slot, the task was reported as started and running although no child existed yet, and nothing said why it sat there. It is now reported as queued with its position, `task_output` shows which model it is waiting for, and it starts as soon as a slot frees.
+
 **A task's status now matches what its child is actually doing.** ([#9069](https://github.com/code-yeongyu/oh-my-openagent/issues/9069)) Two cases left a process-mode task child's record saying something untrue:
 
 - When a stream rule interrupted the child's output and nudged it to continue, the task was marked failed ("This operation was aborted") and the parent was told, while the child kept working in the same session. The task now finishes only when the child's session is really done, with the result of the run that continued.
