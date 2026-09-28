@@ -55,8 +55,14 @@ function pinnedHandler(
     onRepin: (_sessionId, reason) => repins.push(reason),
     ...(overrides.resolveCompileWarnTokens === undefined ? {} : { resolveCompileWarnTokens: overrides.resolveCompileWarnTokens }),
   }))
-  const dispatch = (branch: readonly unknown[], sessionId = SESSION) =>
-    dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext(sessionId, branch))
+  const dispatch = (branch: readonly unknown[], sessionId = SESSION, preview = false) =>
+    dispatchEvent(
+      pi,
+      preview
+        ? { type: "before_agent_start", prompt: "", systemPrompt: "BASE PROMPT", preview: true }
+        : beforeAgentStart("BASE PROMPT"),
+      eventContext(sessionId, branch),
+    )
   return { dispatch, records, repins }
 }
 
@@ -65,6 +71,21 @@ function pinEntry(record: ProjectionPinRecord | undefined): Record<string, unkno
 }
 
 describe("session-pinned memory projection", () => {
+  test("#given an unpinned session #when a preview runs before its first turn #then it writes no pin and composes the real turn's system prompt", async () => {
+    // given
+    const { repo, context } = await fixture()
+    const { dispatch, records } = pinnedHandler(repo, context)
+
+    // when
+    const preview = await dispatch(liveBranch(0), SESSION, true)
+    expect(records).toEqual([])
+    const real = await dispatch(liveBranch(0))
+
+    // then
+    expect(preview?.systemPrompt).toBe(real?.systemPrompt)
+    expect(records).toHaveLength(1)
+  }, 30_000)
+
   test("#given another writer adds a file and edits persona between turns #when the next turns run #then the system prompt keeps its bytes and the change is announced once", async () => {
     // given
     const { repo, context } = await fixture()

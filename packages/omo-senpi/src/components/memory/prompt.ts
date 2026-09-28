@@ -61,6 +61,7 @@ export function createMemoryPromptHandler(
 ): (payload: unknown, eventCtx?: unknown) => Promise<BeforeAgentStartEventResult | undefined> {
   const cache = options.cache ?? new MemoryBlockCache()
   const pins = options.pins ?? createProjectionPins()
+  const previewPins = createProjectionPins()
   const recordPin = options.recordPin ?? (() => undefined)
   const createRepo = options.createRepo ?? defaultCreateRepo
   // The pressure estimate is a pure function of the commit, like the compiled block above it. Without
@@ -68,6 +69,7 @@ export function createMemoryPromptHandler(
   // 45 git spawns between Enter and the provider request in a 2.7k-commit identity.
   const pressureEstimates = new Map<string, number>()
   return async (payload, eventCtx) => {
+    const preview = isRecord(payload) && payload.preview === true
     const systemPrompt = readSystemPrompt(payload)
     if (systemPrompt === undefined) return undefined
     const session = readPromptSession(eventCtx)
@@ -77,15 +79,15 @@ export function createMemoryPromptHandler(
 
     const repo = createRepo(context)
     const nudgeTurns = await options.resolveNudgeTurns?.(repo, session.id, context.identity)
-    const soulNotice = await options.resolveSoulNotice?.(repo, session.id, context.identity)
-    const turn = await pins.advance({
+    const soulNotice = preview ? undefined : await options.resolveSoulNotice?.(repo, session.id, context.identity)
+    const turn = await (preview ? previewPins : pins).advance({
       repo,
       sessionId: session.id,
       branch: session.branch,
       head: await repo.head(),
-      record: recordPin,
+      record: preview ? () => undefined : recordPin,
     })
-    if (turn.repinned !== undefined && turn.repinned !== "first-turn") options.onRepin?.(session.id, turn.repinned)
+    if (!preview && turn.repinned !== undefined && turn.repinned !== "first-turn") options.onRepin?.(session.id, turn.repinned)
     const block = await cache.compile(repo, `${MEMORY_PROMPT_TEMPLATE}:${context.identity}`, {
       agentId: context.identity,
     }, turn.revision)
