@@ -92,7 +92,6 @@ describe("omo daemon rollback preparation", () => {
     expect(writes).toHaveLength(0)
     expect(stderr.text()).toContain("endpoint still live")
     expect(stderr.text()).toContain(socketA)
-    expect(storeA).not.toBe("")
   })
 
   test("#given sidecars but no index #when rollback lacks an explicit inventory #then it refuses before planning", () => {

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { join, resolve } from "node:path"
 
 import { withTaskRecordLockAsync } from "../../store/record-lock"
@@ -70,6 +71,35 @@ export async function registerStoreIndex(input: RegisterStoreIndexInput): Promis
 
 export function readTaskStoreIndex(indexPath: string, fs: DurableJsonFs = DURABLE_JSON_FS): TaskStoreIndex {
   return parseStoreIndex(fs.read(indexPath))
+}
+
+export async function pruneMissingStoreIndexEntries(
+  indexPath: string,
+  options: {
+    readonly exists?: (path: string) => boolean
+    readonly fs?: DurableJsonFs
+    readonly _test?: {
+      readonly afterLockAcquired?: () => Promise<void>
+      readonly afterRead?: () => Promise<void>
+    }
+  } = {},
+): Promise<readonly string[]> {
+  const exists = options.exists ?? existsSync
+  const fs = options.fs ?? DURABLE_JSON_FS
+  return withTaskRecordLockAsync(indexPath, async () => {
+    await options._test?.afterLockAcquired?.()
+    const current = parseStoreIndex(fs.read(indexPath))
+    await options._test?.afterRead?.()
+    const retained: Record<string, StoreIndexEntry> = {}
+    const removed: string[] = []
+    for (const [storeDir, entry] of Object.entries(current.stores)) {
+      if (exists(storeDir)) retained[storeDir] = entry
+      else removed.push(storeDir)
+    }
+    if (removed.length === 0) return []
+    fs.write(indexPath, `${JSON.stringify({ ...current, stores: retained }, null, 2)}\n`)
+    return removed
+  })
 }
 
 // A missing index is empty; an index that does not parse is NOT - rewriting it would drop every

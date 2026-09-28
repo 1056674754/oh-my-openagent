@@ -65,7 +65,15 @@ function statusForSocket(engine, socket, agentDir, env) {
     ["host", "status", "--json", "--socket", socket, "--include-workers"],
     { env: { ...env, OMO_AGENT_DIR: agentDir } },
   )
-  return parseEngineLine(result.stdout ?? "")
+  const parsed = parseEngineLine(result.stdout ?? "")
+  if (
+    parsed === undefined ||
+    !Array.isArray(parsed.generations) ||
+    typeof parsed.claims_live !== "number"
+  ) {
+    return { readable: false }
+  }
+  return { readable: true, report: parsed }
 }
 
 export function runRollbackPrepare({
@@ -102,7 +110,12 @@ export function runRollbackPrepare({
   const sockets = [...new Set(plans.flatMap((plan) => plan.sockets))].toSorted()
   const deadEndpoints = []
   for (const socket of sockets) {
-    const status = statusForSocket(engine, socket, agentDir, env)
+    const statusResult = statusForSocket(engine, socket, agentDir, env)
+    if (!statusResult.readable) {
+      stderr.write(`rollback refused: endpoint status unreadable ${socket}\n`)
+      return 3
+    }
+    const status = statusResult.report
     const alive = (status?.generations ?? []).some((generation) => generation.alive)
     if (alive || (status?.claims_live ?? 0) > 0) {
       stderr.write(`rollback refused: endpoint still live ${socket}\n`)

@@ -3,7 +3,12 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { createTaskRecord } from "../state"
+import {
+  createTaskRecord,
+  SUSPENSION_REASONS,
+  TASK_START_FAILURE_REASONS,
+  type TaskStartFailureReason,
+} from "../state"
 import { createTaskRecordStore } from "./record-store"
 import { migrateHostSessionSockets, planHostSessionSocketMigration } from "./rollback-migrate"
 
@@ -99,4 +104,100 @@ describe("rollback host-session migration", () => {
     expect(result.migrated).toBe(0)
     expect(readFileSync(path)).toEqual(before)
   })
+
+  test("#given every current persisted reason #when rollback prepares #then an R0-equivalent strict parser accepts every record", () => {
+    const { storeDir, store, base } = storeFixture()
+    const target = "/tmp/rpc.sock"
+    let ordinal = 16
+    for (const suspensionReason of SUSPENSION_REASONS) {
+      store.save({
+        ...base,
+        task_id: `st_${ordinal.toString(16).padStart(8, "0")}`,
+        runner_kind: "host-session",
+        suspension_reason: suspensionReason,
+        host_session: {
+          socket: target,
+          routing_id: `s-${ordinal}`,
+          session_path: `/tmp/s-${ordinal}.jsonl`,
+          instance_id: `i-${ordinal}`,
+        },
+      })
+      ordinal += 1
+    }
+    for (const failureReason of TASK_START_FAILURE_REASONS) {
+      store.save({
+        ...base,
+        task_id: `st_${ordinal.toString(16).padStart(8, "0")}`,
+        failure_kind: failureKindFor(failureReason),
+        failure_reason: failureReason,
+      })
+      ordinal += 1
+    }
+
+    const result = migrateHostSessionSockets(storeDir, { to: target, deadEndpoints: new Set() })
+
+    expect(result.sockets).toEqual([])
+    expect(result.migrated).toBeGreaterThan(0)
+    const taskFiles = Array.from(
+      { length: ordinal - 16 },
+      (_, index) => join(storeDir, "tasks", `st_${(index + 16).toString(16).padStart(8, "0")}.json`),
+    )
+    for (const path of taskFiles) expect(() => parseR0Record(readFileSync(path, "utf8"))).not.toThrow()
+    const preservedSuspension = store.list().records.find((record) => record.suspension_reason === "host_draining")
+    const preservedFailure = store.list().records.find(
+      (record) => record.failure_reason === "model_not_in_child_profile",
+    )
+    expect(preservedSuspension?.suspension_reason).toBe("host_draining")
+    expect(preservedFailure?.failure_reason).toBe("model_not_in_child_profile")
+  })
 })
+
+const R0_SUSPENSION_REASONS = new Set(["daemon_unavailable", "host_draining"])
+const R0_FAILURE_REASONS = new Set([
+  "model_not_in_child_profile",
+  "catalog_probe_timed_out",
+  "catalog_probe_failed",
+])
+
+function parseR0Record(text: string): void {
+  const record = JSON.parse(text) as Record<string, unknown>
+  const suspensionReason = record["suspension_reason"]
+  if (suspensionReason !== undefined && !R0_SUSPENSION_REASONS.has(String(suspensionReason))) {
+    throw new Error(`R0 rejects suspension_reason ${String(suspensionReason)}`)
+  }
+  const failureReason = record["failure_reason"]
+  if (failureReason !== undefined && !R0_FAILURE_REASONS.has(String(failureReason))) {
+    throw new Error(`R0 rejects failure_reason ${String(failureReason)}`)
+  }
+}
+
+function failureKindFor(reason: TaskStartFailureReason) {
+  if (
+    reason === "model_not_in_child_profile" ||
+    reason === "catalog_probe_timed_out" ||
+    reason === "catalog_probe_failed"
+  ) {
+    return "model_unavailable" as const
+  }
+  if (
+    reason === "protocol" ||
+    reason === "capability" ||
+    reason === "engine_mismatch" ||
+    reason === "engine_refused" ||
+    reason === "win32" ||
+    reason === "runtime" ||
+    reason === "host_unreachable" ||
+    reason === "ensure_failed" ||
+    reason === "ensure_timed_out" ||
+    reason === "shard_socket_too_long" ||
+    reason === "shard_alt_root_unsafe" ||
+    reason === "legacy_host" ||
+    reason === "host_incompatible" ||
+    reason === "store_index_unavailable" ||
+    reason === "own_host_unreachable" ||
+    reason === "shard_identity_missing"
+  ) {
+    return "host_unavailable" as const
+  }
+  return "session-create-failed" as const
+}

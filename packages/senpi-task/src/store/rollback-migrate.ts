@@ -1,9 +1,10 @@
 import { createTaskRecordStore } from "./record-store"
 
-const R0_UNREADABLE_SUSPENSION_REASONS = new Set([
-  "host_incompatible",
-  "own_host_unreachable",
-  "store_index_unavailable",
+const R0_SUSPENSION_REASONS = new Set(["daemon_unavailable", "host_draining"])
+const R0_FAILURE_REASONS = new Set([
+  "model_not_in_child_profile",
+  "catalog_probe_timed_out",
+  "catalog_probe_failed",
 ])
 
 export type HostSessionMigrationPlan = {
@@ -23,12 +24,18 @@ export function planHostSessionSocketMigration(storeDir: string, to: string): Ho
   if (listing.diagnostics.some((diagnostic) => diagnostic.type === "parse_error")) {
     throw new Error(`rollback migration refused malformed records in ${storeDir}`)
   }
-  const candidates = listing.records.filter((record) => record.host_session !== undefined && record.host_session.socket !== to)
+  const candidates = listing.records.filter((record) => needsMigration(record, to))
   return {
     store_dir: storeDir,
     migrate: candidates.length,
     skipped: listing.records.length - candidates.length,
-    sockets: [...new Set(candidates.map((record) => record.host_session?.socket).filter((socket) => socket !== undefined))].toSorted(),
+    sockets: [
+      ...new Set(
+        candidates
+          .map((record) => record.host_session?.socket)
+          .filter((socket): socket is string => socket !== undefined && socket !== to),
+      ),
+    ].toSorted(),
   }
 }
 
@@ -50,24 +57,44 @@ export function migrateHostSessionSockets(
   let migrated = 0
   for (const record of store.list().records) {
     const from = record.host_session?.socket
-    if (from === undefined || from === options.to) continue
+    if (!needsMigration(record, options.to)) continue
     const next = store.mutate(record.task_id, (current) => {
-      if (current.host_session === undefined || current.host_session.socket === options.to) return current
-      const suspensionReason = current.suspension_reason
+      if (!needsMigration(current, options.to)) return current
+      const moveSocket = current.host_session !== undefined && current.host_session.socket !== options.to
       return {
         ...current,
-        host_session: { ...current.host_session, socket: options.to },
-        ...(suspensionReason !== undefined && R0_UNREADABLE_SUSPENSION_REASONS.has(suspensionReason)
+        ...(moveSocket ? { host_session: { ...current.host_session, socket: options.to } } : {}),
+        ...(current.suspension_reason !== undefined && !R0_SUSPENSION_REASONS.has(current.suspension_reason)
           ? { suspension_reason: undefined }
+          : {}),
+        ...(current.failure_reason !== undefined && !R0_FAILURE_REASONS.has(current.failure_reason)
+          ? { failure_reason: undefined }
           : {}),
       }
     })
-    if (next?.host_session?.socket !== options.to) continue
-    store.appendEvent(record.task_id, {
-      type: "host_session_migrated",
-      payload: { from, to: options.to, reason: "rollback" },
-    })
+    if (next === null) continue
+    if (from !== undefined && from !== options.to) {
+      store.appendEvent(record.task_id, {
+        type: "host_session_migrated",
+        payload: { from, to: options.to, reason: "rollback" },
+      })
+    }
     migrated += 1
   }
   return { ...plan, migrated }
+}
+
+function needsMigration(
+  record: {
+    readonly host_session?: { readonly socket: string }
+    readonly suspension_reason?: string
+    readonly failure_reason?: string
+  },
+  to: string,
+): boolean {
+  return (
+    (record.host_session !== undefined && record.host_session.socket !== to) ||
+    (record.suspension_reason !== undefined && !R0_SUSPENSION_REASONS.has(record.suspension_reason)) ||
+    (record.failure_reason !== undefined && !R0_FAILURE_REASONS.has(record.failure_reason))
+  )
 }

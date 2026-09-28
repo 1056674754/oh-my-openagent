@@ -1,10 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 
 import { DURABLE_JSON_FS } from "./durable-json"
-import { readTaskStoreIndex, registerStoreIndex, StoreIndexUnavailableError, taskStoreIndexPath } from "./store-index"
+import {
+  pruneMissingStoreIndexEntries,
+  readTaskStoreIndex,
+  registerStoreIndex,
+  StoreIndexUnavailableError,
+  taskStoreIndexPath,
+} from "./store-index"
 
 const dirs: string[] = []
 
@@ -88,6 +94,38 @@ describe("registerStoreIndex", () => {
 
     // then
     expect(failure).toBeInstanceOf(StoreIndexUnavailableError)
+  })
+
+  test("#given pruning paused after its read #when another registration starts #then the index lock preserves the new store", async () => {
+    const path = indexPath()
+    const existingStore = join(dirname(path), "existing-store")
+    mkdirSync(existingStore, { recursive: true })
+    await registerStoreIndex({ indexPath: path, storeDir: "/tmp/missing-store", now: Date.now })
+
+    let releaseRead: (() => void) | undefined
+    const readHeld = new Promise<void>((resolve) => {
+      releaseRead = resolve
+    })
+    let reportRead: (() => void) | undefined
+    const readReached = new Promise<void>((resolve) => {
+      reportRead = resolve
+    })
+    const prune = pruneMissingStoreIndexEntries(path, {
+      _test: {
+        afterRead: async () => {
+          reportRead?.()
+          await readHeld
+        },
+      },
+    })
+    await readReached
+    const register = registerStoreIndex({ indexPath: path, storeDir: existingStore, now: Date.now })
+    releaseRead?.()
+
+    const [removed] = await Promise.all([prune, register])
+
+    expect(removed).toEqual(["/tmp/missing-store"])
+    expect(Object.keys(readTaskStoreIndex(path).stores)).toEqual([existingStore])
   })
 
   test("#given 32 processes each registering 25 distinct stores at once #when they all finish #then every one of the 800 stores is in the index", async () => {

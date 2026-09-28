@@ -65,6 +65,44 @@ describe("omo daemon endpoint lifecycle", () => {
     expect(stdout.text()).toContain(`${endpoints[2]?.socket}: refuse`)
   })
 
+  test("#given task.host_idle_exit_ms #when handoff fans out #then every host action receives the supported env override", () => {
+    const { pluginRoot, agentDir, endpoints } = fixture()
+    writeJson(join(agentDir, "omo.json"), { task: { host_idle_exit_ms: 12_345 } })
+    const engine = scriptedEngine((args) => args.includes("--all")
+      ? { exitCode: 0, stdout: JSON.stringify({ endpoints }) }
+      : { exitCode: 0, stdout: JSON.stringify({ action: "reuse" }) })
+
+    const exitCode = runDaemonCommand(["handoff"], {
+      engine, pluginRoot, agentDir, env: {}, stdout: capture(), stderr: capture(), platform: "darwin",
+    })
+
+    expect(exitCode).toBe(0)
+    for (const call of engine.calls.filter((entry) => entry.args[1] === "handoff" || entry.args[1] === "ensure")) {
+      expect(call.args).not.toContain("--idle-exit-ms")
+      expect(call.env.SENPI_RPC_HOST_IDLE_EXIT_MS).toBe("12345")
+    }
+  })
+
+  test("#given four owned endpoints #when stop --all runs without wait #then each endpoint gets one stop request", () => {
+    const { pluginRoot, agentDir, endpoints } = fixture()
+    const engine = scriptedEngine((args) => args.includes("--all")
+      ? { exitCode: 0, stdout: JSON.stringify({ endpoints }) }
+      : { exitCode: 0, stdout: JSON.stringify({ action: "stopped" }) })
+    const stdout = capture()
+
+    const exitCode = runDaemonCommand(["stop", "--all"], {
+      engine, pluginRoot, agentDir, env: {}, stdout, stderr: capture(), platform: "darwin",
+    })
+
+    const stopCalls = engine.calls.filter((call) => call.args[1] === "stop")
+    expect(exitCode).toBe(0)
+    expect(stopCalls).toHaveLength(4)
+    expect(stopCalls.map((call) => call.args[call.args.indexOf("--socket") + 1])).toEqual(
+      endpoints.slice(0, 4).map((endpoint) => endpoint.socket),
+    )
+    expect(stdout.text().match(/requested \(not awaited\)/g)).toHaveLength(4)
+  })
+
   test("#given removed and kept endpoint metadata #when gc runs #then only removed metadata is reaped", () => {
     const { pluginRoot, agentDir, endpoints } = fixture()
     const removedSocket = endpoints[1]?.socket

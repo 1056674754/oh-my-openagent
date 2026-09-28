@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { runDaemonCommand } from "../bin/lib/daemon.js"
+import { daemonReportLines, runDaemonCommand } from "../bin/lib/daemon.js"
 
 /**
  * `omo daemon` is a thin wrapper: every decision about who serves the socket belongs to the
@@ -118,20 +118,34 @@ describe("omo daemon", () => {
       engine, pluginRoot, agentDir, env: {}, stdout: capture(), stderr: capture(), platform: "darwin",
     })
 
-    expect(engine.calls[0]?.args).toContain("--idle-exit-ms")
-    expect(engine.calls[0]?.args).toContain("900000")
+    expect(engine.calls[0]?.args).not.toContain("--idle-exit-ms")
+    expect(engine.calls[0]?.env.SENPI_RPC_HOST_IDLE_EXIT_MS).toBe("900000")
   })
 
-  test("retired persistence spellings stay wrapper-only for the adopted engine", () => {
+  test("--persistent stays an accepted wrapper-only no-op for the adopted engine", () => {
     const { pluginRoot, agentDir } = workspace()
     const engine = fakeEngine({ exitCode: 0, stdout: JSON.stringify({ action: "start", pid: 9 }) })
 
-    runDaemonCommand(["run", "--persistent", "--foreground"], {
+    const exitCode = runDaemonCommand(["run", "--persistent"], {
       engine, pluginRoot, agentDir, env: {}, stdout: capture(), stderr: capture(), platform: "darwin",
     })
 
+    expect(exitCode).toBe(0)
     expect(engine.calls[0]?.args).not.toContain("--persistent")
-    expect(engine.calls[0]?.args).not.toContain("--foreground")
+  })
+
+  test("--foreground fails clearly because the adopted engine always detaches", () => {
+    const { pluginRoot, agentDir } = workspace()
+    const engine = fakeEngine({ exitCode: 0, stdout: JSON.stringify({ action: "start", pid: 9 }) })
+    const stderr = capture()
+
+    const exitCode = runDaemonCommand(["run", "--foreground"], {
+      engine, pluginRoot, agentDir, env: {}, stdout: capture(), stderr, platform: "darwin",
+    })
+
+    expect(exitCode).toBe(2)
+    expect(stderr.text()).toBe("omo daemon: --foreground is unsupported; the engine host always detaches\n")
+    expect(engine.calls).toHaveLength(0)
   })
 
   test("attach reports the environment a child needs to reach the daemon", () => {
@@ -175,6 +189,21 @@ describe("omo daemon", () => {
     expect(exitCode).toBe(4)
     expect(engine.calls).toHaveLength(0)
     expect(stderr.text()).toContain("win32")
+  })
+
+  test("doctor reports one honest win32 line without probing the engine", () => {
+    const engine = fakeEngine({ exitCode: 0, stdout: "" })
+
+    const lines = daemonReportLines({
+      engine,
+      pluginRoot: "/p",
+      agentDir: "/a",
+      env: {},
+      platform: "win32",
+    })
+
+    expect(lines).toEqual(["INFO Daemon: unavailable on win32 (no unix socket to share)"])
+    expect(engine.calls).toHaveLength(0)
   })
 
   test("an unknown subcommand prints usage and exits 2 without touching the engine", () => {

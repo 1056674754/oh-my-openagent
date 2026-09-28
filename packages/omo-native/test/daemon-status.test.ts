@@ -28,6 +28,7 @@ function fixture() {
     hostRss: 22,
     fds: 9,
     crashes: 2,
+    engineVersion: "shard-engine",
     shard: { kind: "p", key: "aaaaaaaaaaaaaaaa" },
     generations: [
       {
@@ -59,6 +60,8 @@ function fixture() {
     sessions: 1,
     rss: 40,
     hostRss: 25,
+    crashes: 0,
+    engineVersion: "thread-engine",
     shard: { kind: "i", key: "bbbbbbbbbbbbbbbb" },
   })
   const extra = endpoint(join(result.agentDir, "rpc", "desk.sock"), { pid: 41, sessions: 1 })
@@ -119,8 +122,14 @@ describe("omo daemon multi-endpoint status", () => {
 
     const lines = daemonReportLines({ engine, pluginRoot: "/p", agentDir, env: {}, platform: "darwin" })
 
-    expect(lines.some((line) => line.startsWith("INFO Shard p-aaaaaaaaaaaaaaaa"))).toBe(true)
-    expect(lines.some((line) => line.startsWith("INFO Thread i-bbbbbbbbbbbbbbbb"))).toBe(true)
+    const shardLine = lines.find((line) => line.startsWith("INFO Shard p-aaaaaaaaaaaaaaaa"))
+    const threadLine = lines.find((line) => line.startsWith("INFO Thread i-bbbbbbbbbbbbbbbb"))
+    expect(shardLine).toContain("parent parent-s, parent-session.jsonl")
+    expect(shardLine).toContain("engine shard-engine")
+    expect(shardLine).toContain("crashes 2")
+    expect(threadLine).toContain("thread thread-s")
+    expect(threadLine).toContain("engine thread-engine")
+    expect(threadLine).toContain("crashes 0")
     expect(lines.some((line) => line.startsWith("WARN Shard p-cccccccccccccccc"))).toBe(true)
     expect(lines.at(-1)).toContain("INFO Hosts: 4 live")
   })

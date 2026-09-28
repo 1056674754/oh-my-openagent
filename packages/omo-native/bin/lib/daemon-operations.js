@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { basename, dirname, join, resolve } from "node:path"
+import { existsSync, rmSync } from "node:fs"
+import { basename, join, resolve } from "node:path"
 
 import { decorateEndpoints, formatEndpointLines, statusPayload } from "./daemon-status.js"
 
@@ -55,7 +55,7 @@ function endpointCall(engine, args, agentDir, env) {
   return { result, parsed: parseEngineLine(result.stdout ?? "") }
 }
 
-export function runGc({ engine, agentDir, env, json, pruneStoreIndex, stdout, stderr }) {
+export function runGc({ engine, migration, agentDir, env, json, pruneStoreIndex, stdout, stderr }) {
   const { result, parsed } = endpointCall(engine, ["host", "gc", "--json"], agentDir, env)
   if (result.stderr) stderr.write(result.stderr)
   const removed = Array.isArray(parsed?.removed) ? parsed.removed : []
@@ -68,27 +68,13 @@ export function runGc({ engine, agentDir, env, json, pruneStoreIndex, stdout, st
     rmSync(meta, { force: true })
     reapedMeta.push(meta)
   }
-  const prunedStores = pruneStoreIndex ? pruneMissingStores(agentDir) : []
+  const prunedStores = pruneStoreIndex
+    ? migration.run({ operation: "prune-store-index", indexPath: join(agentDir, "rpc", "task-stores.json") }).removed
+    : []
   const payload = { removed, kept, reaped_meta: reapedMeta, pruned_stores: prunedStores }
   if (json) stdout.write(`${JSON.stringify(payload)}\n`)
   else stdout.write(`reaped: ${removed.length}\n`)
   return result.exitCode
-}
-
-function pruneMissingStores(agentDir) {
-  const path = join(agentDir, "rpc", "task-stores.json")
-  if (!existsSync(path)) return []
-  const document = JSON.parse(readFileSync(path, "utf8"))
-  const stores = document?.stores
-  if (stores === null || typeof stores !== "object" || Array.isArray(stores)) return []
-  const next = {}
-  const removed = []
-  for (const [store, entry] of Object.entries(stores)) {
-    if (existsSync(store)) next[store] = entry
-    else removed.push(store)
-  }
-  if (removed.length > 0) writeFileSync(path, `${JSON.stringify({ ...document, stores: next }, null, 2)}\n`)
-  return removed
 }
 
 export function runHandoff({ engine, pluginRoot, agentDir, env, policy, config, stdout, stderr }) {
@@ -96,21 +82,22 @@ export function runHandoff({ engine, pluginRoot, agentDir, env, policy, config, 
   if (all.kind === "legacy") {
     const call = endpointCall(
       engine,
-      buildEnsureArgs("handoff", undefined, pluginRoot, policy, config),
+      buildEnsureArgs("handoff", undefined, pluginRoot, policy),
       agentDir,
-      env,
+      hostCommandEnvironment(env, agentDir, config),
     )
     if (call.result.stderr) stderr.write(call.result.stderr)
     stdout.write(`daemon: ${call.parsed?.action ?? "handoff"}\n`)
     return call.result.exitCode
   }
   let refused = false
+  const commandEnv = hostCommandEnvironment(env, agentDir, config)
   for (const endpoint of liveEndpoints(all.endpoints)) {
     const daemon = basename(endpoint.socket) === "rpc.sock"
     const args = daemon
-      ? buildEnsureArgs("handoff", undefined, pluginRoot, policy, config)
-      : buildEnsureArgs("ensure", endpoint.socket, pluginRoot, policy, config)
-    const call = endpointCall(engine, args, agentDir, env)
+      ? buildEnsureArgs("handoff", undefined, pluginRoot, policy)
+      : buildEnsureArgs("ensure", endpoint.socket, pluginRoot, policy)
+    const call = endpointCall(engine, args, agentDir, commandEnv)
     if (call.result.stderr) stderr.write(call.result.stderr)
     if (call.result.exitCode !== 0 || call.parsed?.action === "refuse") refused = true
     stdout.write(`${endpoint.socket}: ${call.parsed?.action ?? "refuse"}\n`)
@@ -118,15 +105,20 @@ export function runHandoff({ engine, pluginRoot, agentDir, env, policy, config, 
   return refused ? 3 : 0
 }
 
-function buildEnsureArgs(command, socket, pluginRoot, policy, config) {
+function buildEnsureArgs(command, socket, pluginRoot, policy) {
   const args = ["host", command, "--json"]
   if (socket !== undefined) args.push("--socket", socket)
   args.push("--launch-spec", join(pluginRoot, "daemon-launch-spec.json"), "--policy", policy)
-  const idleExitMs = config?.task?.host_idle_exit_ms
-  if (typeof idleExitMs === "number" && Number.isFinite(idleExitMs)) {
-    args.push("--idle-exit-ms", String(Math.trunc(idleExitMs)))
-  }
   return args
+}
+
+export function hostCommandEnvironment(env, agentDir, config) {
+  const result = { ...env, OMO_AGENT_DIR: agentDir }
+  const idleExitMs = config?.task?.host_idle_exit_ms
+  if (typeof idleExitMs === "number" && Number.isFinite(idleExitMs) && idleExitMs > 0) {
+    result.SENPI_RPC_HOST_IDLE_EXIT_MS = String(Math.trunc(idleExitMs))
+  }
+  return result
 }
 
 export function runStopAll({ engine, agentDir, env, drain, wait, timeoutSeconds, stdout, stderr, now, pause }) {

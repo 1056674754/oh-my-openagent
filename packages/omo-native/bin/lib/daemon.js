@@ -4,6 +4,7 @@ import {
   parseEngineLine,
   parseStoreArgs,
   readAllEndpoints,
+  hostCommandEnvironment,
   runGc,
   runHandoff,
   runStatus,
@@ -97,14 +98,10 @@ function readConfig(agentDir) {
  */
 const ENGINE_SUBCOMMAND = { run: "ensure", attach: "ensure", status: "status", stop: "stop", handoff: "handoff" }
 
-function buildArgs(subcommand, args, { specPath, policy, config }) {
+function buildArgs(subcommand, args, { specPath, policy }) {
   const engineArgs = ["host", ENGINE_SUBCOMMAND[subcommand], "--json"]
   if (subcommand === "run" || subcommand === "attach" || subcommand === "handoff") {
     engineArgs.push("--launch-spec", specPath, "--policy", policy)
-    const idleExitMs = config?.task?.host_idle_exit_ms
-    if (typeof idleExitMs === "number" && Number.isFinite(idleExitMs)) {
-      engineArgs.push("--idle-exit-ms", String(Math.trunc(idleExitMs)))
-    }
   }
   if (subcommand === "stop" && args.includes("--drain")) engineArgs.push("--drain")
   if (subcommand === "status" && args.includes("--include-workers")) engineArgs.push("--include-workers")
@@ -158,6 +155,10 @@ export function runDaemonCommand(args, options) {
     stderr.write("omo daemon: a shared host needs a unix socket, which win32 does not provide\n")
     return DAEMON_EXIT.unsupported
   }
+  if (args.includes("--foreground")) {
+    stderr.write("omo daemon: --foreground is unsupported; the engine host always detaches\n")
+    return DAEMON_EXIT.usage
+  }
 
   // Only the subcommands that may START something need the spec; asking who is serving, or
   // asking it to stop, must still work on an install whose plugin payload was never built.
@@ -180,8 +181,13 @@ export function runDaemonCommand(args, options) {
     if (!status.legacy) return status.exitCode
   }
   if (subcommand === "gc") {
+    if (args.includes("--prune-store-index") && migration === undefined) {
+      stderr.write("omo daemon: rollback migration runtime is unavailable\n")
+      return DAEMON_EXIT.engineRefused
+    }
     return runGc({
       engine,
+      migration,
       agentDir,
       env,
       json: args.includes("--json"),
@@ -236,8 +242,8 @@ export function runDaemonCommand(args, options) {
     })
     if (outcome !== undefined) return outcome
   }
-  const engineArgs = buildArgs(subcommand, args, { specPath, policy: resolvePolicy(args, config), config })
-  const result = engine.run(engineArgs, { env: { ...env, OMO_AGENT_DIR: agentDir } })
+  const engineArgs = buildArgs(subcommand, args, { specPath, policy: resolvePolicy(args, config) })
+  const result = engine.run(engineArgs, { env: hostCommandEnvironment(env, agentDir, config) })
   const parsed = parseEngineLine(result.stdout ?? "")
 
   if (result.stderr) stderr.write(result.stderr)
