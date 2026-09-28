@@ -4,7 +4,9 @@ import { join } from "node:path"
 
 import { altRootOf } from "./task-host-e2e-shards-handoff-successors-alt.mjs"
 
-describe("altRootOf", () => {
+// The alternate socket root is a fixed POSIX `/tmp/omo-rpc-*` directory (the sun_path fallback); the host
+// runner that uses it never runs on win32 (rpc-host-sharding plan U6), so neither does this sweep.
+describe.skipIf(process.platform === "win32")("altRootOf", () => {
   test("a /tmp/omo-rpc-* root is found whether the socket is recorded under /tmp or /private/tmp", () => {
     const root = mkdtempSync("/tmp/omo-rpc-t14test-")
     try {
