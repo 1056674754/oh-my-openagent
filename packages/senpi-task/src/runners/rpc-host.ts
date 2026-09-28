@@ -20,6 +20,7 @@ import { onceNoticeSink, type HostNoticeSink } from "./rpc-host/host-notice"
 import { createReattachPort } from "./rpc-host/reattach-port"
 import { createHostSessionHandle } from "./rpc-host/handle"
 import type { HostShardEvents } from "./rpc-host/handle-reattach"
+import { createLiveHostChildren, type LiveHostChildren } from "./rpc-host/live-children"
 import type { HostSessionChildHandle, HostSessionIdentity, HostSessionPort } from "./rpc-host/handle-port"
 import { HostSessionClient, type OpenedHostSession } from "./rpc-host/session-client"
 import { probeWithEngine, type HostProtocolProbe } from "./rpc-host/session-transport"
@@ -122,6 +123,7 @@ export class RpcHostRunner {
   private readonly admissionWaitMs: number
   private readonly sleep: (ms: number) => Promise<void>
   private readonly endpoint: ChildEndpointPorts
+  private readonly liveChildren: LiveHostChildren
 
   constructor(options: RpcHostRunnerOptions) {
     this.options = options
@@ -133,11 +135,12 @@ export class RpcHostRunner {
     this.reattachDelaysMs = options.reattachDelaysMs ?? DEFAULT_REATTACH_DELAYS_MS
     this.admissionWaitMs = options.admissionWaitMs ?? DEFAULT_ADMISSION_WAIT_MS
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
+    this.liveChildren = createLiveHostChildren(options.shardEvents)
     this.endpoint = {
       agentDir: options.agentDir,
       env: options.env ?? process.env,
       policy: options.policy,
-      ensureDaemon: options.ensureDaemon ?? ensureTaskDaemon,
+      ensureDaemon: this.liveChildren.ensure(options.ensureDaemon ?? ensureTaskDaemon),
       storeDir: options.storeDir,
       shardResolver: options.shardResolver,
       ownHostSocket: options.ownHostSocket,
@@ -229,7 +232,7 @@ export class RpcHostRunner {
       // The host's answer, not connection liveness: respawn continues an interrupted turn only when
       // the session was reopened from its JSONL.
       openDisposition: opened.attached ? "attached" : "reopened",
-      shardEvents: this.options.shardEvents,
+      shardEvents: this.liveChildren.events,
       reattach: createReattachPort({
         endpoint: this.endpoint,
         spec,
@@ -239,6 +242,7 @@ export class RpcHostRunner {
         open: (port, path) => this.openAdmitted(port, spec, path),
       }),
     })
+    this.liveChildren.add(handle)
     const switchOnPort = handle.switchSession
     // A resumed child says nothing: an attached session is still mid-turn, and a session reopened
     // from its JSONL keeps its transcript - replaying the prompt would duplicate the work.

@@ -1,43 +1,23 @@
-import { afterEach, describe, expect, test } from "bun:test"
-import { createHash } from "node:crypto"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { describe, expect, test } from "bun:test"
 
 import { runTaskOutput, type ReattachOutcome, type TaskRecord } from "@oh-my-opencode/senpi-task"
 
 import { makeRecord } from "../../../../senpi-task/src/tools/output/__fixtures__/records"
-import { OmoTaskSettingsSchema } from "@oh-my-opencode/omo-config-core"
-
-import { createEngineHostRuntime, createHostNotices } from "./host-execution-mode"
-import { TaskRuntimeContext, type CapturedUi } from "./runtime-context"
-import {
-  createShardCrashNotices,
-  readNewestHostCrash,
-  SHARD_CRASH_DONE_TOKEN,
-  SHARD_CRASH_TOKEN,
-  type ShardCrashFacts,
-} from "./shard-crash-notice"
+import { createHostNotices } from "./host-execution-mode"
+import { createShardCrashNotices, SHARD_CRASH_DONE_TOKEN, SHARD_CRASH_TOKEN, type ShardCrashFacts } from "./shard-crash-notice"
+import { doneCounts, linesWith, reattachingCount, SOCKET_A, uiRecorder } from "./shard-crash-notice.test-support"
 
 // Todo 10: one parent-visible line per task-host crash and one when its children are back, on the
 // notice list (task_output) and on ui.notify (TUI notice block, Desktop thread row). Asserted by
 // their stable tokens and counts only.
 
-const SOCKET_A = "/tmp/dh-t10/rpc/shards/p-aaaaaaaaaaaaaaaa.sock"
 const SOCKET_B = "/tmp/dh-t10/rpc/shards/p-bbbbbbbbbbbbbbbb.sock"
 
-type Notified = { readonly text: string; readonly type: string | undefined }
-
-function uiRecorder(): { readonly ui: CapturedUi; readonly notified: Notified[] } {
-  const notified: Notified[] = []
-  const ui: CapturedUi = {
-    notify: (text, type) => notified.push({ text, type }),
-    setStatus: () => undefined,
-    setWidget: () => undefined,
-    select: () => Promise.resolve(undefined),
-    confirm: () => Promise.resolve(false),
-  }
-  return { ui, notified }
+interface Loss {
+  readonly socket?: string
+  readonly instanceId?: string
+  readonly turnWasInFlight?: boolean
+  readonly boundTaskIds?: readonly string[]
 }
 
 function harness(options: { readonly withUi?: boolean } = {}) {
@@ -50,22 +30,20 @@ function harness(options: { readonly withUi?: boolean } = {}) {
     ui: () => (options.withUi === false ? undefined : ui),
     readCrash: (_agentDir, socket, instanceId): ShardCrashFacts => {
       crashReads.push(`${socket}#${instanceId}`)
-      return { pid: 4242, cause: "SIGSEGV" }
+      return { supervisorPid: 4242, cause: "SIGSEGV" }
     },
   })
-  const lose = (taskId: string, socket = SOCKET_A, instanceId = "gen-1", turnWasInFlight = true): void =>
-    events.onTransportLost({ taskId, socket, instanceId, turnWasInFlight })
-  const settle = (taskId: string, outcome: ReattachOutcome, socket = SOCKET_A): void =>
-    events.onReattachOutcome({ taskId, socket, outcome, ...(outcome === "lost" ? {} : { newInstanceId: "gen-2" }) })
+  const lose = (taskId: string, loss: Loss = {}): void =>
+    events.onTransportLost({
+      taskId,
+      socket: loss.socket ?? SOCKET_A,
+      instanceId: loss.instanceId ?? "gen-1",
+      turnWasInFlight: loss.turnWasInFlight ?? true,
+      ...(loss.boundTaskIds === undefined ? {} : { boundTaskIds: loss.boundTaskIds }),
+    })
+  const settle = (taskId: string, outcome: ReattachOutcome): void =>
+    events.onReattachOutcome({ taskId, socket: SOCKET_A, outcome })
   return { notices, notified, crashReads, lose, settle }
-}
-
-function linesWith(lines: readonly string[], token: string): readonly string[] {
-  return lines.filter((line) => line.startsWith(`${token}:`))
-}
-
-function doneCounts(line: string): readonly number[] {
-  return (line.slice(line.indexOf(" ")).match(/\d+/g) ?? []).map(Number)
 }
 
 describe("shard crash notice", () => {
@@ -81,6 +59,35 @@ describe("shard crash notice", () => {
     expect(linesWith(world.notices.list(), SHARD_CRASH_TOKEN)).toHaveLength(1)
     expect(linesWith(world.notices.list(), SHARD_CRASH_TOKEN)[0]).toStartWith(`${SHARD_CRASH_TOKEN}:aaaaaaaaaaaaaaaa `)
     expect(world.crashReads).toEqual([`${SOCKET_A}#gen-1`])
+  })
+
+  test("#given the runner names two bound children at the first loss #when the second loss arrives only AFTER the warning #then the warning already counts 2", () => {
+    // given
+    const world = harness()
+
+    // when
+    world.lose("st_a", { boundTaskIds: ["st_a", "st_b"] })
+    const warning = linesWith(world.notices.list(), SHARD_CRASH_TOKEN)[0] ?? ""
+    world.lose("st_b", { boundTaskIds: ["st_b"] })
+
+    // then
+    expect(reattachingCount(warning)).toBe(2)
+    expect(linesWith(world.notices.list(), SHARD_CRASH_TOKEN)).toHaveLength(1)
+  })
+
+  test("#given a bound child that has not reported its own loss #when its sibling settles #then the episode stays open until it settles too", () => {
+    // given
+    const world = harness()
+    world.lose("st_a", { boundTaskIds: ["st_a", "st_b"] })
+
+    // when
+    world.settle("st_a", "continued")
+    const beforeSecond = linesWith(world.notices.list(), SHARD_CRASH_DONE_TOKEN).length
+    world.settle("st_b", "continued")
+
+    // then
+    expect(beforeSecond).toBe(0)
+    expect(doneCounts(linesWith(world.notices.list(), SHARD_CRASH_DONE_TOKEN)[0] ?? "")).toEqual([2, 2, 0])
   })
 
   test("#given the episode's children #when one continues and one is lost #then one done line with counts 2/1/1 and exactly two notifies, warning then info", () => {
@@ -103,17 +110,29 @@ describe("shard crash notice", () => {
     expect(world.notified[1]?.text).toStartWith(`${SHARD_CRASH_DONE_TOKEN}:`)
   })
 
+  test("#given an episode #when one child continues and one was cancelled during reattach #then the cancelled child is counted apart, never as lost", () => {
+    // given
+    const world = harness()
+    world.lose("st_a", { boundTaskIds: ["st_a", "st_b"] })
+
+    // when
+    world.settle("st_a", "continued")
+    world.settle("st_b", "cancelled")
+
+    // then
+    expect(doneCounts(linesWith(world.notices.list(), SHARD_CRASH_DONE_TOKEN)[0] ?? "")).toEqual([1, 1, 0, 1])
+  })
+
   test("#given one crash in progress #when a child on a second socket loses its host #then that is a second notice", () => {
     // given
     const world = harness()
     world.lose("st_a")
 
     // when
-    world.lose("st_c", SOCKET_B)
+    world.lose("st_c", { socket: SOCKET_B })
 
     // then
     const notices = linesWith(world.notices.list(), SHARD_CRASH_TOKEN)
-    expect(notices).toHaveLength(2)
     expect(notices.map((line) => line.split(" ")[0])).toEqual([
       `${SHARD_CRASH_TOKEN}:aaaaaaaaaaaaaaaa`,
       `${SHARD_CRASH_TOKEN}:bbbbbbbbbbbbbbbb`,
@@ -127,8 +146,8 @@ describe("shard crash notice", () => {
     world.settle("st_a", "continued")
 
     // when
-    world.lose("st_late", SOCKET_A, "gen-1")
-    world.lose("st_a", SOCKET_A, "gen-2")
+    world.lose("st_late", { instanceId: "gen-1" })
+    world.lose("st_a", { instanceId: "gen-2" })
 
     // then
     expect(world.notified.map((call) => call.type)).toEqual(["warning", "info", "warning"])
@@ -140,7 +159,7 @@ describe("shard crash notice", () => {
     const world = harness()
 
     // when
-    world.lose("st_idle", SOCKET_A, "gen-1", false)
+    world.lose("st_idle", { turnWasInFlight: false })
     world.settle("st_idle", "resumed")
 
     // then
@@ -166,8 +185,7 @@ describe("shard crash notice", () => {
   test("#given a finished episode #when task_output reads either child #then both lines are listed", async () => {
     // given
     const world = harness()
-    world.lose("st_a")
-    world.lose("st_b")
+    world.lose("st_a", { boundTaskIds: ["st_a", "st_b"] })
     world.settle("st_a", "continued")
     world.settle("st_b", "lost")
     const records: TaskRecord[] = [
@@ -195,68 +213,5 @@ describe("shard crash notice", () => {
       expect(linesWith(lines, SHARD_CRASH_TOKEN)).toHaveLength(1)
       expect(linesWith(lines, SHARD_CRASH_DONE_TOKEN)).toHaveLength(1)
     }
-  })
-})
-
-describe("session host runtime", () => {
-  test("#given a session with a captured UI #when its routing's shard events report a crash #then the session's notice list and UI both get it", () => {
-    // given
-    const { ui, notified } = uiRecorder()
-    const runtime = new TaskRuntimeContext("/tmp/dh-t10-project")
-    runtime.captureFrom({ ui, sessionManager: { getSessionId: () => "01a0e4ae-parent" } })
-    const host = createEngineHostRuntime(OmoTaskSettingsSchema.parse({}), runtime, {}, { agentDir: "/tmp/dh-t10-agent", env: {} })
-
-    // when
-    host.routing.shardEvents.onTransportLost?.({ taskId: "st_a", socket: SOCKET_A, instanceId: "gen-1", turnWasInFlight: true })
-
-    // then
-    expect(linesWith(host.notices.list(), SHARD_CRASH_TOKEN)).toHaveLength(1)
-    expect(notified.map((call) => call.type)).toEqual(["warning"])
-  })
-})
-
-describe("readNewestHostCrash", () => {
-  const dirs: string[] = []
-  afterEach(() => {
-    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
-  })
-
-  function endpointDir(agentDir: string, socket: string): string {
-    return join(agentDir, "rpc-host-daemon", createHash("sha256").update(socket, "utf8").digest("hex").slice(0, 16))
-  }
-
-  test("#given a fresh signalled record and the lost generation's pid file #when read #then pid and signal come back", () => {
-    // given
-    const agentDir = mkdtempSync(join(tmpdir(), "dh-t10-agent-"))
-    dirs.push(agentDir)
-    const dir = endpointDir(agentDir, SOCKET_A)
-    mkdirSync(join(dir, "generations", "gen-1"), { recursive: true })
-    writeFileSync(join(dir, "generations", "gen-1", "host.pid"), JSON.stringify({ pid: 777 }))
-    const at = Date.parse("2026-09-27T12:00:00.000Z")
-    writeFileSync(
-      join(dir, "crashes.jsonl"),
-      `${JSON.stringify({ at: "2026-09-26T12:00:00.000Z", code: 3, uptimeMs: 1 })}\n${JSON.stringify({ at: new Date(at - 1_000).toISOString(), signal: "SIGSEGV", uptimeMs: 5 })}\n`,
-    )
-
-    // when
-    const facts = readNewestHostCrash(agentDir, SOCKET_A, "gen-1", at)
-
-    // then
-    expect(facts).toEqual({ pid: 777, cause: "SIGSEGV" })
-  })
-
-  test("#given only an old record and no generation file #when read #then nothing is attributed to this crash", () => {
-    // given
-    const agentDir = mkdtempSync(join(tmpdir(), "dh-t10-agent-"))
-    dirs.push(agentDir)
-    const dir = endpointDir(agentDir, SOCKET_A)
-    mkdirSync(dir, { recursive: true })
-    writeFileSync(join(dir, "crashes.jsonl"), `${JSON.stringify({ at: "2026-09-20T12:00:00.000Z", signal: "SIGBUS", uptimeMs: 1 })}\n`)
-
-    // when
-    const facts = readNewestHostCrash(agentDir, SOCKET_A, "gen-1", Date.parse("2026-09-27T12:00:00.000Z"))
-
-    // then
-    expect(facts).toEqual({})
   })
 })

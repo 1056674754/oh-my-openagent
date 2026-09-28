@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
-import { join, win32 } from "node:path"
+import { basename, join, win32 } from "node:path"
 
 import {
   parseShardBasename,
@@ -10,6 +10,7 @@ import {
   type TransportLostInfo,
 } from "@oh-my-opencode/senpi-task"
 
+import { senpiCreateHostDaemonPaths } from "../../../../senpi-task/src/lazy/senpi-barrel"
 import type { HostNotices } from "./host-execution-mode"
 import type { CapturedUi } from "./runtime-context"
 
@@ -17,9 +18,11 @@ import type { CapturedUi } from "./runtime-context"
  * ONE parent-visible notice per task-host crash, and one closing line once its children are back.
  *
  * Every child that loses the same host generation (socket + instanceId) belongs to one episode - a
- * key, never a time window. The episode is announced at its first child that had a turn in flight
- * (a host that dies with nothing running is re-ensured silently by the next spawn) and closed when
- * its last outstanding child reports how its recovery ended. Both lines go to the session's notice
+ * key, never a time window. Its members are every child the runner still had bound to that
+ * generation when the first loss arrived, plus any that report a loss later. The episode is
+ * announced at its first child that had a turn in flight (a host that dies with nothing running is
+ * re-ensured silently by the next spawn) and closed when its last member reports how its recovery
+ * ended. Both lines go to the session's notice
  * list (`task_output`) AND to `ui.notify`, which a host-attached session forwards as an
  * `extension_ui_request` notify the Desktop renders as a thread row.
  */
@@ -28,7 +31,7 @@ export const SHARD_CRASH_TOKEN = "host_shard_crash"
 export const SHARD_CRASH_DONE_TOKEN = "host_shard_crash_done"
 
 export interface ShardCrashFacts {
-  readonly pid?: number
+  readonly supervisorPid?: number
   readonly cause?: string
 }
 
@@ -43,10 +46,14 @@ export interface ShardCrashNoticeDeps {
 interface Episode {
   readonly id: string
   readonly key: string
-  readonly outstanding: Set<string>
+  readonly members: Set<string>
+  readonly pending: Set<string>
   readonly outcomes: ReattachOutcome[]
   announced: boolean
 }
+
+const count = (outcomes: readonly ReattachOutcome[], ...kinds: readonly ReattachOutcome[]): number =>
+  outcomes.filter((outcome) => kinds.includes(outcome)).length
 
 export function createShardCrashNotices(deps: ShardCrashNoticeDeps): Required<HostShardEvents> {
   const readCrash = deps.readCrash ?? readNewestHostCrash
@@ -63,18 +70,30 @@ export function createShardCrashNotices(deps: ShardCrashNoticeDeps): Required<Ho
   const announce = (episode: Episode, info: TransportLostInfo): void => {
     episode.announced = true
     const crash = readCrash(deps.agentDir, info.socket, info.instanceId, now())
-    const text = `${SHARD_CRASH_TOKEN}:${episode.key} Background task host crashed (shard ${episode.key}, pid ${crash.pid ?? "unknown"}, ${crash.cause ?? "cause unknown"}): reattaching ${episode.outstanding.size} children...`
+    const supervisorPid = info.supervisorPid ?? crash.supervisorPid
+    const pid = supervisorPid === undefined ? "pid unknown" : `supervisor pid ${supervisorPid}`
+    const n = episode.members.size
+    const text = `${SHARD_CRASH_TOKEN}:${episode.key} Background task host crashed (shard ${episode.key}, ${pid}, ${crash.cause ?? "cause unknown"}): reattaching ${n} ${n === 1 ? "child" : "children"}...`
     emit(`${SHARD_CRASH_TOKEN}:${episode.id}`, text, "warning")
   }
 
+  // A child that left on its own during recovery is neither reattached nor lost: it is named apart.
   const close = (episode: Episode): void => {
     open.delete(episode.id)
     closed.add(episode.id)
     if (!episode.announced) return
-    const continued = episode.outcomes.filter((outcome) => outcome === "continued").length
-    const lost = episode.outcomes.filter((outcome) => outcome === "lost" || outcome === "host_incompatible").length
-    const text = `${SHARD_CRASH_DONE_TOKEN}:${episode.key} ${episode.outcomes.length} reattached: ${continued} continued mid-turn, ${lost} lost`
+    const cancelled = count(episode.outcomes, "cancelled")
+    const settled = episode.outcomes.length - cancelled
+    const counts = `${settled} reattached: ${count(episode.outcomes, "continued")} continued mid-turn, ${count(episode.outcomes, "lost", "host_incompatible")} lost`
+    const text = `${SHARD_CRASH_DONE_TOKEN}:${episode.key} ${counts}${cancelled === 0 ? "" : `, ${cancelled} cancelled`}`
     emit(`${SHARD_CRASH_DONE_TOKEN}:${episode.id}`, text, "info")
+  }
+
+  const enroll = (episode: Episode, taskId: string): void => {
+    if (episode.members.has(taskId)) return
+    episode.members.add(taskId)
+    episode.pending.add(taskId)
+    episodeOfTask.set(taskId, episode)
   }
 
   return {
@@ -84,44 +103,50 @@ export function createShardCrashNotices(deps: ShardCrashNoticeDeps): Required<Ho
       if (closed.has(id)) return
       let episode = open.get(id)
       if (episode === undefined) {
-        episode = { id, key: endpointKey(info.socket), outstanding: new Set(), outcomes: [], announced: false }
+        const key = endpointKey(deps.agentDir, info.socket)
+        episode = { id, key, members: new Set(), pending: new Set(), outcomes: [], announced: false }
         open.set(id, episode)
       }
-      episode.outstanding.add(info.taskId)
-      episodeOfTask.set(info.taskId, episode)
+      for (const taskId of [info.taskId, ...(info.boundTaskIds ?? [])]) enroll(episode, taskId)
       if (info.turnWasInFlight && !episode.announced) announce(episode, info)
     },
     onReattachOutcome: (info: ReattachOutcomeInfo) => {
       const episode = episodeOfTask.get(info.taskId)
-      if (episode === undefined || !episode.outstanding.delete(info.taskId)) return
+      if (episode === undefined || !episode.pending.delete(info.taskId)) return
       episodeOfTask.delete(info.taskId)
       episode.outcomes.push(info.outcome)
-      if (episode.outstanding.size === 0) close(episode)
+      if (episode.pending.size === 0) close(episode)
     },
   }
 }
 
-function endpointKey(socket: string): string {
-  return parseShardBasename(socket)?.key ?? daemonDirectoryName(socket)
+function endpointKey(agentDir: string, socket: string): string {
+  return parseShardBasename(socket)?.key ?? basename(hostDaemonDir(agentDir, socket))
 }
 
-/** senpi's `daemonDirectoryName`: `sha256(socket)[:16]`, over the case-folded normalized path on win32. */
-function daemonDirectoryName(socket: string): string {
+/**
+ * The endpoint's daemon directory as the ENGINE names it (`createHostDaemonPaths`), so a change in
+ * how senpi canonicalizes the socket cannot point this reader at an empty directory. An engine
+ * without the export - or a barrel nobody loaded yet - falls back to today's `sha256(socket)[:16]`.
+ */
+export function hostDaemonDir(agentDir: string, socket: string): string {
+  const createHostDaemonPaths = senpiCreateHostDaemonPaths()
+  if (createHostDaemonPaths !== undefined) return createHostDaemonPaths({ agentDir, socket }).dir
   const canonical = process.platform === "win32" ? win32.normalize(socket).toLowerCase() : socket
-  return createHash("sha256").update(canonical, "utf8").digest("hex").slice(0, 16)
+  return join(agentDir, "rpc-host-daemon", createHash("sha256").update(canonical, "utf8").digest("hex").slice(0, 16))
 }
 
 /** A record older than this belongs to an earlier crash of the endpoint, not the one being announced. */
 const CRASH_RECORD_FRESH_MS = 5 * 60_000
 
-// The generation's pid survives only when the crash path has not cleaned its record yet.
+// The generation record names the SUPERVISOR; it survives only until the crash path cleans it.
 export function readNewestHostCrash(agentDir: string, socket: string, instanceId: string, now: number): ShardCrashFacts {
-  const dir = join(agentDir, "rpc-host-daemon", daemonDirectoryName(socket))
-  const pid = readPid(join(dir, "generations", instanceId, "host.pid"))
+  const dir = hostDaemonDir(agentDir, socket)
+  const supervisorPid = readPid(join(dir, "generations", instanceId, "host.pid"))
   const newest = readLines(join(dir, "crashes.jsonl")).map(parseRecord).findLast((record) => record !== undefined)
   const fresh = newest !== undefined && now - Date.parse(newest.at) <= CRASH_RECORD_FRESH_MS
   const cause = fresh ? newest.cause : undefined
-  return { ...(pid === undefined ? {} : { pid }), ...(cause === undefined ? {} : { cause }) }
+  return { ...(supervisorPid === undefined ? {} : { supervisorPid }), ...(cause === undefined ? {} : { cause }) }
 }
 
 function parseRecord(line: string): { readonly at: string; readonly cause?: string } | undefined {

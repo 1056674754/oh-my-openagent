@@ -9,8 +9,11 @@ import {
   reattachContinuationPrompt,
 } from "./reattach"
 
-/** How ONE child's recovery ended: re-joined live, reopened idle, re-prompted mid-turn, or gone. */
-export type ReattachOutcome = "attached" | "resumed" | "continued" | "lost" | "host_incompatible"
+/**
+ * How ONE child's recovery ended: re-joined live, reopened idle, re-prompted mid-turn, gone, or
+ * `cancelled` - the child itself left (cancelled, closed, detached) before recovery finished.
+ */
+export type ReattachOutcome = "attached" | "resumed" | "continued" | "lost" | "host_incompatible" | "cancelled"
 
 export interface TransportLostInfo {
   readonly taskId: string
@@ -18,6 +21,10 @@ export interface TransportLostInfo {
   // The host generation the child lost: every sibling that lost the same one shares one crash.
   readonly instanceId: string
   readonly turnWasInFlight: boolean
+  // Filled by the runner: every live child still bound to this socket + instanceId (this one too).
+  readonly boundTaskIds?: readonly string[]
+  // Filled by the runner when it ensured this very generation: its supervisor's pid.
+  readonly supervisorPid?: number
 }
 
 export interface ReattachOutcomeInfo {
@@ -69,9 +76,8 @@ export async function recoverLostTransport(subject: ReattachSubject, reattach: H
     log("senpi-task host session reattach failed", { taskId, error: String(error) })
   }
   if (!subject.alive()) {
-    if (next === undefined || "refused" in next) return report("lost")
-    await discard(next.client, taskId)
-    return report(next.attached ? "attached" : "resumed", next.session.instanceId)
+    if (next !== undefined && !("refused" in next)) await discard(next.client, taskId)
+    return report("cancelled")
   }
   if (next === undefined || "refused" in next) {
     report(next?.refused === "host_incompatible" ? "host_incompatible" : "lost")

@@ -55,7 +55,12 @@ export function createHandleRecovery(host: HandleRecoveryHost): HandleRecovery {
   const onTransportGone = (lost: HostSessionPort): void => {
     if (host.port() !== lost) return
     const reattach = host.reattach
-    if (reattach === undefined || !host.alive()) return host.endLost()
+    if (reattach === undefined) return host.endLost()
+    if (!host.alive()) {
+      // A child that already left still settles its place in a crash episode it was counted into.
+      host.events?.onReattachOutcome?.({ taskId: host.taskId, socket: lost.socketPath, outcome: "cancelled" })
+      return host.endLost()
+    }
     reattaching = recoverLostTransport(
       {
         taskId: host.taskId,
