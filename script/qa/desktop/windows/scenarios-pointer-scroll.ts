@@ -19,8 +19,8 @@ import {
 } from "./pointer-stage"
 import { type Scenario, withEngine } from "./scenario-kit"
 
-/** Three wheel notches: the win32 backend maps every 100 units of delta to one notch. */
-const SCROLL_DELTA = 300
+/** Three wheel notches: scroll deltas are pixels, 40 per notch (#9101). */
+const SCROLL_DELTA = 120
 
 function firstLine(seen: PointerProbe, host: PointerHost): number {
   return seen.hosts[host.id]?.firstVisibleLine ?? -1
