@@ -56,3 +56,6 @@ pub(crate) mod live_tests;
 
 #[cfg(all(test, target_os = "windows"))]
 mod live_release_tests;
+
+#[cfg(all(test, target_os = "windows"))]
+mod live_pointer_diag;

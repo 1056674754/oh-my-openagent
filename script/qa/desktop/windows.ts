@@ -14,6 +14,12 @@ import { parseArgs } from "node:util"
 
 import { QaWorkspace } from "./windows/fixtures"
 import { SABOTAGE_MODES, type Sabotage, type Scenario, type ScenarioOutcome } from "./windows/scenario-kit"
+import { desktopMoveLands } from "./windows/scenarios-cursor"
+import {
+  foregroundClickLandsInTarget,
+  foregroundDragSelectsInTarget,
+  foregroundScrollMovesTarget,
+} from "./windows/scenarios-pointer"
 import {
   backgroundPostMessageNotepad,
   backgroundPostMessageWpf,
@@ -27,6 +33,10 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "
 const DEFAULT_ENGINE = join(REPO_ROOT, "target", "x86_64-pc-windows-msvc", "release", "senpi-desktop-engine.exe")
 
 const SCENARIOS: readonly Scenario[] = [
+  desktopMoveLands,
+  foregroundClickLandsInTarget,
+  foregroundDragSelectsInTarget,
+  foregroundScrollMovesTarget,
   capturePrimary,
   foregroundTypeRestoresFront,
   backgroundPostMessageNotepad,
