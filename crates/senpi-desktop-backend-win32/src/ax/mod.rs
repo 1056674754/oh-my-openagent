@@ -8,7 +8,7 @@ mod automation;
 mod patterns;
 mod props;
 
-use senpi_desktop_core::ax::{AxBackend, AxHandle, AxProps};
+use senpi_desktop_core::ax::{AxBackend, AxHandle, AxOwner, AxProps};
 use senpi_desktop_core::error::{CoreResult, DesktopError};
 use senpi_desktop_core::types::{DesktopDisplay, DesktopWindow};
 use uiautomation::types::ControlType;
@@ -123,6 +123,11 @@ impl Win32Ax {
     }
 }
 
+/// A top-level HWND in the decimal form `windows()` lists (xcap's u32 id).
+fn window_id(root: HWND) -> Option<String> {
+    u32::try_from(root.addr()).ok().map(|id| id.to_string())
+}
+
 fn uia_error(error: impl std::fmt::Display) -> DesktopError {
     DesktopError::ax_failed(format!("UI Automation failed: {error}"))
 }
@@ -192,6 +197,15 @@ impl AxBackend for Win32Ax {
 
     fn attributes(&mut self, h: &AxHandle) -> CoreResult<Vec<(String, String)>> {
         Ok(props::attributes(Self::element(h)?))
+    }
+
+    /// The top-level HWND above the element's nearest native window handle.
+    fn owner(&mut self, h: &AxHandle) -> CoreResult<AxOwner> {
+        let element = Self::element(h)?;
+        Ok(self
+            .host_root(element)
+            .and_then(window_id)
+            .map_or(AxOwner::Unknown, AxOwner::Window))
     }
 }
 

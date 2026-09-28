@@ -2,7 +2,7 @@
 
 //! Shared Linux AT-SPI accessibility backend for the X11 and Wayland
 //! backends: pure Rust over `atspi` + `zbus`, never libatspi. Backends hold
-//! it as `AtSpiAx::new().ok()`, so a missing accessibility bus reports
+//! it as `AtSpiAx::new(..).ok()`, so a missing accessibility bus reports
 //! `ax: false` instead of failing the backend.
 
 mod actions;
@@ -14,7 +14,7 @@ mod permission;
 mod props;
 mod text;
 
-use senpi_desktop_core::ax::{AxBackend, AxHandle, AxProps};
+use senpi_desktop_core::ax::{AxBackend, AxHandle, AxOwner, AxProps};
 use senpi_desktop_core::error::{CoreResult, DesktopError};
 use senpi_desktop_core::types::DesktopWindow;
 
@@ -24,22 +24,41 @@ pub use permission::AxPermission;
 
 pub const BACKEND_NAME: &str = env!("CARGO_PKG_NAME");
 
+/// The id space of the host backend's `windows()`, fixed at construction:
+/// it decides whether an element's frame names its window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowIds {
+    /// `windows()` lists AT-SPI frames by object id (Wayland).
+    AtSpiFrames,
+    /// `windows()` lists ids AT-SPI cannot name (X11 XIDs), so every
+    /// element's owner is unknown.
+    Foreign,
+}
+
 /// The AT-SPI accessibility backend. Handles wrap `B::Node` in core's
 /// session-thread `AxHandle::Native`.
 pub struct AtSpiAx<B: AtSpiBus = LiveBus> {
     bus: B,
+    window_ids: WindowIds,
 }
 
 impl AtSpiAx<LiveBus> {
     /// Connects to the accessibility bus; fails when there is none.
-    pub fn new() -> CoreResult<Self> {
-        LiveBus::connect().map(Self::with_bus)
+    pub fn new(window_ids: WindowIds) -> CoreResult<Self> {
+        LiveBus::connect().map(|bus| Self {
+            bus,
+            window_ids,
+        })
     }
 }
 
 impl<B: AtSpiBus> AtSpiAx<B> {
+    /// A backend over `bus` whose owners are unknown (`WindowIds::Foreign`).
     pub const fn with_bus(bus: B) -> Self {
-        Self { bus }
+        Self {
+            bus,
+            window_ids: WindowIds::Foreign,
+        }
     }
 
     /// Top-level frames as windows: the Wayland window list, where the
@@ -109,6 +128,16 @@ impl<B: AtSpiBus> AxBackend for AtSpiAx<B> {
     fn attributes(&mut self, h: &AxHandle) -> CoreResult<Vec<(String, String)>> {
         props::attributes(&mut self.bus, Self::node(h)?)
     }
+
+    /// The element's frame, whose object id is a window id only when
+    /// `windows()` lists frames.
+    fn owner(&mut self, h: &AxHandle) -> CoreResult<AxOwner> {
+        if self.window_ids == WindowIds::Foreign {
+            return Ok(AxOwner::Unknown);
+        }
+        let frame = apps::frame_of(&mut self.bus, Self::node(h)?)?;
+        Ok(frame.map_or(AxOwner::Unknown, |frame| AxOwner::Window(self.bus.object_id(&frame))))
+    }
 }
 
 #[cfg(test)]
@@ -117,5 +146,7 @@ mod action_tests;
 mod fake;
 #[cfg(test)]
 mod live_tests;
+#[cfg(test)]
+mod owner_tests;
 #[cfg(test)]
 mod tests;

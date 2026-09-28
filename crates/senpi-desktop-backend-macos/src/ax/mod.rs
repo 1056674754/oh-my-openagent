@@ -8,7 +8,7 @@ pub(crate) mod element;
 mod props;
 mod tree;
 
-use senpi_desktop_core::ax::{AxBackend, AxHandle, AxProps};
+use senpi_desktop_core::ax::{AxBackend, AxHandle, AxOwner, AxProps};
 use senpi_desktop_core::error::CoreResult;
 use senpi_desktop_core::types::DesktopWindow;
 
@@ -113,6 +113,12 @@ impl AxBackend for MacAx {
 
     fn attributes(&mut self, h: &AxHandle) -> CoreResult<Vec<(String, String)>> {
         tree::attributes(element(h)?)
+    }
+
+    /// `AXWindow`'s CGWindowID: the id `windows()` lists.
+    fn owner(&mut self, h: &AxHandle) -> CoreResult<AxOwner> {
+        Ok(element::owner_window_id(element(h)?)
+            .map_or(AxOwner::Unknown, |id| AxOwner::Window(id.to_string())))
     }
 }
 

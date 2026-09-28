@@ -28,6 +28,7 @@ pub struct FakeBackend {
     delays: DelayMs,
     pub(crate) resize_window: Option<ResizeWindow>,
     pub(crate) ax_tree: AxTree,
+    pub(crate) ax_owner_unknown: bool,
     pub(crate) sink: RecordingSink,
     faults: Faults,
 }
@@ -40,6 +41,7 @@ impl FakeBackend {
         }
         Self {
             ax_tree: AxTree::build(&scenario.ax),
+            ax_owner_unknown: scenario.ax_owner_unknown,
             displays: scenario.displays,
             windows: scenario.windows,
             capabilities: scenario.capabilities,
