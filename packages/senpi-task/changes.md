@@ -1,3 +1,17 @@
+## A store index or sidecar waiter outlasts a slow durable rewrite
+
+`store/record-lock.ts`: `withTaskRecordLockAsync` takes an optional `holderWaitMs`, the time ONE live holder
+may keep the lock before a waiter gives up (default unchanged: 1 s, sized for a record read-modify-write).
+`runners/rpc-host/durable-json.ts` exports `DURABLE_JSON_LOCK_OPTIONS` (10 s), and `store-index.ts`
+(register, prune) and `shard-sidecar.ts` (write, register store) pass it: their holders rewrite and fsync
+the whole file, and on a loaded windows-latest runner a live holder kept the index lock past 1 s, so a
+waiter behind it failed `store_index_unavailable` (the 32-process registration case failed
+intermittently). A stalled holder still times the waiter out; the task record, workpool and lease locks
+keep the 1 s budget.
+
+Tests: `runners/rpc-host/store-index.test.ts` (a live holder that keeps the index lock for 1.5 s: the
+registration behind it waits and lands; it timed out at 1 s before).
+
 ## AGENTS: the host runner opens children on their parent session's own host
 
 `AGENTS.md` describes `RpcHostRunner` as opening a child on its parent session's own host
