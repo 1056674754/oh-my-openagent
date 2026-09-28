@@ -13,6 +13,10 @@ Tests: `runners/rpc-host/daemon.test.ts` ("ensureTaskDaemon attach hold": a star
 after its capability probe, a reused one once, a throwing probe still releases, concurrent and cached
 ensures release the one engine ensure once, a hold-less pin still ensures).
 
+## A fallback start queued behind a full lane is reported as queued (#9069)
+
+`manager/manager.ts` `#advanceStartFallback`: when a start-time `model_unavailable` walks the chain onto a model whose lane is full, the enqueued launch now records `start_queued { model, queued_at, queue_position }` on the record and a `task_start_queued` event, `#launch` returns the queue position, and `start` answers `status: "pending"` with `queue_position` instead of `running` with no child behind it. `#launchRuntimeFallback` clears `start_queued` when the slot is granted. `tools/output/snapshot.ts` surfaces `start_queued` in `task_output` while the record is running. `manager/start-failure-model-fallback.test.ts` covers it (RED on the old manager: `Expected: "pending" Received: "running"`).
+
 ## A task record follows the child session, not the first agent_end (#9069)
 
 `src/runners/rpc/turn-settlement.ts` (new) is shared by both process runners (`runners/rpc/handle.ts`, `runners/rpc-host/handle.ts`): the outcome of a non-retrying `agent_end` is held until senpi's `agent_idle` (emitted only when no settle-time continuation started and no session work is pending), dropped when another run starts (`agent_start`), and a user abort still settles at once as cancelled. A child exit settles any held outcome. A TTSR interrupt followed by its corrective nudge therefore ends with the continuation's result instead of `error: This operation was aborted` (`runners/rpc-host/handle-continuation.test.ts`, RED on the old handle).
