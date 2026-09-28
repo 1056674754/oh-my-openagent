@@ -1,6 +1,7 @@
 // The X11 stage: Xvfb, the xfwm4 window manager (EWMH, publishes `_NET_ACTIVE_WINDOW`), a target
-// xterm whose shell records every line pasted into it, a second xterm to hold focus, and `xclip`
-// owning the PRIMARY selection. Every read here is an independent process (xprop, xwininfo,
+// xterm whose shell records every line pasted into it, a second xterm to hold focus, a Tk text
+// widget that records its own view for the scroll-direction scenarios, and `xclip` owning the
+// PRIMARY selection. Every read here is an independent process (xprop, xwininfo,
 // xdotool, the target xterm's own shell), never the engine.
 //
 // The target needs `allowSendEvents` so background `XSendEvent` input is accepted, and xterm then
@@ -14,6 +15,7 @@ import { requireTools, X11_TOOLS } from "./provision.ts";
 
 const TARGET_TITLE = "qa-target";
 const OTHER_TITLE = "qa-other";
+const SCROLL_TITLE = "qa-scroll";
 export const PASTE_TOKEN = "omo-qa-paste";
 
 const TARGET_SCRIPT = `stty -echo
@@ -28,14 +30,44 @@ done
 // The focus holder only has to stay mapped; it blocks on its own tty until teardown stops its group.
 const HOLDER_SCRIPT = "stty -echo; while IFS= read -r _; do :; done";
 
+// A long, wide, read-only document opened mid-content both ways. Every view change rewrites the
+// report file (atomically) with the text index at the view's top-left pixel: `<line>.<column>`.
+const SCROLL_SCRIPT = `set report [lindex $argv 0]
+wm title . ${SCROLL_TITLE}
+wm geometry . +40+300
+text .t -wrap none -width 40 -height 10 -yscrollcommand record -xscrollcommand record
+pack .t -fill both -expand 1
+for {set i 1} {$i <= 200} {incr i} {
+	.t insert end [format "line %03d %s\\n" $i [string repeat . 160]]
+}
+.t configure -state disabled
+# Tk 8.6 binds only buttons 4/5; 6/7 scroll left/right in the X11 wheel convention GTK and Qt follow.
+bind .t <6> {%W xview scroll -4 units}
+bind .t <7> {%W xview scroll 4 units}
+proc record args {
+	global report
+	set f [open $report.tmp w]
+	puts $f [.t index @0,0]
+	close $f
+	file rename -force $report.tmp $report
+}
+.t yview scroll 100 units
+.t xview scroll 40 units
+update
+record
+`;
+
 export interface X11Stage {
 	readonly display: string;
 	readonly target: string;
 	readonly other: string;
+	readonly scroll: string;
 	readonly env: Record<string, string | undefined>;
 }
 
 export type Pastes = { readonly count: number; readonly last: string };
+/** The scroll fixture's top-left text index; line 0 before it reported. */
+export type ScrollView = { readonly line: number; readonly column: number };
 
 function freeDisplay(): number {
 	for (let display = 140; display < 240; display++) {
@@ -49,6 +81,7 @@ export class X11Observer {
 		private readonly procs: Processes,
 		private readonly env: Record<string, string | undefined>,
 		private readonly pastesFile: string,
+		private readonly scrollFile: string,
 	) {}
 
 	private async stdout(argv: readonly string[]): Promise<string> {
@@ -82,6 +115,26 @@ export class X11Observer {
 			return seen.count > baseline;
 		}, `pastes above ${baseline}`);
 		return seen;
+	}
+
+	/** What the scroll fixture reported about its own view. */
+	scrollView(): ScrollView {
+		try {
+			const match = /^(\d+)\.(\d+)$/.exec(readFileSync(this.scrollFile, "utf8").trim());
+			return match === null ? { line: 0, column: 0 } : { line: Number(match[1]), column: Number(match[2]) };
+		} catch {
+			return { line: 0, column: 0 };
+		}
+	}
+
+	/** The view once it differs from `from`; the unchanged view when the hang guard expires first. */
+	async scrollViewMoved(from: ScrollView): Promise<ScrollView> {
+		const moved = (): boolean => {
+			const seen = this.scrollView();
+			return seen.line !== from.line || seen.column !== from.column;
+		};
+		await until(moved, "the scroll fixture's view to move").catch(() => undefined);
+		return this.scrollView();
 	}
 
 	async geometry(window: string): Promise<{ width: number; height: number }> {
@@ -119,7 +172,8 @@ export async function startX11(procs: Processes, runDir: string): Promise<{ stag
 	procs.start("Xvfb", ["Xvfb", display, "-screen", "0", "1280x800x24", "-nolisten", "tcp"], env);
 	await until(() => exists(`/tmp/.X11-unix/X${number}`), `Xvfb ${display}`);
 	const pastesFile = join(runDir, "target-pastes");
-	const observe = new X11Observer(procs, env, pastesFile);
+	const scrollFile = join(runDir, "scroll-view");
+	const observe = new X11Observer(procs, env, pastesFile, scrollFile);
 	procs.start("xfwm4", ["xfwm4", "--compositor=off", "--sm-client-disable"], env);
 	await until(async () => {
 		const check = await procs.run(["xprop", "-root", "_NET_SUPPORTING_WM_CHECK"], env);
@@ -134,12 +188,20 @@ export async function startX11(procs: Processes, runDir: string): Promise<{ stag
 	const allowSendEvents = ["-xrm", "XTerm*allowSendEvents: true"];
 	const target = ["-T", TARGET_TITLE, ...allowSendEvents, "-geometry", "60x12+40+40", "-e", "sh", script, pastesFile];
 	const other = ["-T", OTHER_TITLE, "-geometry", "40x8+700+420", "-e", "sh", "-c", HOLDER_SCRIPT];
-	const xterms = [procs.start("xterm target", ["xterm", ...target], env), procs.start("xterm other", ["xterm", ...other], env)];
-	const windows = await Promise.all([observe.find(TARGET_TITLE), observe.find(OTHER_TITLE)]).catch((error) => {
-		const output = xterms.map((xterm) => `pid ${xterm.pid} exit ${xterm.exitCode}: ${procs.output(xterm)}`);
-		throw new Error(`${error instanceof Error ? error.message : String(error)}; xterm output: ${output.join(" | ")}`);
+	const scrollScript = join(runDir, "scroll-fixture.tcl");
+	writeFileSync(scrollScript, SCROLL_SCRIPT);
+	const clients = [
+		procs.start("xterm target", ["xterm", ...target], env),
+		procs.start("xterm other", ["xterm", ...other], env),
+		procs.start("wish scroll fixture", ["wish", scrollScript, scrollFile], env),
+	];
+	const titles = [TARGET_TITLE, OTHER_TITLE, SCROLL_TITLE];
+	const windows = await Promise.all(titles.map((title) => observe.find(title))).catch((error) => {
+		const output = clients.map((client) => `pid ${client.pid} exit ${client.exitCode}: ${procs.output(client)}`);
+		throw new Error(`${error instanceof Error ? error.message : String(error)}; client output: ${output.join(" | ")}`);
 	});
-	const [targetWindow, otherWindow] = windows;
+	const [targetWindow = "", otherWindow = "", scrollWindow = ""] = windows;
 	await until(() => observe.pastes().count === 0, "the target xterm script to start");
-	return { stage: { display, target: targetWindow, other: otherWindow, env }, observe };
+	await until(() => observe.scrollView().line > 0, "the scroll fixture to report its view");
+	return { stage: { display, target: targetWindow, other: otherWindow, scroll: scrollWindow, env }, observe };
 }

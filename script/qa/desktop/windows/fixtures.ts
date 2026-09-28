@@ -13,6 +13,10 @@ import { hangGuard, probeUntil } from "./until"
 import { removeTreeSync } from "../../../../test-support/remove-tree"
 
 const WPF_HOST_SCRIPT = fileURLToPath(new URL("./wpf-host.ps1", import.meta.url))
+const SCROLL_HOST_SCRIPT = fileURLToPath(new URL("./scroll-host.ps1", import.meta.url))
+
+/** The scroll host's document: 200 lines, its view opened at zero-based line 100. */
+export const SCROLL_DOCUMENT = { lines: 200, firstVisibleLine: 100 } as const
 
 export interface QaWindow {
   readonly id: string
@@ -23,6 +27,11 @@ export interface QaWindow {
 
 export interface Notepad extends QaWindow {
   readonly content: string
+}
+
+export interface ScrollWindow extends QaWindow {
+  /** The host's wheel/focus/activation event log, one event per line. */
+  readonly eventLog: string
 }
 
 function parseWindow(value: Json): QaWindow {
@@ -85,20 +94,33 @@ export class QaWorkspace {
   }
 
   async wpfWindow(engine: Engine, tag: string): Promise<QaWindow> {
-    const args = ["-NoProfile", "-NonInteractive", "-STA", "-ExecutionPolicy", "Bypass", "-File", WPF_HOST_SCRIPT]
-    const child = spawn("powershell.exe", [...args, "-Title", `omo-qa-wpf-${tag}`], {
-      stdio: ["ignore", "pipe", "inherit"],
-    })
-    this.track(child, "wpf-host.ps1")
-    if (child.stdout === null) throw new Error("wpf-host.ps1 has no stdout")
+    return this.hostWindow(engine, WPF_HOST_SCRIPT, ["-Title", `omo-qa-wpf-${tag}`], "WPF window")
+  }
+
+  /** A WinForms window whose multi-line EDIT shows `SCROLL_DOCUMENT` from its middle. */
+  async scrollWindow(engine: Engine, tag: string): Promise<ScrollWindow> {
+    const eventLog = join(this.dir, `omo-qa-scroll-${tag}.log`)
+    writeFileSync(eventLog, "")
+    const args = ["-Title", `omo-qa-scroll-${tag}`, "-EventLog", eventLog, "-Lines", String(SCROLL_DOCUMENT.lines)]
+    args.push("-FirstVisibleLine", String(SCROLL_DOCUMENT.firstVisibleLine))
+    return { ...(await this.hostWindow(engine, SCROLL_HOST_SCRIPT, args, "scroll window")), eventLog }
+  }
+
+  /** Runs a `-STA` PowerShell window host that prints `ready <hwnd>`, and waits for that window. */
+  private async hostWindow(engine: Engine, script: string, scriptArgs: string[], label: string): Promise<QaWindow> {
+    const args = ["-NoProfile", "-NonInteractive", "-STA", "-ExecutionPolicy", "Bypass", "-File", script]
+    const name = basename(script)
+    const child = spawn("powershell.exe", [...args, ...scriptArgs], { stdio: ["ignore", "pipe", "inherit"] })
+    this.track(child, name)
+    if (child.stdout === null) throw new Error(`${name} has no stdout`)
     const lines = createInterface({ input: child.stdout })
     const ready = await hangGuard(
       new Promise<string>((resolve) => lines.once("line", resolve)),
-      () => "hang guard: wpf-host.ps1 never reported ready",
+      () => `hang guard: ${name} never reported ready`,
     )
     const hwnd = /^ready (\d+)$/.exec(ready.trim())?.[1]
-    if (hwnd === undefined) throw new Error(`wpf-host.ps1: ${ready}`)
-    return waitForWindow(engine, (candidate) => candidate.id === hwnd, `WPF window ${hwnd}`)
+    if (hwnd === undefined) throw new Error(`${name}: ${ready}`)
+    return waitForWindow(engine, (candidate) => candidate.id === hwnd, `${label} ${hwnd}`)
   }
 
   /**

@@ -1,3 +1,7 @@
+## 2026-09-28 - Computer use scrolls the same direction on every OS (#9055)
+
+A positive `dy` scrolled up on macOS but down on X11 and Windows, so the same `scroll(x, y, { dy })` call, and every `computer_actions` scroll from an OpenAI computer-use model (`scroll_y`), went the wrong way on macOS; at the top of a document it did nothing. The macOS backend now negates Quartz's wheel deltas, so on every OS a positive `dy` scrolls down and a positive `dx` scrolls right. The model-facing docs, the declarations and the `computer_actions` schema state the convention. The Windows and Linux (X11) desktop QA jobs now scroll a long document in a task-owned window both ways and read its top line (and on X11 its left column) from the window itself rather than from the engine: X11 with foreground and background delivery, Windows with background delivery. Windows foreground delivery is not in the job yet, because the engine's foreground pointer input never reaches the target on the hosted runner (#9095).
+
 ## 2026-09-28 - Adopt senpi 2026.9.28-4: Claude subscription stays signed in across sessions (#8762)
 
 Every senpi pin moves from 2026.9.28-3 to 2026.9.28-4 (root devDependency, `omo-native`, the `omo-senpi` and `senpi-task` peer and dev pins, their pin tests, `bun.lock`, and the version comment in `packages/omo-native/bin/lib/provider-map.json`). The committed plugin bundles pass `build-extension.mjs --check` against the new engine unchanged. The new engine carries:
