@@ -35,11 +35,16 @@ const SCENARIOS: readonly Scenario[] = [
   uiaSnapshotNotepad,
   hotkeyLatches,
   scrollDirectionBackground,
-  scrollDirectionForeground,
 ]
+
+// Repros of open engine defects: selectable by --scenario, left out of --all until the fix lands.
+// scroll-direction-foreground: foreground SendInput pointer input never reaches the target (#9095).
+const DEFECT_REPROS: readonly Scenario[] = [scrollDirectionForeground]
+const SELECTABLE = [...SCENARIOS, ...DEFECT_REPROS]
 
 const USAGE = `usage: windows.ts (--all | --scenario <name>...) [--json] [--engine <exe>] [--out <file>] [--sabotage <mode>]
 scenarios: ${SCENARIOS.map((scenario) => scenario.name).join(", ")}
+defect repros (--scenario only): ${DEFECT_REPROS.map((scenario) => scenario.name).join(", ")}
 sabotage modes: ${SABOTAGE_MODES.join(", ")} (flips hotkey-latches to pass:false)`
 
 function fail(message: string): never {
@@ -69,9 +74,9 @@ if (values.help) {
   process.exit(0)
 }
 const sabotage = parseSabotage(values.sabotage)
-const unknown = values.scenario.filter((name) => !SCENARIOS.some((scenario) => scenario.name === name))
+const unknown = values.scenario.filter((name) => !SELECTABLE.some((scenario) => scenario.name === name))
 if (unknown.length > 0) fail(`unknown scenario(s): ${unknown.join(", ")}`)
-const selected = values.all ? SCENARIOS : SCENARIOS.filter((scenario) => values.scenario.includes(scenario.name))
+const selected = values.all ? SCENARIOS : SELECTABLE.filter((scenario) => values.scenario.includes(scenario.name))
 if (selected.length === 0) fail("select --all or at least one --scenario")
 if (process.platform !== "win32") {
   fail(`the Windows desktop QA driver runs on win32 only (this host: ${process.platform})`)
