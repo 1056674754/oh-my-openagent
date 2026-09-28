@@ -25,8 +25,10 @@ omo daemon handoff             # upgrade-gated handoff across every live endpoin
 omo daemon rollback-prepare [--store <dir>]... [--allow-missing-index] [--dry-run] [--json]
 ```
 
-Bare `omo` never ensures a daemon. Only `run`, `attach` and `handoff` can bring one
-into existence; `status`, `gc` and `stop` work on an install whose plugin payload was
+Bare `omo` never ensures the operator daemon on `rpc.sock`. Only `run`, `attach` and
+`handoff` can bring it into existence (per-session hosts are started by the task
+engine when a session spawns its first child, or earlier when `task.host_shard_prewarm`
+is `first-turn` or `session-start`, never by bare `omo` itself); `status`, `gc` and `stop` work on an install whose plugin payload was
 never built. `--persistent` is still accepted and does nothing; `--foreground` exits 2,
 because the engine host always detaches.
 
@@ -267,8 +269,9 @@ never hand off; the newer side reuses or refuses, and says why.
 
 `omo daemon handoff` applies that same gate independently. The operator endpoint
 uses `host handoff`; every other discovered endpoint uses
-`host ensure --policy upgrade --socket <socket>`. An older client therefore cannot
-replace a newer host.
+`host ensure --policy <policy> --socket <socket>`, where `<policy>` is
+`task.host_engine_policy` (default `upgrade`) or `never` under `--no-upgrade`. An
+older client therefore cannot replace a newer host.
 
 ## Migration
 
