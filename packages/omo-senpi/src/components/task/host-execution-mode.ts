@@ -24,6 +24,8 @@ import {
   type SessionIdentitySource,
   type SessionShardRouting,
 } from "./shard-routing"
+import type { CapturedUi } from "./runtime-context"
+import { createShardCrashNotices } from "./shard-crash-notice"
 
 /**
  * How this parent session answers `task.default_execution_mode: "auto"`, and how it tells the
@@ -34,17 +36,20 @@ import {
  * spawn time.
  */
 
-/** One line per distinct reason. The token (`host_unavailable:<reason>`) is the dedup key. */
+/**
+ * One line per distinct reason. The token is the dedup key: the message's first word
+ * (`host_unavailable:<reason>`) unless the caller names a narrower one.
+ */
 export interface HostNotices {
-  add(message: string): () => void
+  add(message: string, token?: string): () => void
   list(): readonly string[]
 }
 
 export function createHostNotices(log: (message: string) => void): HostNotices {
   const byToken = new Map<string, { message: string; references: number }>()
   return {
-    add: (message) => {
-      const token = message.split(" ")[0] ?? message
+    add: (message, explicitToken) => {
+      const token = explicitToken ?? message.split(" ")[0] ?? message
       const existing = byToken.get(token)
       if (existing === undefined) {
         byToken.set(token, { message, references: 1 })
@@ -174,7 +179,7 @@ export interface EngineHostRuntimeOverrides {
  */
 export function createEngineHostRuntime(
   settings: OmoTaskSettings,
-  runtime: SessionIdentitySource,
+  runtime: SessionIdentitySource & { ui?(): CapturedUi | undefined },
   pi: unknown,
   overrides: EngineHostRuntimeOverrides = {},
 ): EngineHostRuntime {
@@ -188,6 +193,7 @@ export function createEngineHostRuntime(
     agentDir,
     env,
     notices,
+    shardEvents: createShardCrashNotices({ agentDir, notices, ui: () => runtime.ui?.() }),
     ...(overrides.ensureDaemon === undefined ? {} : { ensureDaemon: overrides.ensureDaemon }),
     ...(overrides.probeHost === undefined ? {} : { probeHost: overrides.probeHost }),
   })

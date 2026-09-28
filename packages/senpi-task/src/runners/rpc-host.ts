@@ -14,10 +14,13 @@ import {
   type EnsureTaskDaemonPort,
   type ShardResolver,
 } from "./rpc-host/child-endpoint"
-import { HostUnavailableError, ensureTaskDaemon, isHostIncompatible } from "./rpc-host/daemon"
+import { HostUnavailableError, ensureTaskDaemon } from "./rpc-host/daemon"
+import { recordedEndpointFailure } from "./rpc-host/endpoint-failure"
 import { onceNoticeSink, type HostNoticeSink } from "./rpc-host/host-notice"
 import { createReattachPort } from "./rpc-host/reattach-port"
 import { createHostSessionHandle } from "./rpc-host/handle"
+import type { HostShardEvents } from "./rpc-host/handle-reattach"
+import { createLiveHostChildren, type LiveHostChildren } from "./rpc-host/live-children"
 import type { HostSessionChildHandle, HostSessionIdentity, HostSessionPort } from "./rpc-host/handle-port"
 import { HostSessionClient, type OpenedHostSession } from "./rpc-host/session-client"
 import { probeWithEngine, type HostProtocolProbe } from "./rpc-host/session-transport"
@@ -80,6 +83,8 @@ export type RpcHostRunnerOptions = {
   readonly insideHost: () => boolean
   // `host_notice:*` / `host_unavailable:*` tokens, once per token and endpoint.
   readonly onNotice: HostNoticeSink
+  // Every child's transport recoveries, so the parent hears about a host crash once (todo 10).
+  readonly shardEvents: HostShardEvents
   // The attach-only probe for the session's own endpoint; defaults to the engine's `probeHost`.
   readonly probeHost?: HostProtocolProbe
 }
@@ -118,6 +123,7 @@ export class RpcHostRunner {
   private readonly admissionWaitMs: number
   private readonly sleep: (ms: number) => Promise<void>
   private readonly endpoint: ChildEndpointPorts
+  private readonly liveChildren: LiveHostChildren
 
   constructor(options: RpcHostRunnerOptions) {
     this.options = options
@@ -129,11 +135,12 @@ export class RpcHostRunner {
     this.reattachDelaysMs = options.reattachDelaysMs ?? DEFAULT_REATTACH_DELAYS_MS
     this.admissionWaitMs = options.admissionWaitMs ?? DEFAULT_ADMISSION_WAIT_MS
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
+    this.liveChildren = createLiveHostChildren(options.shardEvents)
     this.endpoint = {
       agentDir: options.agentDir,
       env: options.env ?? process.env,
       policy: options.policy,
-      ensureDaemon: options.ensureDaemon ?? ensureTaskDaemon,
+      ensureDaemon: this.liveChildren.ensure(options.ensureDaemon ?? ensureTaskDaemon),
       storeDir: options.storeDir,
       shardResolver: options.shardResolver,
       ownHostSocket: options.ownHostSocket,
@@ -158,7 +165,7 @@ export class RpcHostRunner {
       socket = await ensureChildEndpoint(this.endpoint, endpoint)
     } catch (error) {
       if (RunnerError.is(error)) throw error
-      if (endpoint.recorded) throw this.recordedEndpointFailure(error, endpoint.socket)
+      if (endpoint.recorded) throw recordedEndpointFailure(this.endpoint.notice, error, endpoint.socket)
       return await this.delegate(error, spec, isHostTransportError(error))
     }
     await recordSidecarStore(this.endpoint, socket)
@@ -170,33 +177,10 @@ export class RpcHostRunner {
       // check the session's own endpoint gets, since it is never ensured) must park the child too:
       // the fallback would reopen the retained session off its endpoint.
       if (endpoint.recorded && error instanceof HostUnavailableError) {
-        throw this.recordedEndpointFailure(error, endpoint.socket)
+        throw recordedEndpointFailure(this.endpoint.notice, error, endpoint.socket)
       }
       return await this.delegate(error, spec, false)
     }
-  }
-
-  /**
-   * A RECORDED endpoint is where the child's retained session lives, so nothing the ensure or the
-   * open answers there may send the child to the per-child fallback: an incompatible host parks it
-   * (`host_incompatible`), anything else fails closed with its own reason.
-   */
-  private recordedEndpointFailure(error: unknown, socket: string | undefined): RunnerError {
-    if (isHostIncompatible(error)) {
-      this.endpoint.notice("host_incompatible", socket)
-      return new RunnerError({
-        kind: "host_unavailable",
-        reason: "host_incompatible",
-        message: error instanceof Error ? error.message : String(error),
-        cause: error,
-      })
-    }
-    return new RunnerError({
-      kind: "host_unavailable",
-      message: error instanceof Error ? error.message : String(error),
-      reason: error instanceof HostUnavailableError ? error.reason : "host_unreachable",
-      cause: error,
-    })
   }
 
   /**
@@ -248,6 +232,7 @@ export class RpcHostRunner {
       // The host's answer, not connection liveness: respawn continues an interrupted turn only when
       // the session was reopened from its JSONL.
       openDisposition: opened.attached ? "attached" : "reopened",
+      shardEvents: this.liveChildren.events,
       reattach: createReattachPort({
         endpoint: this.endpoint,
         spec,
@@ -257,6 +242,7 @@ export class RpcHostRunner {
         open: (port, path) => this.openAdmitted(port, spec, path),
       }),
     })
+    this.liveChildren.add(handle)
     const switchOnPort = handle.switchSession
     // A resumed child says nothing: an attached session is still mid-turn, and a session reopened
     // from its JSONL keeps its transcript - replaying the prompt would duplicate the work.

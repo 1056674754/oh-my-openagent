@@ -21,6 +21,7 @@ const STUBBED_HOST_ROUTING: TaskHostRouting = {
   insideHost: () => false,
   probeHost: () => Promise.resolve(undefined),
   onNotice: () => undefined,
+  shardEvents: {},
   storeDir: "/state",
 }
 

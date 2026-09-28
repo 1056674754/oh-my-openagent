@@ -55,6 +55,7 @@ export function testRouting(socket: string, agentDir: string) {
     ownHostSocket: () => undefined,
     insideHost: () => false,
     onNotice: () => undefined,
+    shardEvents: {},
   } as const
 }
 
