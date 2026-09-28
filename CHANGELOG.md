@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.0] - 2026-09-28
+
 5.1.0 adds computer use to OmO Native as an experimental feature, and fixes Claude subscription logins across many sessions, GitHub Copilot tokens and hosts, goals that looped on a rejected login, and a long list of background task problems. `omo update` installs it, or run:
 
 ```bash
