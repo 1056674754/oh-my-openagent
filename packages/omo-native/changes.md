@@ -358,3 +358,28 @@ Windows line ended in `chmod`.
 
 `updateHint` / the `main()` fast path in `compile-entry.ts`, and the manifest write in
 `script/build-omo-binary.ts`.
+
+## 2026-09-28 - doctor recognizes a standalone omo binary
+
+### What changed
+
+`omo doctor` classifies an `omo` on PATH as a standalone OmO binary when it resolves to
+`~/.omo/binary-runtime/<version>/omo` or is byte-identical to that provisioned copy (size plus a
+64 KiB head and tail sample; the binaries are ~100 MB). Standalone binaries and omo-ai are both
+OmO installs: when both are on PATH one warning names the one that runs, the one that never runs,
+and how to keep one. Legacy or foreign `omo` files ahead of the first OmO install keep their
+warning, now naming that install. The compiled binary's `omo doctor` prints the same migration
+section, without the npm restore note. Detection lives in `bin/lib/standalone-binary.js`.
+
+### Why
+
+A curl-installed release binary had no npm owner, so the npm doctor called it an "unknown owner"
+file to delete, and the compiled doctor never reported an omo-ai install shadowed by it.
+
+### Why an extension could not handle it
+
+Doctor runs from the launcher and the compiled entry, before extensions load.
+
+### Expected merge conflict zones
+
+`runCompiledDoctor` in `compile-entry.ts` and `formatMigrationLines` in `bin/lib/doctor-migration.js`.
