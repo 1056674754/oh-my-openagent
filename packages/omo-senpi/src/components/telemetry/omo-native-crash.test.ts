@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "bun:test"
 
 import type { TelemetryCaptureMessage, TelemetryEnv, TelemetryTransportFactory } from "@oh-my-opencode/telemetry-core"
+import { loadSenpiBarrel } from "../../../../senpi-task/src/lazy/senpi-barrel"
 import { FakeExtensionAPI } from "../../../test-support/fake-extension-api"
 import { crashClaimDir } from "./process-crash-records"
 import { createOmoNativeSessionComponent } from "./omo-native-session"
@@ -205,6 +206,27 @@ describe("OmO Native process_crashed", () => {
         "rpc-host:p",
         "rpc-host:unknown",
       ])
+    })
+  })
+
+  it("#given an endpoint directory the engine named from a socket behind a symlinked directory #when a process starts #then its kind is still trusted", async () => {
+    await withTempAgentDir(async (agentDir) => {
+      // given - the engine hashes the socket's RESOLVED directory, so the name differs from the spelling's hash
+      const { createHostDaemonPaths } = await loadSenpiBarrel()
+      mkdirSync(join(agentDir, "real-shards"), { recursive: true })
+      symlinkSync(join(agentDir, "real-shards"), join(agentDir, "linked-shards"))
+      const socket = join(agentDir, "linked-shards", "p-0123456789abcdef.sock")
+      const dir = createHostDaemonPaths({ agentDir, socket }).dir
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, "endpoint.json"), JSON.stringify({ layout: 2, socket, created_at: RECENT }))
+      writeFileSync(join(dir, "crashes.jsonl"), `${LEGACY_HOST_RECORD}\n`)
+      const messages: TelemetryCaptureMessage[] = []
+
+      // when
+      await startProcess(agentDir, messages)
+
+      // then
+      expect(crashes(messages).map(({ properties }) => properties?.shard_kind)).toEqual(["p"])
     })
   })
 

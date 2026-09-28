@@ -1,6 +1,5 @@
-import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
-import { basename, join, win32 } from "node:path"
+import { basename, join } from "node:path"
 
 import {
   parseShardBasename,
@@ -10,7 +9,7 @@ import {
   type TransportLostInfo,
 } from "@oh-my-opencode/senpi-task"
 
-import { senpiCreateHostDaemonPaths } from "../../../../senpi-task/src/lazy/senpi-barrel"
+import { hostDaemonDir } from "../../../../senpi-task/src/runners/rpc-host/host-daemon-dir"
 import type { HostNotices } from "./host-execution-mode"
 import type { CapturedUi } from "./runtime-context"
 
@@ -122,18 +121,6 @@ export function createShardCrashNotices(deps: ShardCrashNoticeDeps): Required<Ho
 
 function endpointKey(agentDir: string, socket: string): string {
   return parseShardBasename(socket)?.key ?? basename(hostDaemonDir(agentDir, socket))
-}
-
-/**
- * The endpoint's daemon directory as the ENGINE names it (`createHostDaemonPaths`), so a change in
- * how senpi canonicalizes the socket cannot point this reader at an empty directory. An engine
- * without the export - or a barrel nobody loaded yet - falls back to today's `sha256(socket)[:16]`.
- */
-export function hostDaemonDir(agentDir: string, socket: string): string {
-  const createHostDaemonPaths = senpiCreateHostDaemonPaths()
-  if (createHostDaemonPaths !== undefined) return createHostDaemonPaths({ agentDir, socket }).dir
-  const canonical = process.platform === "win32" ? win32.normalize(socket).toLowerCase() : socket
-  return join(agentDir, "rpc-host-daemon", createHash("sha256").update(canonical, "utf8").digest("hex").slice(0, 16))
 }
 
 /** A record older than this belongs to an earlier crash of the endpoint, not the one being announced. */
