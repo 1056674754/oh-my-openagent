@@ -21,6 +21,13 @@ import { TaskRuntimeContext } from "./runtime-context"
 const CAPABLE = ["multi_session", "extension_events", "session_context", "session_kind", "generation_handoff"]
 const dirs: string[] = []
 
+// A case where the shard pre-warm actually ensures the session's own shard. That pre-warm is POSIX-only by
+// the rpc-host-sharding plan (todo 9: "when `settings.process_runner === "host"`, platform is not win32";
+// Must NOT: "pre-warm on win32"), so it resolves the session's shard through the POSIX socket layout (the
+// `sun_path` bind limit and the fixed `/tmp` alternate root), which a win32 filesystem cannot host. The
+// win32 case below still runs everywhere and pins that nothing is ensured there.
+const posixPrewarmTest = test.skipIf(process.platform === "win32")
+
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
@@ -157,7 +164,7 @@ function sockets(ensures: readonly EnsureTaskDaemonInput[]): readonly (string | 
 }
 
 describe("task.host_shard_prewarm warms the session's own host", () => {
-  test("#given session-start #when session_start fires #then the session's shard is ensured once, before any spawn", async () => {
+  posixPrewarmTest("#given session-start #when session_start fires #then the session's shard is ensured once, before any spawn", async () => {
     // given
     const w = world({ prewarm: "session-start" })
 
@@ -171,7 +178,7 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
     expect(w.ensures).toHaveLength(1)
   })
 
-  test("#given first-turn #when session_start then two prompts fire #then nothing at session_start and exactly one ensure on the first prompt", async () => {
+  posixPrewarmTest("#given first-turn #when session_start then two prompts fire #then nothing at session_start and exactly one ensure on the first prompt", async () => {
     // given
     const w = world({ prewarm: "first-turn" })
 
@@ -190,7 +197,7 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
     expect(sockets(w.ensures)).toEqual([w.host.shardSocket()])
   })
 
-  test("#given first-turn and a turn that skips input #when before_agent_start fires #then that turn warms the host", async () => {
+  posixPrewarmTest("#given first-turn and a turn that skips input #when before_agent_start fires #then that turn warms the host", async () => {
     // given
     const w = world({ prewarm: "first-turn" })
     await w.sessionStart("root-1")
