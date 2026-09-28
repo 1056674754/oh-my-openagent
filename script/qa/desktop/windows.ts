@@ -15,11 +15,8 @@ import { parseArgs } from "node:util"
 import { QaWorkspace } from "./windows/fixtures"
 import { SABOTAGE_MODES, type Sabotage, type Scenario, type ScenarioOutcome } from "./windows/scenario-kit"
 import { desktopMoveLands } from "./windows/scenarios-cursor"
-import {
-  foregroundClickLandsInTarget,
-  foregroundDragSelectsInTarget,
-  foregroundScrollMovesTarget,
-} from "./windows/scenarios-pointer"
+import { foregroundClickLandsInTarget, foregroundDragSelectsInTarget } from "./windows/scenarios-pointer"
+import { foregroundScrollMovesTarget, foregroundScrollSameRect } from "./windows/scenarios-pointer-scroll"
 import {
   backgroundPostMessageNotepad,
   backgroundPostMessageWpf,
@@ -37,6 +34,7 @@ const SCENARIOS: readonly Scenario[] = [
   foregroundClickLandsInTarget,
   foregroundDragSelectsInTarget,
   foregroundScrollMovesTarget,
+  foregroundScrollSameRect,
   capturePrimary,
   foregroundTypeRestoresFront,
   backgroundPostMessageNotepad,

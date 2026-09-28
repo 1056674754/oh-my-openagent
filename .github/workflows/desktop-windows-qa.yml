@@ -85,6 +85,17 @@ jobs:
         shell: bash
         run: cargo test -p senpi-desktop-backend-win32 --target "${RUST_TARGET}" --locked -- --include-ignored --test-threads=1 --nocapture
 
+      # TEMPORARY (#9095 diagnosis, removed before merge): the foreground pointer scenarios without the
+      # WH_MOUSE_LL trace, to compare a hooked and an unhooked desktop.
+      - name: "DIAG #9095 - pointer scenarios without the mouse trace"
+        continue-on-error: true
+        shell: pwsh
+        env:
+          OMO_QA_MOUSE_TRACE: "0"
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:QA_DIR | Out-Null
+          bun script/qa/desktop/windows.ts --json --engine $env:ENGINE --out "$env:QA_DIR/diag-9095-untraced.jsonl" --scenario foreground-click-lands-in-target --scenario foreground-drag-selects-in-target --scenario foreground-scroll-moves-target --scenario foreground-scroll-same-rect
+
       - name: QA driver - every scenario
         shell: pwsh
         run: |

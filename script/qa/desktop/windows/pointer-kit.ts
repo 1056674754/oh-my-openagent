@@ -163,10 +163,6 @@ export function probeHostsUntil(hosts: readonly PointerHost[], settled: (seen: P
   return probeUntil(() => probe(hosts), settled)
 }
 
-export function rectCenter(rect: ScreenRect): Point {
-  return { x: Math.floor((rect.left + rect.right) / 2), y: Math.floor((rect.top + rect.bottom) / 2) }
-}
-
 export function inside(rect: ScreenRect | null, point: Point): boolean {
   return rect !== null && point.x >= rect.left && point.x < rect.right && point.y >= rect.top && point.y < rect.bottom
 }
