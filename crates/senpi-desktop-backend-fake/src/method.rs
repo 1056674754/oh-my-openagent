@@ -16,6 +16,8 @@ pub enum FakeMethod {
     Drag,
     Scroll,
     TypeText,
+    ClipboardRead,
+    ClipboardWrite,
     KeyChord,
     RaiseWindow,
     ReleaseAll,

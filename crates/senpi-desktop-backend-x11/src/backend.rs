@@ -162,6 +162,14 @@ impl<S: XServer + Send, I: InputServer + Send> Backend for X11Backend<S, I> {
         self.input()?.type_text(target, text, mode)
     }
 
+    fn clipboard_read(&mut self) -> CoreResult<String> {
+        senpi_desktop_core::clipboard::read_text()
+    }
+
+    fn clipboard_write(&mut self, text: &str) -> CoreResult<()> {
+        senpi_desktop_core::clipboard::write_text(text)
+    }
+
     fn type_text_interruptible(
         &mut self,
         target: &Target,
