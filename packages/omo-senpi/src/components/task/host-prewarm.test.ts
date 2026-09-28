@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { OmoTaskSettingsSchema } from "@oh-my-opencode/omo-config-core"
@@ -37,7 +38,8 @@ function world(input: {
   readonly reattachOnReconcile?: boolean
   readonly ensure?: "answer" | "reject"
 }) {
-  const root = mkdtempSync("/tmp/omo-t9-")
+  // a short POSIX root keeps the shard sockets under the unix bind limit; win32 has no /tmp
+  const root = mkdtempSync(join(process.platform === "win32" ? tmpdir() : "/tmp", "omo-t9-"))
   dirs.push(root)
   const agentDir = join(root, "agent")
   const shard = (name: string): string => join(agentDir, "rpc", "shards", `${name}.sock`)

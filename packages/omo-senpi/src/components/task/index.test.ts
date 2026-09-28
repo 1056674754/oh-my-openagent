@@ -226,9 +226,9 @@ describe("omo-senpi task component wiring", () => {
     // unconditional T16 hygiene sweep handler, which registers its own session_start listener,
     // plus the workpool aggregate attach-recovery listener (registerWorkpoolTool session_start
     // → workpools.attach, which rolls back accepted-without-ack and flushes on boot), plus the
-    // host pre-warm's session_start (the default `host` runner; prewarm `off` still revives)
+    // host pre-warm's session_start (the default `host` runner, never on win32; prewarm `off` still revives)
     expect(pi.handlers.map((handler) => handler.event).sort()).toEqual(
-      [...TASK_EVENTS, ...SKILL_INVOCATION_TRACKER_EVENTS, ...DAG_LIFECYCLE_EVENTS, "session_start", "session_shutdown", "session_start", "session_start"].sort(),
+      [...TASK_EVENTS, ...SKILL_INVOCATION_TRACKER_EVENTS, ...DAG_LIFECYCLE_EVENTS, "session_start", "session_shutdown", "session_start", ...(process.platform === "win32" ? [] : ["session_start"])].sort(),
     )
   })
 
