@@ -37,22 +37,30 @@ describe("HostSessionClient records", () => {
     expect(seen.map((event) => event.type)).toEqual(["agent_end"])
   })
 
-  test("#given a UI request on the session #when it arrives #then a deny answer is on the wire within 50 ms", async () => {
+  test("#given a UI request on the session #when it arrives #then the deny is on the wire before the client's next command", async () => {
     // given
     const host = await fakeHost()
     const client = hostClient(host)
     const opened = await client.open(childOpenInput("/tmp/sessions/l.jsonl"))
     const answered = host.waitForCommand("extension_ui_response")
+    const ingestedPastRequest = new Promise<void>((resolve) => {
+      client.onEvent((event) => {
+        if (event.type === "agent_end") resolve()
+      })
+    })
 
     // when
-    const startedAt = performance.now()
     host.requestUi(opened.sessionId, { id: "ui-1", method: "confirm", title: "Delete?", message: "really?" })
-    const answer = await answered
-    const elapsedMs = performance.now() - startedAt
+    host.emitRecord(opened.sessionId, { type: "agent_end", willRetry: false })
+    await ingestedPastRequest
+    await client.getState()
 
     // then
-    expect(answer.payload).toMatchObject({ type: "extension_ui_response", id: "ui-1", confirmed: false })
-    expect(elapsedMs).toBeLessThan(50)
+    // The record after the request has been delivered, so the request was already ingested; a deny
+    // that waited on anything (a UI timeout, a timer) would reach the host after get_state.
+    const order = host.commands.map((command) => command.type).filter((type) => type === "extension_ui_response" || type === "get_state")
+    expect(order).toEqual(["extension_ui_response", "get_state"])
+    expect((await answered).payload).toMatchObject({ type: "extension_ui_response", id: "ui-1", confirmed: false })
   })
 
   test("#given a question UI request #when it arrives #then the client answers cancelled without blocking its own commands", async () => {

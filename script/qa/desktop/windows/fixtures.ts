@@ -1,7 +1,7 @@
 // Test windows and processes the scenarios act on, all under one per-run temp directory, plus the
 // teardown that ends every process the run started and proves it with receipts.
 import { type ChildProcess, spawn, spawnSync } from "node:child_process"
-import { copyFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { copyFileSync, existsSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
 import { createInterface } from "node:readline"
@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url"
 
 import { asObject, type Engine, type Json } from "./engine"
 import { hangGuard, probeUntil } from "./until"
+import { removeTreeSync } from "../../../../test-support/remove-tree"
 
 const WPF_HOST_SCRIPT = fileURLToPath(new URL("./wpf-host.ps1", import.meta.url))
 
@@ -124,7 +125,7 @@ export class QaWorkspace {
     this.receipt(`killed tracked pids ${[...this.pids].join(",") || "(none)"}`)
     this.receipt(alive.length === 0 ? "procs 0" : `procs ${alive.length} alive: ${alive.join(",")}`)
     // Notepad can hold its file briefly after taskkill; rmSync retries EBUSY on its own.
-    rmSync(this.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+    removeTreeSync(this.dir, { maxRetries: 10, retryDelay: 200 })
     this.receipt(existsSync(this.dir) ? `dir LEFT ${this.dir}` : `dir REMOVED ${this.dir}`)
     return this.receipts
   }
