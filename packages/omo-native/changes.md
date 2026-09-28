@@ -1,3 +1,11 @@
+## 2026-09-28 - `omo daemon run --foreground` exits 2; `--persistent` is accepted and ignored
+
+`bin/lib/daemon.js`: `--foreground` on any `omo daemon` subcommand exits 2 with "the engine host always
+detaches", before the engine is called. `--persistent` is still accepted but no longer passed to the engine; the
+launch spec's `coldStart` tunable decides. `docs/reference/omo-daemon.md` documents both, lists the exit-3 cases of
+`stop --all`, `handoff` and `rollback-prepare`, and carries the rollback runbook built on `stop --drain --all --wait`
+and `rollback-prepare`.
+
 ## 2026-09-28 - Native daemon commands cover every session host
 
 `omo daemon status` and `omo doctor` now enumerate the operator daemon, task

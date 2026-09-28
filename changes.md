@@ -1,3 +1,28 @@
+## 2026-09-28 - Docs: engine hosts per session, the price of isolation, migration and rollback (#9003)
+
+`docs/reference/omo-daemon.md` is now "omo daemon - engine hosts per session". It documents how a session's
+task host is named (`<shardRoot>/p-<sha256("p:"+sessionId)[:16]>.sock`, `i-*` for Desktop threads,
+`OMO_RPC_SHARD_ROOT` and the short `/tmp/omo-rpc-*` alternate root), how children inherit their tree's host through
+`tree_key`/`shard_key`, why `OMO_RPC_SOCKET*` never route task children (a process launched through
+`omo daemon attach` still puts its children on its own host), the `.meta.json` sidecar, the per-endpoint `stderr.log`
+and `crashes.jsonl`, the 15-minute idle exit and eviction defaults, and the status/gc/handoff/stop surface including the
+`unknown_identity` row. It adds Migration, a six-step Rollback runbook (quiesce, `stop --drain --all --wait` with exit 0,
+zero reachable endpoints, `rollback-prepare` on this release, then R0), Pre-warm, and the Desktop contract.
+
+The known price of isolation is stated there and in the release notes: with 4 parents x 4 children, per-session hosts
+use 2.7 GB RSS and 0.8 GB physical footprint against 0.78 GB and 0.24 GB for one shared host. Idle memory is judged on
+physical footprint, because RSS counts the supervisor's and the host's shared file-backed pages twice; an idle host
+costs 126 MB of footprint. The measured memory and latency tables come from the shard-cost QA driver
+(`task-host-e2e-shard-cost.mjs`, 20 samples per latency scenario).
+
+User-visible changes of this release now in `CHANGELOG.md` under Unreleased: `thread_read` labels tool results as role
+`tool` on the live path, matching the transcript fallback; the host crash notice names `supervisor pid N`, says
+`1 child` in the singular, and its done line gains `, C cancelled` when children were cancelled; `omo daemon status`
+and `omo doctor` list every host; `omo daemon gc`; `stop --all` and `handoff` cover every endpoint;
+`rollback-prepare`; `omo daemon run --foreground` exits 2 because the engine host always detaches (`--persistent`
+stays accepted). `AGENTS.md` files of `senpi-task`, `omo-senpi`, its `task` and `thread` components, `docs/AGENTS.md`,
+`docs/guide/senpi-task.md` and `docs/reference/omo-json.md` no longer describe one machine-wide host.
+
 ## 2026-09-28 - omo adopts senpi 2026.9.28-3: a transient task daemon idle-exits again, and native tool search accepts the deferred computer tool (#9041)
 
 Every `@code-yeongyu/senpi` pin moves from 2026.9.27-4 to 2026.9.28-3: the root devDependency, the `omo-native` dependency, the `omo-senpi` and `senpi-task` peer and dev pins, their pin tests, and `bun.lock`. The release carries code-yeongyu/senpi#2242, under which `ensureHost()` holds the host for the caller until `release()` (omo releases it after the task daemon's capability probe, #9041), #2243 and #2237 (host teardown and ensure fixes), #2245 (`senpi host status --all`, `senpi host gc`, `memory_pressure`), #1519 (`/sessions` as a `/resume` alias and the thinking-level hints), #2253 (Anthropic native tool search resolves a deferred tool whose parameters are a root union, such as the desktop `computer` tool, instead of failing every request with HTTP 400), #2251 (a bare `/skill` no longer reaches the model), #2250 (`new Bun.WebView()` works in eval cells run by an RPC worker host) and #2257 (GPT-6 prompts stay on the stated goal). `packages/omo-native/bin/lib/provider-map.json` still matches the new engine's `builtinProviders()`, which `provider-map-registry.test.ts` checks against the installed package, so only its version comment changes.
