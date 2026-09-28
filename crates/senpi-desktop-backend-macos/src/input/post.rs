@@ -62,7 +62,9 @@ pub(super) fn scroll(target: ScrollTarget<'_>, x: f64, y: f64, dx: f64, dy: f64)
         .map_err(|()| DesktopError::input_failed("failed to create a Quartz scroll event"))?;
     event.set_location(CGPoint::new(x, y));
     skylight::stamp_event(&event, pid, wid, local_point(window, x, y), 3, 0, 0, group)?;
-    skylight::post_dual(pid, &event)
+    // A wheel event is a delta: posted through both routes, AppKit and WebKit
+    // apply it twice (#9097), so it takes the SkyLight route alone.
+    skylight::post_routed(pid, &event)
 }
 
 /// Posts one stamped pointer event to `(pid, wid)` through SkyLight and the
