@@ -916,7 +916,7 @@
           "maximum": 9007199254740991
         },
         "host_shard_prewarm": {
-          "default": "off",
+          "default": "first-turn",
           "type": "string",
           "enum": [
             "off",
