@@ -3,6 +3,7 @@ import { join } from "node:path"
 
 import { observeState, stopParent } from "./task-host-e2e-events.mjs"
 import { waitFor } from "./task-host-e2e-process.mjs"
+import { childSessionFiles, jsonlLines } from "./task-host-e2e-support.mjs"
 import {
   hostStatus,
   processTable,
@@ -10,17 +11,16 @@ import {
   taskRecords,
   treePids,
 } from "./task-host-e2e-shard-cost-support.mjs"
-import {
-  continuationCount,
-  crashRows,
-} from "./task-host-e2e-shards-support.mjs"
+import { crashRows } from "./task-host-e2e-shards-support.mjs"
 import {
   childTurnFacts,
   cleanupScenario,
   createRetainScenario,
   heldText,
   IDLE_MS,
+  lifecycleContinuations,
   parentSessionPath,
+  readStep,
   replaceParentServer,
   requestCount,
   result,
@@ -43,7 +43,11 @@ async function runRetainResume(current, artifacts, midturn) {
       taskStep("retained", childPrompt),
       heldText(`${id} initial parent complete`, parentRelease),
     ],
+    // Mid-turn needs a persisted turn prefix: senpi writes a session file only once an assistant
+    // message exists, so a child killed inside its FIRST provider request leaves no transcript to
+    // reopen. The read call lands user + assistant + toolResult on disk before the held request.
     childSteps: [
+      ...(midturn ? [readStep(".omo/omo.json")] : []),
       heldText(`${id} original turn complete`, release),
       textStep(`${id} continuation complete`),
     ],
@@ -73,6 +77,21 @@ async function runRetainResume(current, artifacts, midturn) {
     if (before === undefined) throw new Error(`${id}: host child missing`)
     const sessionPath = parentSessionPath(sandbox, running.parent_session_id)
     if (midturn) {
+      // Quit the parent FIRST so the child is retained mid-turn with nobody left to re-ensure the
+      // shard: a live parent answers the crash by starting a new generation at once, which is the
+      // crash row's reattach path, not this retain/resume row.
+      const heldMidTurn = await observeState(sandbox.root, () =>
+        requestCount(scenario.childLog) >= 2 &&
+          childSessionFiles(sandbox, running.task_id).flatMap(jsonlLines)
+            .some((line) => line.includes('"role":"toolResult"'))
+          ? true
+          : undefined)
+      if (heldMidTurn !== true) throw new Error(`${id}: child never reached its held request after a persisted tool result`)
+      writeFileSync(parentRelease, "go\n")
+      await stopParent(parent)
+      parent = undefined
+      const retained = taskRecords(project).find((entry) => entry.task_id === running.task_id)
+      if (!["running", "interrupted"].includes(retained?.status)) throw new Error(`${id}: child was not retained mid-turn after the parent quit`)
       const crashed = await observeState(sandbox.root, () => {
         const rows = crashRows(sandbox, socket)
         return rows.length > 0 ? rows : undefined
@@ -83,9 +102,6 @@ async function runRetainResume(current, artifacts, midturn) {
       })
       if (crashed === undefined) throw new Error(`${id}: host crash was not recorded`)
       writeFileSync(release, "go\n")
-      writeFileSync(parentRelease, "go\n")
-      await stopParent(parent)
-      parent = undefined
       const gone = await observeState(sandbox.root, () =>
         supervisorPid(sandbox, socket) === undefined && !existsSync(socket) ? true : undefined)
       if (gone !== true) throw new Error(`${id}: crashed shard did not become unreachable`)
@@ -113,7 +129,12 @@ async function runRetainResume(current, artifacts, midturn) {
       const record = taskRecords(project).find((entry) => entry.task_id === running.task_id)
       return terminal(record) ? record : undefined
     })
-    if (settled === undefined) throw new Error(`${id}: retained child did not settle`)
+    if (settled === undefined) {
+      const record = taskRecords(project).find((entry) => entry.task_id === running.task_id)
+      throw new Error(`${id}: retained child did not settle; record=${JSON.stringify(record)}; ` +
+        `crashes=${JSON.stringify(crashRows(sandbox, socket))}; child_requests=${requestCount(scenario.childLog)}; ` +
+        `parent_stderr=${resumed.chunks.stderr.slice(-2000)}`)
+    }
     writeFileSync(resumeRelease, "go\n")
     await stopParent(resumed)
     resumed = undefined
@@ -129,16 +150,18 @@ async function runRetainResume(current, artifacts, midturn) {
       final_status: settled.status,
       child_http_requests: requestCount(scenario.childLog),
       replay_count: turns.prompt_count - 1,
-      continuation_count: continuationCount(sandbox, running.task_id),
+      continuation_count: lifecycleContinuations(sandbox, running.task_id),
       ...turns,
     }
     const expectedTurns = midturn ? 2 : 1
+    // read call + held request + continuation for mid-turn; the one text request otherwise.
+    const expectedRequests = midturn ? 3 : 1
     const ok = facts.resumed_socket === socket &&
       facts.fresh_generation &&
       facts.final_status === "completed" &&
       facts.prompt_count === 1 &&
       facts.replay_count === 0 &&
-      facts.child_http_requests === expectedTurns &&
+      facts.child_http_requests === expectedRequests &&
       facts.machine_user_turns === expectedTurns &&
       facts.continuation_count === (midturn ? 1 : 0) &&
       facts.child_session_files.length === 1

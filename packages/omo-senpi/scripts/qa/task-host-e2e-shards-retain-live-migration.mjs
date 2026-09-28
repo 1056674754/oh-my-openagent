@@ -11,12 +11,12 @@ import {
   taskRecords,
 } from "./task-host-e2e-shard-cost-support.mjs"
 import { HostClient } from "./task-host-e2e-shards-rpc.mjs"
-import { continuationCount } from "./task-host-e2e-shards-support.mjs"
 import {
   childTurnFacts,
   cleanupScenario,
   createRetainScenario,
   heldText,
+  lifecycleContinuations,
   parentSessionPath,
   replaceParentServer,
   requestCount,
@@ -25,7 +25,9 @@ import {
   startParent,
   taskOutputStep,
   taskStep,
+  terminal,
   textStep,
+  transcriptSettled,
 } from "./task-host-e2e-shards-retain-live-support.mjs"
 
 export async function runRecordedSocketMigration(current, artifacts) {
@@ -59,11 +61,11 @@ export async function runRecordedSocketMigration(current, artifacts) {
     await stopParent(parent)
     parent = undefined
     writeFileSync(release, "go\n")
-    const completed = await observeState(sandbox.root, () => {
-      const record = taskRecords(project).find((entry) => entry.task_id === running.task_id)
-      return record?.status === "completed" ? record : undefined
-    })
-    if (completed === undefined) throw new Error("migration child did not settle")
+    const settledInHost = await observeState(sandbox.root, () =>
+      transcriptSettled(sandbox, running.task_id, /pre-migration child complete/) ? true : undefined)
+    if (settledInHost !== true) throw new Error("migration child did not finish its turn inside the host")
+    const retainedRecord = taskRecords(project).find((entry) => entry.task_id === running.task_id)
+    if (terminal(retainedRecord)) throw new Error("migration fixture is vacuous: the record settled without a parent")
     await stopEndpoint(sandbox, shard)
 
     const legacy = join(sandbox.agentDir, "rpc", "rpc.sock")
@@ -104,6 +106,7 @@ export async function runRecordedSocketMigration(current, artifacts) {
       const old = rows.find((entry) => entry.task_id === running.task_id)
       const next = rows.find((entry) => entry.name === "next")
       return old?.host_session?.socket === legacy &&
+        old.status === "completed" &&
         next?.host_session?.socket &&
         next.host_session.socket !== legacy
         ? { old, next }
@@ -119,11 +122,13 @@ export async function runRecordedSocketMigration(current, artifacts) {
       legacy,
       original_shard: shard,
       old_task_socket: records.old.host_session.socket,
+      old_status_before_resume: retainedRecord?.status ?? null,
+      old_status_after_resume: records.old.status,
       next_task_socket: records.next.host_session.socket,
       legacy_lists_old_session: legacyRows.some((row) =>
         row.sessionPath === childSession || row.session_path === childSession),
       old_child_http_requests: requestCount(scenario.childLog) - 1,
-      old_continuation_count: continuationCount(sandbox, running.task_id),
+      old_continuation_count: lifecycleContinuations(sandbox, running.task_id),
       endpoints: endpointSockets(sandbox),
       ...turns,
     }

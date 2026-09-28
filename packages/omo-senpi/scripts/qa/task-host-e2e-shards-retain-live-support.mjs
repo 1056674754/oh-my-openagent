@@ -3,9 +3,10 @@ import {
   existsSync,
   readFileSync,
   readdirSync,
+  rmSync,
   writeFileSync,
 } from "node:fs"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 
 import { startMockCompletionsServer } from "./mock-completions-server.mjs"
 import { stopParent } from "./task-host-e2e-events.mjs"
@@ -13,7 +14,9 @@ import { sandboxEnv } from "./task-host-e2e-sandbox.mjs"
 import {
   mainProject,
   newSandbox,
+  stopEndpoint,
   taskConfig,
+  taskRecords,
   teardownSandbox,
 } from "./task-host-e2e-shard-cost-support.mjs"
 import { scenarioResult } from "./task-host-e2e-shards-handoff-successors-support.mjs"
@@ -40,6 +43,11 @@ export const heldText = (text, releasePath) => ({
   releaseTimeoutMs: 600_000,
 })
 export const textStep = (text) => ({ type: "text", text })
+export const readStep = (path) => ({
+  type: "tool_call",
+  name: "read",
+  arguments: { path },
+})
 
 function config(task = {}) {
   const value = taskConfig({
@@ -182,6 +190,23 @@ export function childTurnFacts(sandbox, taskId, prompt) {
   }
 }
 
+// A parent resuming a retained child reopens it through the manager's respawn path, whose nudge is
+// senpi-task's CONTINUATION_MESSAGE (manager-respawn.ts); a live parent re-joining after a host
+// crash sends the `[host-session-reattach]` prompt instead. Either one is a lifecycle continuation.
+const CONTINUATION_MARKERS = ["[host-session-reattach]", "interrupted by a host process restart"]
+
+export function lifecycleContinuations(sandbox, taskId) {
+  return childSessionFiles(sandbox, taskId).flatMap(jsonlLines).filter((line) =>
+    line.includes('"role":"user"') && CONTINUATION_MARKERS.some((marker) => line.includes(marker))).length
+}
+
+// A retained child whose parent has quit finishes its turn inside the host, but nobody writes its
+// task record until a parent reconciles it; the transcript is the only witness of that turn ending.
+export function transcriptSettled(sandbox, taskId, pattern) {
+  return childSessionFiles(sandbox, taskId).flatMap(jsonlLines).some((line) =>
+    line.includes('"role":"assistant"') && pattern.test(line))
+}
+
 export function recordPath(project, taskId) {
   return join(project.stateDir, "tasks", `${taskId}.json`)
 }
@@ -212,9 +237,26 @@ export async function cleanupScenario(scenario, parents, artifact) {
   scenario.childServer.abortConnections()
   scenario.parentServer.close()
   scenario.childServer.close()
+  // A long scenario name pushes the p-* candidate past sun_path, so the shard binds under an alt
+  // root (/tmp/omo-rpc-<8hex>/) that the sandbox-local endpoint listing never sees: stop those
+  // endpoints through the recorded sockets and remove their roots, or they outlive the run.
+  const altSockets = [...new Set(taskRecords(scenario.project)
+    .map((record) => record.host_session?.socket)
+    .filter((socket) => typeof socket === "string" && !socket.startsWith(scenario.sandbox.root)))]
+  const altEndpoints = []
+  for (const socket of altSockets) altEndpoints.push(await stopEndpoint(scenario.sandbox, socket))
   const cleanup = await teardownSandbox(scenario.sandbox, parents.filter(Boolean))
-  writeFileSync(artifact, `${JSON.stringify(cleanup, null, 2)}\n`)
-  return cleanup
+  const altRoots = [...new Set(altSockets.map((socket) => dirname(socket)))]
+    .filter((root) => /\/omo-rpc-[0-9a-f]{8}$/.test(root))
+  for (const root of altRoots) rmSync(root, { recursive: true, force: true })
+  const receipt = {
+    ...cleanup,
+    altEndpoints,
+    altRootsRemoved: altRoots.filter((root) => !existsSync(root)),
+    altRootsLeft: altRoots.filter((root) => existsSync(root)),
+  }
+  writeFileSync(artifact, `${JSON.stringify(receipt, null, 2)}\n`)
+  return receipt
 }
 
 export async function capture(id, artifacts, run) {
