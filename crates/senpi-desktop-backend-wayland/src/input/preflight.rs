@@ -93,8 +93,17 @@ fn contains(device: &EiDevice, x: f64, y: f64) -> bool {
         })
 }
 
+/// libei discrete scroll counts 120ths of a wheel click; scroll deltas are
+/// pixels on every OS and one click stands for about 40 of them.
+const DISCRETE_UNITS_PER_PIXEL: f64 = 120.0 / 40.0;
+
+/// A pixel delta in 120ths of a wheel click, rounded; any motion stays at
+/// least one unit so a tiny delta is never silently dropped.
 fn scroll_units(value: f64) -> CoreResult<i32> {
-    let units = (value * 120.0).round();
+    let mut units = (value * DISCRETE_UNITS_PER_PIXEL).round();
+    if units.abs() < 1.0 && value.abs() > 0.0 {
+        units = value.signum();
+    }
     if !units.is_finite() || units < f64::from(i32::MIN) || units > f64::from(i32::MAX) {
         return Err(DesktopError::input_failed(format!(
             "scroll delta {value} is out of range"
@@ -106,4 +115,26 @@ fn scroll_units(value: f64) -> CoreResult<i32> {
     )]
     let units = units as i32;
     Ok(units)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::scroll_units;
+
+    #[test]
+    fn scroll_pixels_become_120ths_of_a_forty_pixel_click() {
+        let units: Vec<i32> = [0.0, 40.0, -40.0, 120.0, 1.0, 0.1, -0.1, 0.5, -80.0]
+            .into_iter()
+            .map(|pixels| scroll_units(pixels).unwrap())
+            .collect();
+
+        assert_eq!(units, [0, 120, -120, 360, 3, 1, -1, 2, -240]);
+    }
+
+    #[test]
+    fn scroll_pixels_outside_the_wire_range_are_refused() {
+        assert!(scroll_units(f64::NAN).is_err());
+        assert!(scroll_units(f64::INFINITY).is_err());
+        assert!(scroll_units(1.0e10).is_err());
+    }
 }

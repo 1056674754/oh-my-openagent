@@ -2,7 +2,7 @@
 
 OmO Native can capture your desktop, inspect windows and accessibility trees, and send mouse and keyboard input to native applications. The `computer` tool is backed by the `senpi-desktop-engine` binary. The OmO Senpi component registers the tool when a session loads, but starts the engine only when the tool is first used. Computer use is available on macOS, Linux and Windows. It does not drive web pages through a browser API; for pages, use the `browser` skill.
 
-The tool's parameters and permission classification are in [the computer tool reference](../reference/computer.md). This feature belongs to OmO Native; the same `computer` block does not enable it in the OpenCode or Codex editions.
+The tool's parameters and permission classification are in [the computer tool reference](../reference/computer.md). Scroll amounts are pixels on every OS, and one mouse-wheel notch is about 40 px, so the same scroll moves a similar distance on macOS, Linux and Windows. This feature belongs to OmO Native; the same `computer` block does not enable it in the OpenCode or Codex editions.
 
 ## Turn it on
 
