@@ -134,9 +134,11 @@ describe("host-session handle reattach", () => {
     const handle = await openWithReattach(host, "/tmp/sessions/reattach-b.jsonl", reopenOn(host))
     await handle.startInitialPrompt("do the work")
 
-    // when: the host restarts (sessions gone, socket back) and the handle reattaches
+    // when: the host restarts (sessions gone, socket back) and the handle reattaches - the reattach
+    // can re-prompt before restart() resolves, so the wait is registered before the trigger
+    const continued = host.waitForCommand("prompt")
     await host.restart()
-    const continuation = await host.waitForCommand("prompt")
+    const continuation = await continued
 
     // then: the reopened session is idle, so the interrupted turn is re-prompted once
     expect(String(continuation.payload.message)).toContain(HOST_SESSION_REATTACH_TAG)
