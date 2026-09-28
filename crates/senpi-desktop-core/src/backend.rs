@@ -98,8 +98,16 @@ pub trait Backend: Send {
         mode: DeliveryMode,
     ) -> CoreResult<()>;
     fn type_text(&mut self, target: &Target, text: &str, mode: DeliveryMode) -> CoreResult<()>;
-    fn clipboard_read(&mut self) -> CoreResult<String>;
-    fn clipboard_write(&mut self, text: &str) -> CoreResult<()>;
+    /// The system clipboard's text. Backends without clipboard access keep
+    /// this default and refuse instead of pretending.
+    fn clipboard_read(&mut self) -> CoreResult<String> {
+        Err(DesktopError::internal("this desktop backend has no clipboard access"))
+    }
+
+    /// Replaces the system clipboard's text.
+    fn clipboard_write(&mut self, _text: &str) -> CoreResult<()> {
+        Err(DesktopError::internal("this desktop backend has no clipboard access"))
+    }
     /// Backends with incremental text delivery check between Unicode scalars
     /// and report each fully delivered scalar. The default preserves the
     /// existing one-call behavior for backends without incremental input.

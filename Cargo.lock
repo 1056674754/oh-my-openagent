@@ -2444,7 +2444,6 @@ dependencies = [
 name = "senpi-desktop-backend-macos"
 version = "0.0.0"
 dependencies = [
- "arboard",
  "core-graphics",
  "foreign-types",
  "image",
@@ -2466,7 +2465,6 @@ dependencies = [
 name = "senpi-desktop-backend-wayland"
 version = "0.0.0"
 dependencies = [
- "arboard",
  "ashpd",
  "futures",
  "image",
@@ -2486,7 +2484,6 @@ dependencies = [
 name = "senpi-desktop-backend-win32"
 version = "0.0.0"
 dependencies = [
- "arboard",
  "enigo",
  "image",
  "parking_lot",
@@ -2501,7 +2498,6 @@ dependencies = [
 name = "senpi-desktop-backend-x11"
 version = "0.0.0"
 dependencies = [
- "arboard",
  "image",
  "libc",
  "parking_lot",
@@ -2516,6 +2512,7 @@ dependencies = [
 name = "senpi-desktop-core"
 version = "0.0.0"
 dependencies = [
+ "arboard",
  "flume",
  "image",
  "parking_lot",
