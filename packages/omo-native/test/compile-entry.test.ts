@@ -141,6 +141,12 @@ describe("compiled omo entry launcher parity", () => {
     expect(buildSenpiArgs(["install", "x"], "/provisioned")).toEqual(["install", "x"])
   })
 
+  test("app-server appends the provisioned plugin after its subcommand", () => {
+    expect(buildSenpiArgs(["app-server", "daemon", "start"], "/provisioned")).toEqual([
+      "app-server", "daemon", "start", "--extension", join("/provisioned", "plugin"),
+    ])
+  })
+
   test("main commands prepend the provisioned plugin extension", () => {
     expect(buildSenpiArgs(["chat"], "/provisioned")).toEqual(["--extension", join("/provisioned", "plugin"), "chat"])
   })

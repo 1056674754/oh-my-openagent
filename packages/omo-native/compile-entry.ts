@@ -61,6 +61,8 @@ const doctorArtifacts = [
 
 export function buildSenpiArgs(args: string[], execDir: string): string[] {
   const command = args[0]
+  // Same placement as the launcher: app-server only reads --extension after its subcommand.
+  if (command === "app-server") return args.includes("--no-extensions") ? args : [...args, "--extension", join(execDir, "plugin")]
   if (earlyCommands.has(command) || command === "update") return args
   // `--no-extensions` is the caller owning the extension list: a memory child lists none and an
   // RPC task child lists this plugin itself, so injecting it here would load the plugin into a

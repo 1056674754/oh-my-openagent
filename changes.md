@@ -35,6 +35,14 @@ When a session's task host dies under running background children, every child a
 
 With one RPC host per parent session (and, in the Desktop, per thread), a crash no longer lands in one machine-wide endpoint. `process_crashed` already reads every endpoint directory's `crashes.jsonl` under `<agentDir>/rpc-host-daemon/`, and the claim fingerprint includes the endpoint directory. Two hosts' byte-identical records are therefore two reports, and each is still sent once. Each report now carries `shard_kind`: `p` for a per-session task host, `i` for a Desktop per-thread host, `none` for the legacy machine-wide endpoint or a crash outside any host, and `unknown` for an endpoint directory that names no socket. The kind comes from the endpoint's durable `endpoint.json`, or from the boot `settings.json` of a directory that predates it. A name counts only when its socket hashes to that directory. The shard key, socket path and owner session never leave the machine. The field is a flat string because the telemetry client drops object and `null` values.
 
+## 2026-09-29 - `omo app-server` sessions get the OmO plugin (#9117)
+
+`omo app-server` launched the engine without the OmO plugin, so app-server threads had only the engine's builtin tools: no `task`/`task_send`/`task_cancel`/`task_output`, no `workpool`, `memory` or `lsp_*`, and clients never received `omo.task.updated`. The launcher (and the compiled binary) now passes the plugin to `app-server` and to every `app-server daemon` verb, after the subcommand where the engine reads it (senpi #2313); the daemon records it, so `restart` keeps it. Install, auth, config and the other early commands are unchanged.
+
+## 2026-09-28 - The auto-format notice reaches the model when post-edit diagnostics are clean (#9123)
+
+When format-on-mutation rewrote a file after a `write`, `edit` or `apply_patch` and the post-edit LSP diagnostics came back clean, the `(OmO) auto-formatted ... re-read before exact-text edits` notice was dropped: the diagnostics step reported "nothing to add" and the LSP `tool_result` hook returned no replacement, discarding the notice the formatter step had already added. That is the default configuration and the most common outcome, so the model usually kept editing against the pre-format text. The notice now reaches the tool result whenever the formatter changed the file, whether diagnostics report errors, come back clean, or are disabled. A mutation the formatter leaves unchanged still adds nothing.
+
 ## 2026-09-29 - Adopt senpi 2026.9.28-7: app-server extensions, the host warm command, and the experimental /computer tip
 
 Every senpi pin moves from 2026.9.28-6 to 2026.9.28-7 (root devDependency, `omo-native`, the `omo-senpi` and `senpi-task` peer and dev pins, their pin tests, `bun.lock`, and the version comment in `packages/omo-native/bin/lib/provider-map.json`). The new engine carries:
@@ -42,6 +50,16 @@ Every senpi pin moves from 2026.9.28-6 to 2026.9.28-7 (root devDependency, `omo-
 - **`senpi app-server` loads extensions passed with `--extension <path>`** into every thread, including through `app-server daemon start|restart` (#9117, senpi #2313).
 - **An RPC host can warm its prompt path without opening a session** (senpi #2314, #2318).
 - **The `/computer` introduction tip says computer use is experimental** (senpi #2315, #2316).
+
+## 2026-09-28 - Computer use says it is experimental on every user-facing surface (#9124)
+
+OmO 5.1.0 ships computer use as experimental support, and every surface a user or model reads now says so. Only the wording changes: registration, gating, defaults, permissions and the #9049 root-object parameter schemas are unchanged (`published-parameters.fixture.json` is untouched).
+
+- Settings: `packages/omo-config-core/src/schema/computer.ts` gives the `computer` block and `computer.enabled` a `describe()` text that starts with "Experimental", carried into `assets/omo.schema.json` by `bun run build:omo-schema`. The `enabled` description in `packages/senpi-desktop-tool/src/settings.ts` reads "Register the computer tool (experimental; default: host supported)".
+- Tool: the `computer` description, `searchText` and `promptSnippet` (`packages/senpi-desktop-tool/src/tool-definition.ts`) and the `computer_actions` description and `searchText` (`cua-definition.ts`) say "(experimental)". `/computer` is described as "Computer use (experimental): on, off, status, stop, or resume (stop and resume are user-only)".
+- Skill: the `computer-use` skill description opens with "Experimental computer use.", and its intro says behavior, platform coverage and settings may change between releases. The prelude facade line in `packages/senpi-desktop-prelude/docs/computer.md` reads "host desktop facade, experimental", regenerated into `src/assets.generated.json`; `test/assets.sha256.json` consciously moves only `COMPUTER_DOCUMENTATION` to the new bytes (the other four prelude assets are byte-identical).
+- Docs: the computer-use guide has an experimental notice at the top and in setup, and Known limitations is grouped per OS, each marked experimental, with every earlier fact kept. The computer reference, the features section, the CLI doctor note, the Unreleased CHANGELOG headline and the README links in English, Korean, Japanese, Simplified Chinese and Russian say it too.
+- The committed plugin bundles are regenerated on linux/amd64 with bun 1.4.2.
 
 ## 2026-09-28 - Adopt senpi 2026.9.28-6: GitHub Copilot Business and Enterprise requests reach the account's own host (#8662)
 
