@@ -95,7 +95,7 @@ export async function ensureTaskDaemon(input: EnsureTaskDaemonInput): Promise<En
     throw new HostUnavailableError("runtime", { fallbackAllowed: true })
   }
 
-  const socket = input.socket ?? resolveTaskHostSocket(input.env, input.agentDir)
+  const socket = input.socket
   const now = ports.now ?? Date.now
   const hit = cached.get(socket)
   if (hit !== undefined && hit.expiresAt > now()) return hit.ensured
