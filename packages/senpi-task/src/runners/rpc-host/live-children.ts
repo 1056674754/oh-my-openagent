@@ -1,4 +1,5 @@
 import type { EnsureTaskDaemonPort } from "./child-endpoint"
+import { forgetTaskDaemon } from "./daemon"
 import type { HostSessionChildHandle } from "./handle-port"
 import type { HostShardEvents } from "./handle-reattach"
 
@@ -38,6 +39,9 @@ export function createLiveHostChildren(observer: HostShardEvents): LiveHostChild
     },
     events: {
       onTransportLost: (info) => {
+        // The lost generation is gone or cut off: its cached ensure must not answer this child's
+        // reattach, or the next spawn, for the rest of the cache window.
+        forgetTaskDaemon(info.socket, info.instanceId)
         const supervisor = supervisors.get(info.socket)
         observer.onTransportLost?.({
           ...info,

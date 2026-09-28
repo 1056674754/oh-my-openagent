@@ -3,6 +3,7 @@ import { mapExitOutcomeToError } from "../runners/rpc/exit-mapping"
 import type { HostSessionChildHandle } from "../runners/rpc-host/handle-port"
 import type { RpcChildHandle, RpcEntriesResult, RpcSpawnSpec, RpcSwitchSessionResult } from "../runners/types"
 import type { SuspensionReason } from "../state"
+import { HOST_TURN_RESUMED_EVENT } from "./host-turn-resumed"
 
 export type { RunnerOutcome } from "../runners/in-process/child-handle"
 
@@ -99,7 +100,7 @@ export function adaptRpcHandle(handle: RpcChildHandle): ManagedChildHandle {
     steer: (text) => handle.steer(text),
     followUp: (text) => handle.followUp(text),
     abort: () => handle.abort(),
-    subscribe: (listener) => handle.subscribe(listener),
+    subscribe: (listener) => subscribeManagedRpc(handle, listener),
     waitForOutcome: () => handle.waitForOutcome === undefined ? rpcOutcome(handle) : handle.waitForOutcome(),
     hasExited: () => handle.hasExited?.() ?? handle.exitOutcome() !== undefined,
     ...(switchSession === undefined ? {} : { switchSession: (sessionPath: string) => switchSession(sessionPath) }),
@@ -107,6 +108,17 @@ export function adaptRpcHandle(handle: RpcChildHandle): ManagedChildHandle {
     lastAssistantText: () => handle.lastAssistantText(),
     terminate: () => handle.terminate(),
     dispose: () => handle.dispose(),
+  }
+}
+
+/** The child's events, plus - for a daemon session - the turn a reattach left running on the new port. */
+function subscribeManagedRpc(handle: RpcChildHandle, listener: ManagedChildListener): () => void {
+  const events = handle.subscribe(listener)
+  if (!isHostSessionHandle(handle)) return events
+  const resumed = handle.onTurnResumed(() => listener({ type: HOST_TURN_RESUMED_EVENT }))
+  return () => {
+    events()
+    resumed()
   }
 }
 

@@ -40,6 +40,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
   const exitWaiters: Array<(outcome: ChildExitOutcome) => void> = []
   const eventListeners = new Set<ChildEventListener>()
   const parkedListeners = new Set<(event: HostSessionParked) => void>()
+  const turnResumedListeners = new Set<() => void>()
   let reachedIdle = false
   let sessionId: string | undefined
   let finalText: string | undefined
@@ -89,6 +90,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     if (outcome) return
     outcome = built
     eventListeners.clear()
+    turnResumedListeners.clear()
     stopHeartbeat()
     flush(idleWaiters)
     if (turnOutcome === undefined) settleTurn(exitTurnOutcome(built, finalText))
@@ -138,6 +140,9 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
       session = next.session
       openDisposition = next.attached ? "attached" : "reopened"
       bindClient(client)
+    },
+    turnResumed: () => {
+      for (const listener of turnResumedListeners) listener()
     },
     endLost: () => endSession({ kind: "transport_gone" }),
     park: (reason) => park({ sessionId: session.routingId, sessionPath: session.sessionPath, reason }),
@@ -214,6 +219,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
   const detach = async (): Promise<void> => {
     detached = true
     eventListeners.clear()
+    turnResumedListeners.clear()
     stopHeartbeat()
     await client.detach()
   }
@@ -257,6 +263,10 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     onParked: (listener) => {
       parkedListeners.add(listener)
       return () => parkedListeners.delete(listener)
+    },
+    onTurnResumed: (listener) => {
+      turnResumedListeners.add(listener)
+      return () => turnResumedListeners.delete(listener)
     },
     waitForIdle: () =>
       reachedIdle || outcome ? Promise.resolve() : new Promise<void>((resolve) => idleWaiters.push(resolve)),

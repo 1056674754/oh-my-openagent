@@ -12,6 +12,7 @@ export interface HandleRecoveryHost {
   alive(): boolean
   turnSettled(): boolean
   adopt(next: HostSessionReattached): void
+  turnResumed(): void
   endLost(): void
   park(reason: HostParkReason): void
 }
@@ -70,6 +71,7 @@ export function createHandleRecovery(host: HandleRecoveryHost): HandleRecovery {
         alive: host.alive,
         turnInFlight: () => !host.turnSettled() && deliveries === 0,
         adopt: host.adopt,
+        turnResumed: host.turnResumed,
         continueTurn: (prompt) => host.port().send({ type: "prompt", message: prompt, streamingBehavior: "steer" }),
         // A refused reattach parks (the endpoint answered, but may not host this session); exhaustion ends.
         giveUp: (reason) => (reason === undefined ? host.endLost() : host.park(reason)),

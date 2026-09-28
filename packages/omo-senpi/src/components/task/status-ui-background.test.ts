@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
 
-import type { ListedTask, TaskRecord, TaskStatus } from "@oh-my-opencode/senpi-task"
+import { HOST_TURN_RESUMED_EVENT, type ListedTask, type TaskRecord, type TaskStatus } from "@oh-my-opencode/senpi-task"
 
 import type { CapturedUi } from "./runtime-context"
 import { createTaskStatusUi, type StatusUiManager, type StatusUiTimers } from "./status-ui"
@@ -137,6 +137,51 @@ describe("createTaskStatusUi.background progress", () => {
     expect(second).toContain("1s")
     expect(second[0]).not.toBe(first[0])
     expect(listCalls).toBe(1)
+  })
+
+  it("#given a background child before its first turn #when a host reattach resumes its turn #then the row reads running instead of starting", () => {
+    // given: no successful turn and no tool yet, so the stats-derived verb is "starting"
+    const active = new Map<number, () => void>()
+    let nextHandle = 1
+    const timers: StatusUiTimers = {
+      set: (callback) => {
+        const handle = nextHandle++
+        active.set(handle, callback)
+        return handle
+      },
+      clear: (handle) => { if (typeof handle === "number") active.delete(handle) },
+    }
+    const task = record({ task_id: "st_reattached", name: "c0", status: "running", category: "quick" })
+    const listeners = new Map<string, (event: { readonly type: string }) => void>()
+    const manager: StatusUiManager = {
+      list: () => listed([task]),
+      wasBackground: () => true,
+      subscribeChild: (taskId, listener) => {
+        listeners.set(taskId, listener)
+        return () => listeners.delete(taskId)
+      },
+      runStatsSnapshot: () => ({ runtime_ms: 11_000, turns: 0, tool_calls: 0 }),
+    }
+    const ui = fakeUi()
+    const statusUi = createTaskStatusUi({
+      manager,
+      runtime: { ui: () => ui, sessionId: () => "session-a", mode: () => "tui" },
+      timers,
+      terminalWidth: () => 140,
+      now: () => Date.parse("2026-07-07T00:00:11.000Z"),
+    })
+    statusUi.syncNow()
+    expect(ui.widgetCalls.at(-1)?.content?.[0]).toContain("· starting ·")
+
+    // when
+    listeners.get("st_reattached")?.({ type: HOST_TURN_RESUMED_EVENT })
+    for (const callback of [...active.values()]) callback()
+
+    // then
+    const row = ui.widgetCalls.at(-1)?.content?.[0] ?? ""
+    expect(row).toContain("· running ·")
+    expect(row).not.toContain("starting")
+    statusUi.dispose()
   })
 
   it("#given a live refresh timer #when the final background task completes #then the timer stops", () => {
