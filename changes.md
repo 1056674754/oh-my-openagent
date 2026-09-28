@@ -1,3 +1,7 @@
+## 2026-09-28 - macOS foreground pointer input refuses a covered point (#9079)
+
+A macOS foreground click, move, drag or scroll raised the target window and waited until it was key, but never checked which window was frontmost at the point. A window of another application that stays above normal windows (a floating panel or an always-on-top utility) received the input, and the engine reported success. Before posting, each point the event hits (a drag's first and last point) is now hit-tested through accessibility. If another window covers a point, the target is raised once more; if it stays covered, or the owner at the point cannot be identified, the action is refused and nothing is posted.
+
 ## 2026-09-28 - Windows desktop QA teardown no longer kills or reports recycled pids (#9087)
 
 The Windows interactive-desktop QA teardown tracked processes by pid alone. Windows reuses pids quickly, so after a tracked engine exited, an unrelated runner process could take its pid; teardown then reported it as a leftover (`procs 1 alive`, a red job) and ran `taskkill /T /F` on it. Teardown now records each tracked process's image name when it is tracked, and kills or counts a pid only while it still runs that image.
