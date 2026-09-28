@@ -1,5 +1,5 @@
-import { dirname, join } from "node:path"
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { basename, dirname, join } from "node:path"
+import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 
 import { observeState, stopParent } from "./task-host-e2e-events.mjs"
 import { HostClient } from "./task-host-e2e-shards-rpc.mjs"
@@ -26,6 +26,15 @@ import {
 const ALT_ROOT = "T14_ALT_ROOT_START"
 const ALT_PARENT = "T14_ALT_PARENT_HOLD"
 const ALT_THREAD = "T14_ALT_THREAD_HOLD"
+
+// The endpoint's alt root when it is a `/tmp/omo-rpc-*` directory. Both sides are realpathed: the
+// engine records `/private/tmp/...` on darwin, where `/tmp` is a symlink.
+export function altRootOf(socket, tmp = realpathSync("/tmp")) {
+  const dir = dirname(socket)
+  if (!existsSync(dir)) return undefined
+  const real = realpathSync(dir)
+  return dirname(real) === tmp && basename(real).startsWith("omo-rpc-") ? real : undefined
+}
 
 export async function runAltRootSuccessorScenario(current, olderBin, artifacts) {
   const rootRelease = join(current.root, `alt-root-${process.pid}`)
@@ -140,11 +149,14 @@ export async function runAltRootSuccessorScenario(current, olderBin, artifacts) 
     client?.close()
     await stopParent(parent)
     for (const socket of sockets) await stopEndpoint(sandbox, socket)
-    for (const socket of sockets.filter((value) => value.startsWith("/tmp/omo-rpc-"))) {
-      rmSync(dirname(socket), { recursive: true, force: true })
-    }
+    const altRoots = [...new Set(sockets.map((socket) => altRootOf(socket)).filter(Boolean))]
+    for (const root of altRoots) rmSync(root, { recursive: true, force: true })
     scenario.close()
     const cleanup = await teardownSandbox(sandbox, [parent].filter(Boolean))
-    writeFileSync(join(artifacts, "alt-root-handoff-cleanup.json"), `${JSON.stringify(cleanup, null, 2)}\n`)
+    const altRootReceipt = { removed: altRoots, still_present: altRoots.filter((root) => existsSync(root)) }
+    writeFileSync(
+      join(artifacts, "alt-root-handoff-cleanup.json"),
+      `${JSON.stringify({ ...cleanup, alt_roots: altRootReceipt }, null, 2)}\n`,
+    )
   }
 }

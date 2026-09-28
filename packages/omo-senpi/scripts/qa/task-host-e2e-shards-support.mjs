@@ -41,7 +41,9 @@ export function heldSteps(releasePath, label) {
   ]
 }
 
-export function parentSteps(routeDir, prefix) {
+// `readNotices` adds one `task_output` read after the hold: its status view carries the parent's
+// session notice list (`note: <line>`), the surface the crash notice is announced on.
+export function parentSteps(routeDir, prefix, { readNotices = false } = {}) {
   const marker = `[[mock-cwd:${routeDir}]]`
   return [
     ...Array.from({ length: CHILDREN_PER_PARENT }, (_, index) => ({
@@ -70,8 +72,22 @@ export function parentSteps(routeDir, prefix) {
         });`,
       },
     },
+    ...(readNotices ? [{ type: "tool_call", name: "task_output", arguments: { name: `${prefix}0` } }] : []),
     { type: "text", text: `${prefix} parent complete` },
   ]
+}
+
+// The `note:` lines of the parent's `task_output` result in its JSON event stream; undefined until
+// the read has finished.
+export function parentNoticeLines(parent) {
+  const read = parent.events.find((entry) =>
+    entry.event.type === "tool_execution_end" && entry.event.toolName === "task_output")
+  if (read === undefined) return undefined
+  return (read.event.result?.content ?? [])
+    .filter((part) => part.type === "text")
+    .flatMap((part) => part.text.split("\n"))
+    .filter((line) => line.startsWith("note: "))
+    .map((line) => line.slice("note: ".length))
 }
 
 export function writeRoute(sandbox, name, script) {
