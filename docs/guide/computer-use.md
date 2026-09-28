@@ -2,7 +2,7 @@
 
 OmO Native can capture your desktop, inspect windows and accessibility trees, and send mouse and keyboard input to native applications. The `computer` tool is backed by the `senpi-desktop-engine` binary. The OmO Senpi component registers the tool when a session loads, but starts the engine only when the tool is first used. Computer use is available on macOS, Linux and Windows. It does not drive web pages through a browser API; for pages, use the `browser` skill.
 
-The tool's parameters and permission classification are in [the computer tool reference](../reference/computer.md). This feature belongs to OmO Native; the same `computer` block does not enable it in the OpenCode or Codex editions.
+The tool's parameters and permission classification are in [the computer tool reference](../reference/computer.md). Scroll amounts are pixels on every OS, and one mouse-wheel notch is about 40 px, so the same scroll moves a similar distance on macOS, Linux and Windows. This feature belongs to OmO Native; the same `computer` block does not enable it in the OpenCode or Codex editions.
 
 ## Turn it on
 
@@ -63,7 +63,11 @@ OmO picks the backend from the session: `WAYLAND_DISPLAY` wins over `DISPLAY` (a
 
 ### Windows
 
-Capture uses the native display and window APIs with per-monitor DPI awareness, and accessibility uses UI Automation. Windows' UIPI refuses input from a normal process to an application running elevated (as administrator); run OmO at the same integrity level as the application you want it to drive. Some toolkits, including WPF, ignore posted background messages, which surfaces as `BackgroundUnavailable`; use accessibility actions or foreground delivery for those.
+Capture uses the native display and window APIs with per-monitor DPI awareness, and accessibility uses UI Automation. Windows' UIPI refuses input from a normal process to an application running elevated (as administrator); run OmO at the same integrity level as the application you want it to drive. Accessibility fallback does not bypass that check.
+
+Foreground pointer input waits until the compositor shows the raised target, and confirms the cursor is on the requested point before it clicks, drags or scrolls; if the cursor cannot be placed there, the action fails with `InputFailed` and no button or wheel is sent.
+
+Background delivery depends on the target toolkit and the requested action. Chromium rejects posted input; WPF rejects posted pointer and text input, and posted keys unless it owns the foreground. XAML, WinUI, Tk, GTK, terminal and embedded Chromium hosts have action-specific restrictions. A rejected, unmodified single left click can use UI Automation's Invoke action when the target exposes it, except for Chromium. Other unsupported actions report `BackgroundUnavailable`; choose an accessibility action or request foreground delivery explicitly. Background drags that start on a title bar or resize border are refused before any input.
 
 ## Configure it
 
@@ -138,7 +142,7 @@ omo --permission computer:read=allow --permission computer:exec=deny
 | Screenshots are black, blank, or show only the wallpaper | The display is asleep or locked (`screenLocked=true`), you are in an SSH or headless session, the window shows DRM-protected content, or on Wayland the portal consent was denied | Unlock and wake the display, run OmO in the graphical session, accept the portal dialog; protected content cannot be captured |
 | Clicks land in the wrong place, often on Retina or HiDPI displays | The coordinates came from an older screenshot, or from a different target, or mixed accessibility (global points) with screenshot pixels | Take a fresh screenshot of the same target and use its pixel coordinates; `InvalidCoordinateFrame` is the engine refusing a stale frame. Screenshots may be scaled below native resolution (`max_width`, `max_height`, or a smaller coordinate-safe size for some models); OmO maps the pixels back to screen points itself |
 | Focus jumps to another window, or the clicked window moves forward | Foreground delivery activated the target, or on macOS a background click raised the clicked window just below the front one | Prefer accessibility actions; background delivery keeps your frontmost app and focus, and the z-order change is a known limitation |
-| `BackgroundUnavailable` | The target app or platform rejects background delivery (a macOS app with several windows for keystrokes, WPF, some Linux toolkits, Wayland) | Use accessibility `setValue` / `press`, or retry with `delivery: "foreground"` |
+| `BackgroundUnavailable` | The target app or platform rejects this background action (a macOS app with several windows for keystrokes, a Windows toolkit restriction or non-client drag, some Linux toolkits, Wayland) | Read the named action and toolkit in the error; use accessibility `setValue` / `press`, or request `delivery: "foreground"` where supported. Windows may invoke an accessible control for an unmodified single left click, but never bypasses UIPI |
 | `StopPathUnavailable` | The global stop chord could not be armed (commonly Wayland without GlobalShortcuts) | Use a compositor with GlobalShortcuts, or set `allow_host_relay_only_stop: true` knowing `/computer stop` is then the only stop |
 | `Suspended` | You pressed the stop chord or ran `/computer stop` | Run `/computer resume` when you want input back |
 
@@ -147,7 +151,7 @@ omo --permission computer:read=allow --permission computer:exec=deny
 - macOS: a background click can raise the clicked window to just below the frontmost window; your frontmost app, front window, focus, cursor and next-keystroke destination are kept. Restoring the full previous window order is tracked in [#8930](https://github.com/code-yeongyu/oh-my-openagent/issues/8930).
 - Wayland: no single-window capture, no per-window input, no `raise()`; the stop chord needs the GlobalShortcuts portal.
 - No released engine for Linux arm64 or Windows arm64 yet.
-- Windows: no input into elevated applications from a non-elevated OmO (UIPI).
+- Windows: no input into elevated applications from a non-elevated OmO (UIPI), including accessibility click fallback. Background input is action-specific: WPF pointer/text and Chromium posted input remain restricted; see [Windows](#windows).
 
 ## Engine modes and bunshin
 

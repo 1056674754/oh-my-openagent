@@ -1,5 +1,5 @@
 import { DesktopEngineAbiMismatchError } from "@oh-my-opencode/senpi-desktop-engine"
-import type { EngineMethod } from "@oh-my-opencode/senpi-desktop-protocol"
+import type { EngineMethod, StopPathStatus } from "@oh-my-opencode/senpi-desktop-protocol"
 import {
   type CallOptions,
   DesktopEngineUnavailableError,
@@ -63,8 +63,28 @@ export class TrackedDesktopService extends DesktopService {
   }
 
   override async call(method: EngineMethod, params: unknown, options: CallOptions = {}): Promise<unknown> {
+    return this.#observe(super.call(method, params, options))
+  }
+
+  override ensureStopPath(chord: string): Promise<StopPathStatus> {
+    return this.#observe(super.ensureStopPath(chord))
+  }
+
+  override stopPathStatus(): Promise<StopPathStatus> {
+    return this.#observe(super.stopPathStatus())
+  }
+
+  override stop(): Promise<StopPathStatus> {
+    return this.#observe(super.stop())
+  }
+
+  override resume(): Promise<StopPathStatus> {
+    return this.#observe(super.resume())
+  }
+
+  async #observe<T>(operation: Promise<T>): Promise<T> {
     try {
-      return await super.call(method, params, options)
+      return await operation
     } catch (error) {
       if (!(error instanceof Error)) throw error
       this.#onError?.(error)

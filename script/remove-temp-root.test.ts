@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test"
 import { TEARDOWN_FAILURE_PREFIX } from "../packages/omo-native/test/teardown.test-support"
-import { removeTestTempRoot } from "./omob-test-executable"
+import { removeTempRoot } from "./remove-temp-root"
 
 function failing(code: string): (path: string) => void {
 	return () => {
@@ -8,12 +8,12 @@ function failing(code: string): (path: string) => void {
 	}
 }
 
-describe("removeTestTempRoot", () => {
+describe("removeTempRoot", () => {
 	test("#given win32 and a busy root #when removed #then it warns once and leaves the root for the OS", () => {
 		const warn = spyOn(console, "warn").mockImplementation(() => {})
 		let attempts = 0
 		try {
-			removeTestTempRoot("C:\\Temp\\omob-pair-x", (path) => { attempts += 1; failing("EBUSY")(path) }, "win32")
+			removeTempRoot("C:\\Temp\\omob-pair-x", (path) => { attempts += 1; failing("EBUSY")(path) }, "win32")
 			expect(attempts).toBe(1)
 			expect(warn).toHaveBeenCalledTimes(1)
 			expect(String(warn.mock.calls[0]?.[0])).toStartWith(TEARDOWN_FAILURE_PREFIX)
@@ -23,10 +23,10 @@ describe("removeTestTempRoot", () => {
 	})
 
 	test("#given win32 and any other errno #when removed #then it throws on the first attempt", () => {
-		expect(() => removeTestTempRoot("C:\\Temp\\omob-pair-x", failing("EPERM"), "win32")).toThrow("EPERM")
+		expect(() => removeTempRoot("C:\\Temp\\omob-pair-x", failing("EPERM"), "win32")).toThrow("EPERM")
 	})
 
 	test("#given POSIX and a busy root #when removed #then it throws", () => {
-		expect(() => removeTestTempRoot("/tmp/omob-pair-x", failing("EBUSY"), "linux")).toThrow("EBUSY")
+		expect(() => removeTempRoot("/tmp/omob-pair-x", failing("EBUSY"), "linux")).toThrow("EBUSY")
 	})
 })

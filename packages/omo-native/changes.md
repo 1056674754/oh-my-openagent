@@ -1,3 +1,11 @@
+## 2026-09-28 - `omo daemon run --foreground` exits 2; `--persistent` is accepted and ignored
+
+`bin/lib/daemon.js`: `--foreground` on any `omo daemon` subcommand exits 2 with "the engine host always
+detaches", before the engine is called. `--persistent` is still accepted but no longer passed to the engine; the
+launch spec's `coldStart` tunable decides. `docs/reference/omo-daemon.md` documents both, lists the exit-3 cases of
+`stop --all`, `handoff` and `rollback-prepare`, and carries the rollback runbook built on `stop --drain --all --wait`
+and `rollback-prepare`.
+
 ## 2026-09-28 - Native daemon commands cover every session host
 
 `omo daemon status` and `omo doctor` now enumerate the operator daemon, task
@@ -350,3 +358,57 @@ This is a source cleanup in the compiled launcher, before extension loading.
 ### Expected merge conflict zones
 
 The import list in `compile-entry.ts`. No runtime behavior or Windows paths changed.
+
+## 2026-09-28 - compiled omo update resolves channel, flavor and destination
+
+### What changed
+
+`omo update` on a compiled release binary now asks GitHub for the newest release on the build's
+own channel (stable builds only move to stable releases, betas follow the newest release of either
+kind), picks the asset the binary was built as, and prints a version-pinned command that downloads
+beside the running executable and swaps it in (`mv` on POSIX, `Move-Item` on Windows, no
+`chmod` there). An up-to-date binary says so; a failed lookup exits 1 with the releases page.
+`script/build-omo-binary.ts` stamps `releaseTarget` (for example `linux-x64-musl`) into the
+embedded runtime-manifest.json, outside the payload digest. The TUI update notice of a compiled
+release build now says `omo update`. Logic lives in `compiled-update.ts`.
+
+### Why
+
+The old line always fetched `releases/latest/download/omo-<os>-<arch>` into the current
+directory: musl and baseline builds got the glibc / AVX2 asset, the running binary was never
+replaced, the GitHub Latest badge (which betas also receive) moved stable users to betas, and the
+Windows line ended in `chmod`.
+
+### Why an extension could not handle it
+
+`omo update` is answered by the compiled entry before any extension loads.
+
+### Expected merge conflict zones
+
+`updateHint` / the `main()` fast path in `compile-entry.ts`, and the manifest write in
+`script/build-omo-binary.ts`.
+
+## 2026-09-28 - doctor recognizes a standalone omo binary
+
+### What changed
+
+`omo doctor` classifies an `omo` on PATH as a standalone OmO binary when it resolves to
+`~/.omo/binary-runtime/<version>/omo` or is byte-identical to that provisioned copy (size plus a
+64 KiB head and tail sample; the binaries are ~100 MB). Standalone binaries and omo-ai are both
+OmO installs: when both are on PATH one warning names the one that runs, the one that never runs,
+and how to keep one. Legacy or foreign `omo` files ahead of the first OmO install keep their
+warning, now naming that install. The compiled binary's `omo doctor` prints the same migration
+section, without the npm restore note. Detection lives in `bin/lib/standalone-binary.js`.
+
+### Why
+
+A curl-installed release binary had no npm owner, so the npm doctor called it an "unknown owner"
+file to delete, and the compiled doctor never reported an omo-ai install shadowed by it.
+
+### Why an extension could not handle it
+
+Doctor runs from the launcher and the compiled entry, before extensions load.
+
+### Expected merge conflict zones
+
+`runCompiledDoctor` in `compile-entry.ts` and `formatMigrationLines` in `bin/lib/doctor-migration.js`.

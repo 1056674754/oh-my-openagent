@@ -4,8 +4,10 @@ import {
 	type ComputerActionsInput,
 	ComputerActionsParams,
 	isReadOnlyActions,
+	parseComputerActions,
 	type ScreenshotBounds,
 } from "./cua-actions";
+import { ComputerArgumentsError } from "./action-schema";
 import { computerFailure } from "./cua-errors";
 import { DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS } from "./params";
 import { COMPUTER_PERMISSION, type PermissionRequest } from "./permission";
@@ -35,6 +37,7 @@ function isActionsOutcome(value: unknown): value is ActionsOutcome {
 const DESCRIPTION = [
 	"Drive the user's real desktop with OpenAI computer-use actions: screenshot, click, double_click, move, drag, scroll, type, keypress, wait, or a batch of them.",
 	"x,y are pixels of the latest screenshot. A batch stops at the first failed action; an in-batch screenshot becomes the frame for the actions after it.",
+	"Pass only the fields the chosen action takes (each field's description names its actions); anything else is refused with COMPUTER_INVALID_ARGUMENTS before any input.",
 	"Errors carry COMPUTER_* codes with a recovery hint. COMPUTER_SUSPENDED or COMPUTER_SUPERVISOR_NOT_LIVE means the user stopped you: stop and wait.",
 ].join("\n");
 
@@ -66,12 +69,20 @@ export function createComputerActionsTool(deps: ComputerToolDeps) {
 		executionMode: "sequential" as const,
 		async execute(
 			_toolCallId: string,
-			params: ComputerActionsInput,
+			input: Readonly<Record<string, unknown>>,
 			signal: AbortSignal | undefined,
 			_onUpdate: unknown,
 			context: ComputerHostContext,
 		): Promise<ComputerToolResult & { isError?: boolean }> {
 			const stopHotkey = deps.handle.settings().stopHotkey;
+			let params: ComputerActionsInput;
+			try {
+				params = parseComputerActions(input);
+			} catch (error) {
+				if (!(error instanceof ComputerArgumentsError)) throw error;
+				const failure = computerFailure(error.code, error.reason, stopHotkey);
+				return { content: [{ type: "text", text: failure.message }], details: { value: failure }, isError: true };
+			}
 			const timeoutSeconds = Math.min(params.timeout ?? DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS);
 			const readOnly = isReadOnlyActions(params);
 			const code = actionsScript(actionsOf(params), bounds);

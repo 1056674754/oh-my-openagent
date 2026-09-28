@@ -1,3 +1,12 @@
+## docs: engine hosts per session (rpc-host-sharding todo 18)
+
+`AGENTS.md` replaces "Shared engine host" with "Engine hosts per session": children run on their session's own
+host, `rpc.sock` stays the operator and thread-tool endpoint, and no cap limits hosts. `src/components/task/AGENTS.md`
+gains the `shard-routing.ts` / `host-execution-mode.ts` / `shard-crash-notice.ts` row (the crash notice names
+`supervisor pid N`, `1 child` is singular, and the done line gains `, C cancelled`). `src/components/thread/AGENTS.md`
+says `ensureHost()` starts one host per endpoint. `thread_read` labelling tool results as role `tool` on the live path
+(the transcript fallback already did) is recorded in the root `CHANGELOG.md`. No code changes.
+
 ## thread: tools address peer sessions across every host endpoint (rpc-host-sharding todo 11)
 
 `components/thread/live-surface.ts`: the thread tools no longer see only the legacy socket. They enumerate endpoints
@@ -62,6 +71,10 @@ The `task.host_idle_exit_ms` override now wraps the one ensure port the gate, ru
 The daemon launch spec is unchanged: no memory knob.
 
 Tests: `shard-routing.test.ts` (new), `host-runner-selection.test.ts`.
+
+## skill commands: bare `/ulw-execute` and every bundled skill name dispatch like `/skill:` (#9042)
+
+`/ulw-execute <plan>`, the command the ulw-plan handoff and the Native guides tell users to run, was not a command: senpi only expands `/skill:<name>`, so the text reached the model verbatim, no skill body was injected, and the `ulw` in it armed ultrawork, which made the run look started. The new `skill-commands` component rewrites a leading `/<bundled-skill>` into `/skill:<bundled-skill>` in the input event, ahead of every other omo input handler, with the submission's source unchanged, so ultrawork, skill pointers, the ulw-plan gate and the continuation resets see exactly what a typed `/skill:` command gives them. A prompt template or another command with the same name keeps the name; a disabled or unloaded bundled skill gets a warning notice instead of reaching the model. The TUI autocomplete lists each bare name above its `skill:<name>` row. `documented-commands.test.ts` scans the shipped SKILL.md files and the Native guides and fails on a backticked `/command` that nothing registers.
 
 ## computer use: forward the macOS canary policy (#8945)
 ## 2026-09-27 - Persist mailbox operations without whole-queue rewrites

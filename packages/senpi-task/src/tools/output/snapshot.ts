@@ -32,6 +32,7 @@ export function buildTaskSnapshot(record: TaskRecord, stateDir: string, now: num
     status: record.status,
     residency_state: record.residency_state,
     ...(isSuspended(record) ? { suspended: { explanation: suspendedExplanation(record) } } : {}),
+    ...(record.status === "running" && record.start_queued !== undefined ? { start_queued: record.start_queued } : {}),
     execution_mode: record.execution_mode,
     model: record.model,
     ...(record.resolved_model !== undefined ? { resolved_model: record.resolved_model } : {}),

@@ -1,3 +1,11 @@
+## AGENTS: the host runner opens children on their parent session's own host
+
+`AGENTS.md` describes `RpcHostRunner` as opening a child on its parent session's own host
+(`<shardRoot>/p-<shardKey("p", rootSessionId)>.sock`, `rpc-host/shard-socket.ts`) instead of the one machine-wide
+host: new children ask `shardResolver`, a child inside a host passes `tree_key`/`shard_key` to its own children,
+revival opens only the recorded socket, and `OMO_RPC_SOCKET*` serve the operator commands and thread tools only.
+The operator surface now lists `gc` and `rollback-prepare`. No code changes.
+
 ## A host that dies inside the ensure cache window is re-ensured, not trusted
 
 `runners/rpc-host/daemon.ts`: `ensureTaskDaemon` caches a successful ensure per socket for
@@ -229,6 +237,51 @@ the PARENT `host_pid`. No single-daemon reader needed changing.
 Tests: `rpc-host-endpoint.test.ts`, `lifecycle/host-session-endpoint.test.ts`,
 `manager/host-session-park.test.ts`, `rpc-host/daemon-shard.test.ts`, `rpc-host/store-index.test.ts`,
 `rpc-host/own-endpoint.test.ts`.
+
+## A reattach continuation that is not delivered fails the turn (#9093)
+
+`runners/rpc-host/handle.ts` `onTransportGone`: the `recoverLostTransport` chain now ends in a `.catch`. Its last step re-prompts the in-flight turn on the adopted port (`continueTurn`), and nothing awaited that promise unless a delivery was in flight, so a rejected continuation (`Timeout waiting for response to prompt` from a host that answered past the RPC deadline) escaped as an unhandled rejection that Bun printed over the parent TUI, while the turn stayed pending. The rejection is logged; a transport-loss error is left to the next recovery, and any other failure settles the turn with `promptFailureOutcome`, the same outcome `runPrompt` gives an undelivered prompt. `runners/rpc-host-recovery.test.ts` covers it with a host whose post-restart client rejects the prompt.
+
+## The task daemon ensure releases the engine's attach hold (#9041)
+
+`runners/rpc-host/daemon.ts`: senpi #2242 makes `ensureHost()` return an attach hold - the readiness
+connection stays open and the host counts the ensuring process as attached - until `release()` is
+called. `ensureTaskDaemon` releases it once, right after its own capability probe (in a `finally`, so
+a failed probe still releases) and before it returns: its result is cached and shared by the
+single-flight, and the transient daemon would otherwise never start its idle window while omo runs.
+Every ensure path (spawn, revival, reattach, pre-warm) goes through this one call.
+`lazy/senpi-barrel.ts`: `EnsuredSenpiHost.release` is optional, so the current engine pin (no hold)
+keeps working.
+
+Tests: `runners/rpc-host/daemon.test.ts` ("ensureTaskDaemon attach hold": a started host is released
+after its capability probe, a reused one once, a throwing probe still releases, concurrent and cached
+ensures release the one engine ensure once, a hold-less pin still ensures).
+
+## A daemon-hosted child set aside by a busy or draining host is picked up again (#9069)
+
+Three gaps kept a live or finished process child at `running` + `rpc_detached` until the next parent session start (real cases: a generation handoff, and a config reload that stalled the host briefly):
+
+- `runners/rpc-host/liveness.ts` `daemonReachable`: an unanswered protocol probe on a socket that still accepts a connection (`busy-host.ts` `socketAcceptsConnection`, the #9067 rule) now reads as reachable, so `lifecycle/host-session-revive.ts` `reconcileHostSessionOrphan` no longer parks a live child as `daemon_unavailable` (`runners/rpc-host/liveness.test.ts`, RED on the old probe).
+- `lifecycle/host-session-revive.ts` `retryDeferredHostSessions`, wired into `createTaskLifecycle().reconcileOnSessionStart`: every host-session record a reconcile deferred as `host_unreachable` or `host_draining` gets one background retry through the existing single-flight `reviveParkedHostSession` against its RECORDED session, on `HostSessionRetryPolicy.deferredRetryBackoffMs` (5 s .. 5 min, about 30 min total); it stops once the record is revived, not running, killed, or no longer `rpc_detached` (`lifecycle/host-session-revival.test.ts`).
+- `manager/interrupted-turn.ts` `sessionTailFinishedText` + `manager/manager-respawn.ts`: a reopened session whose transcript already ends with a normal final answer settles the new handle with that answer (`adoptFinishedTurn` on both process handles), so the ordinary outcome tracking completes the record instead of waiting for an `agent_end` that already happened (`manager/manager-respawn-host-session.test.ts`). The answer is adopted only when `get_state` shows the reopened session idle (`turn-settlement.ts` `sessionIsIdle`: not streaming or compacting, no queued steering or follow-up); a finished-looking tail with a queued follow-up is left to its own `agent_end` (`runners/rpc-host/handle-continuation.test.ts`). The busy-socket check in `liveness.ts` connects with a 500 ms bound and destroys the socket at once, so it cannot hold a draining host open.
+
+`runners/rpc-host/handle-reattach.test.ts` and `runners/rpc-host-recovery.test.ts` ("host dies and comes back"): the continuation wait is now registered before `host.restart()`. The reattach re-prompts before `restart()` resolves on a fast machine, and `waitForCommand` only resolves for commands recorded after it, so both tests timed out on every local run while passing on CI by timing.
+
+## A fallback start queued behind a full lane is reported as queued (#9069)
+
+`manager/manager.ts` `#advanceStartFallback`: when a start-time `model_unavailable` walks the chain onto a model whose lane is full, the enqueued launch now records `start_queued { model, queued_at, queue_position }` on the record and a `task_start_queued` event, `#launch` returns the queue position, and `start` answers `status: "pending"` with `queue_position` instead of `running` with no child behind it. `#launchRuntimeFallback` clears `start_queued` when the slot is granted. `tools/output/snapshot.ts` surfaces `start_queued` in `task_output` while the record is running. `manager/start-failure-model-fallback.test.ts` covers it (RED on the old manager: `Expected: "pending" Received: "running"`).
+
+## A task record follows the child session, not the first agent_end (#9069)
+
+`src/runners/rpc/turn-settlement.ts` (new) is shared by both process runners (`runners/rpc/handle.ts`, `runners/rpc-host/handle.ts`): the outcome of a non-retrying `agent_end` is held until senpi's `agent_idle` (emitted only when no settle-time continuation started and no session work is pending), dropped when another run starts (`agent_start`), and a user abort still settles at once as cancelled. A child exit settles any held outcome. A TTSR interrupt followed by its corrective nudge therefore ends with the continuation's result instead of `error: This operation was aborted` (`runners/rpc-host/handle-continuation.test.ts`, RED on the old handle).
+
+A run the child starts on its own after its turn settled (a monitor or background job woke it) resets the handle's turn and fires `onSelfResumed`; `manager/self-resumed-turn.ts` (new) reopens the settled record under the next `run_epoch` (the same `buildRevived` a `task_send` revival uses), marks `resumed_run_epoch`, re-arms outcome tracking, and `completion/notification.ts` labels that completion `task completion (resumed turn)` (`manager/manager-self-resumed-turn.test.ts`).
+
+`runners/rpc-host/handle.ts` `park`: a session the host parks is idle on the host, so an outcome still held for `agent_idle` settles there. Test fixtures (`fake-host.ts`, `fake-child.mjs` and hand-emitted `agent_end` in handle tests) now follow `agent_end` with `agent_idle` as senpi does.
+
+## A busy task host makes a child start wait, not fail (#9067)
+
+`src/runners/rpc-host/busy-host.ts` (new) `waitOutBusyHost` wraps `RpcHostRunner.start` (`src/runners/rpc-host.ts`): the session path is chosen once per start, and an attempt that met a host whose loop is blocked is retried at that SAME path with backoff (1, 2, 4, 8, then 15 s) inside `admissionWaitMs`, with one `host_busy` runner note per episode. Three failures count as busy: the ensure refused `host_busy` (senpi's `HostEnsureRefusedError`, now classified by `ensure-failure.ts` and carried as `HostUnavailableReason`/`HOST_START_FAILURE_REASONS` `host_busy`), `HostSessionClient.open`'s protocol probe went unanswered while the socket still accepts a connection (`socketAcceptsConnection`; a refused socket stays `host_unreachable`), and an `open_session` the host never acknowledged (`open_timed_out`). After such a timeout the path answering `session_path_in_use` means the earlier open is still being built, so it is retried too; the host attaches an open for a path it already hosts, so a late first open is adopted, never duplicated. A fresh start whose path is held elsewhere, and a dead host, still fail at once. `src/runners/rpc-host-busy.test.ts` covers each case (RED on the old runner: 5 of 8 failed).
 
 ## A host lost during open_session reports host_unreachable (#9020)
 

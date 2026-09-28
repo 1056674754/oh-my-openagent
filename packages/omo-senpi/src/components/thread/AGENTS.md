@@ -55,7 +55,7 @@ Fuzzy (`thread_handoff` only): trigram Dice over name (weight 1.0), preview (0.8
 
 ## Host lifecycle (senpi side)
 
-`ensureHost()` starts the shared socket host on demand, probes an occupying server's version and capability set (`multi_session`, `extension_events`), and REPLACES it on mismatch. Every ensured host gets the pinned installation-wide client-capability profile, independent of who ensured it first. The host runs under a lifecycle supervisor (`host-lifecycle.ts`) that byte-proxies the public socket:
+`ensureHost()` starts a socket host on demand (one per endpoint: the legacy `rpc.sock` and each `p-*`/`i-*` session host), probes an occupying server's version and capability set (`multi_session`, `extension_events`), and REPLACES it on mismatch. Every ensured host gets the pinned installation-wide client-capability profile, independent of who ensured it first. The host runs under a lifecycle supervisor (`host-lifecycle.ts`) that byte-proxies the public socket:
 
 - Cold start `transient` (default) idle-exits after a continuous window (default 15 minutes) with zero attached connections and zero active turns; `persistent` never idle-exits. Env overrides: `SENPI_RPC_HOST_COLD_START`, `SENPI_RPC_HOST_IDLE_EXIT_MS`.
 - Orphan-proofing is kernel-level: the supervisor spawns the host with an inherited pipe on fd 3 and holds the write end without writing. When the supervisor dies for ANY reason (SIGKILL, OOM kill, crash), the kernel closes the pipe, the host reads EOF, and shuts down cleanly. Verified on darwin/arm64. On Windows the fd is not inherited and the host falls back to ppid polling at a ~2000 ms cadence (`HOST_WATCH_PPID_INTERVAL_MS`); that path is coded but untested.

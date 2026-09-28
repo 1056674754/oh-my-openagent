@@ -14,140 +14,45 @@ import {
   type SenpiHostProtocolInfo,
   type TaskDaemonHostPort,
 } from "../../lazy/senpi-barrel"
+import {
+  HostUnavailableError,
+  TASK_DAEMON_CACHE_TTL_MS,
+  TASK_DAEMON_PROTOCOL_VERSION,
+  TASK_DAEMON_REQUIRED_CAPABILITIES,
+  resolveTaskHostSocket,
+  type EnsuredTaskDaemon,
+  type EnsureTaskDaemonInput,
+  type HostUnavailableReason,
+  type LoadedDaemonLaunchSpec,
+} from "./daemon-contract"
 import { daemonLaunchOptions, daemonLaunchProfileId } from "./launch-options"
-import { DAEMON_LAUNCH_SPEC_FILENAME, readDaemonLaunchSpec, type DaemonLaunchSpec } from "./launch-spec"
+import { DAEMON_LAUNCH_SPEC_FILENAME, readDaemonLaunchSpec } from "./launch-spec"
 import { shareDaemonEnsure } from "./daemon-single-flight"
 import { classifyEnsureFailure } from "./ensure-failure"
-import { writeStartedShardSidecar, type ShardOwner } from "./shard-sidecar"
-import type { ShardNotice } from "./shard-socket"
+import { writeStartedShardSidecar } from "./shard-sidecar"
 import { log } from "@oh-my-opencode/utils"
 
 // The daemon's launch surface is documented from this module: `omo daemon run` and a
 // child-triggered ensure must reach the same producer.
 export { daemonLaunchOptions, daemonLaunchProfileId }
+export {
+  HostUnavailableError,
+  TASK_DAEMON_CACHE_TTL_MS,
+  TASK_DAEMON_PROTOCOL_VERSION,
+  TASK_DAEMON_REQUIRED_CAPABILITIES,
+  TASK_HOST_SOCKET_ENV_NAMES,
+  isHostIncompatible,
+  resolveTaskHostSocket,
+} from "./daemon-contract"
 export type { DaemonLaunchOptions, DaemonLaunchOptionsInput } from "./launch-options"
+export type {
+  EnsuredTaskDaemon,
+  EnsureTaskDaemonInput,
+  HostUnavailableReason,
+  LoadedDaemonLaunchSpec,
+  TaskDaemonPorts,
+} from "./daemon-contract"
 export type { HostEnginePolicy }
-
-/**
- * Socket overrides, most specific first - the engine's own brand-prefixed `RPC_SOCKET` names, then
- * `OMO_RPC_SOCKET_PATH`, which the desktop sets on the host it spawns. Every omo client (the task
- * daemon here, the thread surface in omo-senpi) reads THIS list, so a socket that one of them
- * reaches is a socket all of them reach.
- */
-export const TASK_HOST_SOCKET_ENV_NAMES = [
-  "OMO_RPC_SOCKET",
-  "SENPI_RPC_SOCKET",
-  "PI_RPC_SOCKET",
-  "OMO_RPC_SOCKET_PATH",
-] as const
-
-/** The ONE public socket of the machine-wide daemon: an override, else `<agentDir>/rpc/rpc.sock`. */
-export function resolveTaskHostSocket(
-  env: Readonly<Record<string, string | undefined>>,
-  agentDir: string,
-): string {
-  for (const name of TASK_HOST_SOCKET_ENV_NAMES) {
-    const configured = env[name]?.trim()
-    if (configured) return configured
-  }
-  return join(agentDir, "rpc", "rpc.sock")
-}
-
-/** Capabilities a daemon must advertise before omo will run task children as its sessions. */
-export const TASK_DAEMON_REQUIRED_CAPABILITIES = [
-  "multi_session",
-  "extension_events",
-  "session_context",
-  "session_kind",
-] as const
-
-/** The protocol generation this omo build speaks (senpi `get_protocol_info.protocolVersion`). */
-export const TASK_DAEMON_PROTOCOL_VERSION = 1
-
-/** How long an ensured daemon is trusted before the socket is probed again. */
-export const TASK_DAEMON_CACHE_TTL_MS = 5_000
-
-export type HostUnavailableReason =
-  | "protocol"
-  | "capability"
-  | "legacy_host"
-  | "engine_mismatch"
-  | "engine_refused"
-  | "win32"
-  | "runtime"
-  | "host_unreachable"
-  | "ensure_timed_out"
-  | "ensure_failed"
-
-/**
- * The daemon cannot host this child. `fallbackAllowed` marks the LOUD fallbacks to the per-child
- * runner: a pre-change or narrower daemon (`capability`), an engine the caller asked to fall back
- * from (`engine_mismatch`), win32 (no daemon runner path), and a Node runtime with no bun. Every
- * other reason fails fast - a refused client must never start a second host beside the daemon.
- */
-export class HostUnavailableError extends Error {
-  override readonly name = "HostUnavailableError"
-  readonly reason: HostUnavailableReason
-  readonly fallbackAllowed: boolean
-
-  constructor(reason: HostUnavailableReason, options: { readonly fallbackAllowed: boolean; readonly detail?: string }) {
-    super(`task daemon unavailable (${reason})${options.detail === undefined ? "" : `: ${options.detail}`}`)
-    this.reason = reason
-    this.fallbackAllowed = options.fallbackAllowed
-  }
-}
-
-const INCOMPATIBLE_REASONS: ReadonlySet<HostUnavailableReason> = new Set(["protocol", "capability", "legacy_host"])
-
-/**
- * The endpoint answers, but not in a way this build may use: neither refusal proves the host let go of
- * a session it holds, so a retained session is never reopened anywhere else on one of these.
- */
-export function isHostIncompatible(error: unknown): boolean {
-  return error instanceof HostUnavailableError && INCOMPATIBLE_REASONS.has(error.reason)
-}
-
-export interface LoadedDaemonLaunchSpec {
-  readonly path: string
-  readonly spec: DaemonLaunchSpec
-}
-
-export interface TaskDaemonPorts {
-  readonly host?: TaskDaemonHostPort
-  readonly launchSpec?: LoadedDaemonLaunchSpec
-  readonly idleExitMs?: number
-  readonly platform?: NodeJS.Platform
-  readonly bunRuntimeAvailable?: boolean
-  readonly now?: () => number
-}
-
-export interface EnsureTaskDaemonInput {
-  readonly agentDir: string
-  readonly env: Readonly<Record<string, string | undefined>>
-  readonly policy: HostEnginePolicy
-  readonly ports?: TaskDaemonPorts
-  // The endpoint to ensure. Absent only for the operator commands (`omo daemon run/attach`), which
-  // keep the machine-wide `resolveTaskHostSocket` answer.
-  readonly socket?: string
-  // Recorded in the shard sidecar when this ensure STARTS the endpoint.
-  readonly owner?: ShardOwner
-  readonly sidecarNotice?: ShardNotice
-}
-
-export interface EnsuredTaskDaemon {
-  readonly action: "start" | "reuse" | "handoff"
-  readonly reason: string
-  readonly socket: string
-  readonly pid: number
-  readonly reused: boolean
-  readonly upgradeable: boolean
-  readonly instanceId?: string
-  readonly engineVersion?: string
-  // What this daemon advertises (`get_protocol_info.capabilities`). Absent only when a host this
-  // call just started did not answer a probe - never guessed, because the `auto` execution mode is
-  // decided from this list.
-  readonly capabilities?: readonly string[]
-}
 
 interface DaemonCacheEntry {
   readonly socket: string

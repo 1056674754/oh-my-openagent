@@ -369,6 +369,29 @@ describe("respawn of a daemon-hosted child", () => {
     expect(prompts(host)).toEqual([])
   })
 
+  test("#given a turn that finished while no parent was attached #when respawn reopens the session #then the child's outcome is that final answer, not a wait for an agent_end that already happened (omo#9069)", async () => {
+    // given
+    const project = tempProject()
+    const transcript = completedTranscript(project)
+    const host = await harness.fakeHost()
+
+    // when
+    const result = await respawnManagedTask({
+      beforeLaunch: () => undefined,
+      record: hostRecord(project, realIdentity(host, transcript), REAL_MODEL),
+      sessionPath: transcript,
+      stateDir: project,
+      runners: unusedManagedRunners(),
+      rpcRunner: recordingRunner(host),
+    })
+
+    // then
+    if (!result.ok) throw new Error("respawn failed")
+    const settled = await Promise.race([result.handle.waitForOutcome(), Bun.sleep(2_000).then(() => "unsettled" as const)])
+    expect(settled).toEqual({ status: "completed", finalResponse: "done" })
+    expect(prompts(host)).toEqual([])
+  })
+
   test("#given an interrupted turn followed by extension bookkeeping rows #when the host reopens the session #then exactly one continuation reaches the host", async () => {
     // given - the shape a killed host leaves: the tool result is the last MESSAGE, custom rows follow
     const project = tempProject()

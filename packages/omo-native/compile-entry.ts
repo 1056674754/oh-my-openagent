@@ -15,11 +15,13 @@ import {
 } from "./compile-runtime"
 import { propagateResult, runChild } from "./bin/lib/child-process.js"
 import { buildLabel, parseBuildInfo, parseEngineBuildStamp, versionLines } from "./build-info"
+import { compiledUpdate, fetchGitHubReleases, releaseAssetName, RELEASES_URL } from "./compiled-update"
 import { migrateLegacyBunGlobalManifest } from "./bin/lib/legacy-bun-global-migration.js"
 import { adoptLegacyFlatState, canonicalAgentDir } from "./bin/lib/agent-dir.js"
 import { nearestNodeBin, readJson, releaseBanner } from "./bin/lib/package-paths.js"
 import { daemonReportLines, runDaemonCommand } from "./bin/lib/daemon.js"
 import { runDoctor } from "./bin/lib/doctor.js"
+import { migrationReport } from "./bin/lib/doctor-migration.js"
 import { detectHarnesses, needsSetupSuggestion } from "./bin/lib/setup-detect.js"
 import { printSetupReport } from "./bin/lib/setup-report.js"
 import { spawnSync } from "node:child_process"
@@ -79,22 +81,14 @@ export function versionLine(
   return `omo ${packageJson.version} (engine: senpi ${enginePin}; scheme nodef)`
 }
 
-export function updateAssetSlug(platform: NodeJS.Platform, arch: string): string {
-  const os = platform === "win32" ? "windows" : platform
-  const slug = `omo-${os}-${arch}`
-  return platform === "win32" ? `${slug}.exe` : slug
-}
-
-/** A dev build is refreshed by rebuilding it; only release binaries come from the curl line. */
+/**
+ * A dev build is refreshed by rebuilding it. A release binary resolves its update in `main()` from the
+ * embedded manifest (see compiled-update.ts); any other caller has no binary to replace.
+ */
 export function updateHint(rawBuildInfo: unknown, platform: NodeJS.Platform = process.platform, arch: string = process.arch): string {
   const info = parseBuildInfo(rawBuildInfo)
-  return info === undefined ? updateLine(platform, arch) : `rebuild with: bun run ${info.command}`
-}
-
-export function updateLine(platform: NodeJS.Platform, arch: string): string {
-  const asset = updateAssetSlug(platform, arch)
-  const dest = platform === "win32" ? "omo.exe" : "omo"
-  return `omo is updated via curl: curl -fsSL https://github.com/code-yeongyu/oh-my-openagent/releases/latest/download/${asset} -o ${dest} && chmod +x ${dest}`
+  if (info !== undefined) return `rebuild with: bun run ${info.command}`
+  return `omo update runs from the compiled omo binary; download ${releaseAssetName(undefined, platform, arch)} from ${RELEASES_URL}`
 }
 
 export function remapSenpiEnvironment(source: NodeJS.ProcessEnv = process.env, execDir: string): NodeJS.ProcessEnv {
@@ -137,7 +131,7 @@ export function remapSenpiEnvironment(source: NodeJS.ProcessEnv = process.env, e
       path: join(execDir, "plugin", "CHANGELOG.md"),
       ...(changelogVersion === undefined ? {} : { version: changelogVersion }),
     },
-    update: { packageName: "omo-ai", distTag: displayVersion.includes("-") ? "beta" : "latest", command: devUpdateCommand ?? updateLine(process.platform, process.arch), changelogUrl: "https://github.com/code-yeongyu/oh-my-openagent/releases" },
+    update: { packageName: "omo-ai", distTag: displayVersion.includes("-") ? "beta" : "latest", command: devUpdateCommand ?? "omo update", changelogUrl: "https://github.com/code-yeongyu/oh-my-openagent/releases" },
   })
   const binDir = nearestNodeBin(execDir)
   if (binDir) {
@@ -152,7 +146,9 @@ export function remapSenpiEnvironment(source: NodeJS.ProcessEnv = process.env, e
 
 type DaemonEngine = { run(args: string[], options: { env: Record<string, string | undefined> }): { exitCode: number; stdout: string; stderr: string } }
 
-function runCompiledDoctor(inventory: Awaited<ReturnType<typeof detectHarnesses>>, execDir: string, enginePin: string, engine?: DaemonEngine): void {
+type MigrationOptions = { env?: NodeJS.ProcessEnv; homeDir?: string; platform?: NodeJS.Platform }
+
+function runCompiledDoctor(inventory: Awaited<ReturnType<typeof detectHarnesses>>, execDir: string, enginePin: string, engine?: DaemonEngine, migration: MigrationOptions = {}): void {
   let failed = false
   const lines: string[] = []
   for (const [label, artifact] of doctorArtifacts) {
@@ -167,6 +163,7 @@ function runCompiledDoctor(inventory: Awaited<ReturnType<typeof detectHarnesses>
   if (engine !== undefined) {
     lines.push(...daemonReportLines({ engine, pluginRoot: join(execDir, "plugin"), agentDir: canonicalAgentDir(), env: process.env, platform: process.platform }))
   }
+  lines.push(...migrationReport({ ...migration, standalone: true }, null))
   if (needsSetupSuggestion(inventory)) lines.push("INFO no credentials found; run omo setup to review sibling stores")
   console.log(lines.join("\n"))
   process.exitCode = failed ? 1 : 0
@@ -252,7 +249,7 @@ function compiledRollbackMigration() {
   }
 }
 
-export async function runCompiledLauncher(args: string[], execDir: string, enginePin = "unknown", compiledPackageRoot?: string): Promise<boolean> {
+export async function runCompiledLauncher(args: string[], execDir: string, enginePin = "unknown", compiledPackageRoot?: string, migration: MigrationOptions = {}): Promise<boolean> {
   const packageJson = readJson(join(execDir, "package.json")) as { version: string; omoBuild?: unknown }
   migrateLegacyBunGlobalManifest(execDir)
   adoptLegacyFlatState()
@@ -295,7 +292,7 @@ export async function runCompiledLauncher(args: string[], execDir: string, engin
   }
   if (command === "doctor") {
     const inventory = await detectHarnesses()
-    if (compiledPackageRoot) runCompiledDoctor(inventory, compiledPackageRoot, enginePin, engine)
+    if (compiledPackageRoot) runCompiledDoctor(inventory, compiledPackageRoot, enginePin, engine, migration)
     else runDoctor(inventory, [], { daemonEngine: engine })
     return true
   }
@@ -355,6 +352,19 @@ async function main(): Promise<void> {
   if (needsProvisioning) {
     await provisionEmbeddedRuntime(manifest, embedded, dirname(expected))
     materializeProvisionedExecutable(runningExecutable, expected)
+  }
+  if (isSelfUpdate(process.argv.slice(2)) && parseBuildInfo(manifest.buildInfo) === undefined) {
+    const result = await compiledUpdate({
+      omoAiVersion: manifest.omoAiVersion,
+      releaseTarget: manifest.releaseTarget,
+      destination: runningExecutable,
+      platform: process.platform,
+      arch: process.arch,
+      fetchReleases: fetchGitHubReleases,
+    })
+    console.log(result.output)
+    process.exitCode = result.exitCode
+    return
   }
   if (answerCompiledFastPath(process.argv.slice(2), manifest)) return
   if (needsProvisioning) {

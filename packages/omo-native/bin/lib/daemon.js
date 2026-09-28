@@ -3,7 +3,6 @@ import { join } from "node:path"
 import {
   parseEngineLine,
   parseStoreArgs,
-  readAllEndpoints,
   hostCommandEnvironment,
   runGc,
   runHandoff,
@@ -11,12 +10,18 @@ import {
   runStopAll,
 } from "./daemon-operations.js"
 import { runRollbackPrepare } from "./daemon-rollback.js"
-import { formatDoctorLines } from "./daemon-status.js"
+import { attachLaunchArgs, blockingPause, DAEMON_EXIT, readTimeoutSeconds } from "./daemon-args.js"
+
+export { DAEMON_EXIT } from "./daemon-args.js"
+export { daemonReportLines } from "./daemon-doctor-report.js"
 
 /**
- * `omo daemon` - the operator's view of the one machine-wide engine host.
+ * `omo daemon` - the operator's view of every engine host in one agent dir: the operator daemon on
+ * `rpc.sock` (the only endpoint `run` and `attach` ensure), each session's task host (`p-*`), each
+ * Desktop thread host (`i-*`), and any other endpoint the engine enumerates. `status`, `gc`,
+ * `handoff`, `stop --all` and `rollback-prepare` cover all of them.
  *
- * Everything that decides WHO serves the socket lives in the engine (`senpi host`): probing an
+ * Everything that decides WHO serves a socket lives in the engine (`senpi host`): probing an
  * existing host, comparing build ordinals, handing a generation over, refusing when the two sides
  * cannot agree. This wrapper owns three much smaller things, and deliberately nothing else:
  * omo's launch spec is the argv source, omo.json is where the policy comes from, and the caller
@@ -24,32 +29,8 @@ import { formatDoctorLines } from "./daemon-status.js"
  */
 
 const SUBCOMMANDS = new Set(["run", "attach", "status", "stop", "handoff", "gc", "rollback-prepare"])
-/** Flags this wrapper consumes itself; anything else after `attach` belongs to the launch. */
-const DAEMON_FLAGS = new Set([
-  "--json",
-  "--no-upgrade",
-  "--persistent",
-  "--foreground",
-  "--include-workers",
-  "--drain",
-  "--all",
-  "--wait",
-  "--dry-run",
-  "--allow-missing-index",
-  "--prune-store-index",
-])
-const DAEMON_VALUE_FLAGS = new Set(["--store", "--timeout"])
 /** The subcommands that can bring a host into existence, and therefore need omo's argv source. */
 const NEEDS_SPEC = new Set(["run", "attach", "handoff"])
-
-/** A named code per outcome, so a script never has to parse the message to know what happened. */
-export const DAEMON_EXIT = {
-  ok: 0,
-  usage: 2,
-  notRunning: 3,
-  unsupported: 4,
-  engineRefused: 5,
-}
 
 const USAGE = [
   "usage: omo daemon <run|attach|status|stop|handoff|gc|rollback-prepare> [options]",
@@ -264,56 +245,4 @@ export function runDaemonCommand(args, options) {
   if (args.includes("--json") && result.stdout) stdout.write(result.stdout.trim() + "\n")
   else stdout.write(`${summarize(subcommand, parsed, result.exitCode)}\n`)
   return result.exitCode
-}
-
-/**
- * The `omo doctor` view: one INFO line, never a FAIL - a machine without a daemon is healthy,
- * it just has nothing shared to report. Returned as lines so doctor can place it with the rest.
- */
-export function daemonReportLines({ engine, pluginRoot, agentDir, env, platform }) {
-  if (platform === "win32") return ["INFO Daemon: unavailable on win32 (no unix socket to share)"]
-  const all = readAllEndpoints(engine, agentDir, env)
-  if (all.kind === "all") {
-    if (all.endpoints.length === 0) return ["INFO Daemon: not running"]
-    return formatDoctorLines(all.endpoints)
-  }
-  const result = engine.run(["host", "status", "--json"], { env: { ...env, OMO_AGENT_DIR: agentDir } })
-  const parsed = parseEngineLine(result.stdout ?? "")
-  if (result.exitCode !== DAEMON_EXIT.ok || parsed === undefined) {
-    return ["INFO Daemon: not running", "INFO Hosts: engine too old to enumerate"]
-  }
-  const sessions = parsed.sessions?.total ?? parsed.sessions?.length ?? 0
-  const parts = [
-    `pid ${parsed.pid}`,
-    parsed.instanceId === undefined ? undefined : `instance ${parsed.instanceId}`,
-    parsed.engineVersion === undefined ? undefined : `engine ${parsed.engineVersion}`,
-    `${sessions} session(s)`,
-    `zombies ${parsed.zombies ?? 0}`,
-  ].filter(Boolean)
-  return [`INFO Daemon: running ${parts.join(" · ")}`, "INFO Hosts: engine too old to enumerate"]
-}
-
-function readTimeoutSeconds(args) {
-  const index = args.indexOf("--timeout")
-  if (index === -1) return 600
-  const value = Number(args[index + 1])
-  return Number.isFinite(value) && value >= 0 ? value : 600
-}
-
-function attachLaunchArgs(args) {
-  const launchArgs = []
-  for (let index = 1; index < args.length; index += 1) {
-    const argument = args[index]
-    if (DAEMON_FLAGS.has(argument)) continue
-    if (DAEMON_VALUE_FLAGS.has(argument)) {
-      index += 1
-      continue
-    }
-    launchArgs.push(argument)
-  }
-  return launchArgs
-}
-
-function blockingPause(milliseconds) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds)
 }

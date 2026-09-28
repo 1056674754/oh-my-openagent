@@ -45,7 +45,7 @@ pub enum SentEvent {
 
 pub trait InputServer {
     fn root(&self) -> Window;
-    fn keymap(&self) -> &Keymap;
+    fn keymap(&self) -> CoreResult<Keymap>;
     fn fake(&self, input: FakeInput) -> CoreResult<()>;
     fn send(&self, window: Window, event: SentEvent) -> CoreResult<()>;
     /// Root `(x, y)` in `window`'s coordinates.
@@ -62,6 +62,9 @@ pub trait InputServer {
     fn active_window(&self) -> Option<Window>;
     /// Asks the window manager to activate `window` (EWMH client message).
     fn activate(&self, window: Window) -> CoreResult<()>;
+    fn focus_window(&self) -> CoreResult<Window>;
+    fn set_focus(&self, window: Window) -> CoreResult<()>;
+    fn parent(&self, window: Window) -> CoreResult<Option<Window>>;
     /// Raw `WM_CLASS` bytes (`instance\0class\0`); `None` when absent.
     fn wm_class(&self, window: Window) -> Option<Vec<u8>>;
     fn flush(&self) -> CoreResult<()>;

@@ -51,6 +51,9 @@ export type ManagedChildHandle = {
   abort(): Promise<void>
   subscribe(listener: ManagedChildListener): () => void
   waitForOutcome(): Promise<RunnerOutcome>
+  // Present on process children: fires when the child starts a run on its own after its turn
+  // settled (a monitor or background job woke it), so the manager can reopen the record.
+  onSelfResumed?(listener: () => void): () => void
   // RPC handles expose a settled process signal; in-process handles omit it because their session
   // lifecycle has no separate child process to observe.
   hasExited?(): boolean
@@ -101,6 +104,7 @@ export function adaptRpcHandle(handle: RpcChildHandle): ManagedChildHandle {
     followUp: (text) => handle.followUp(text),
     abort: () => handle.abort(),
     subscribe: (listener) => subscribeManagedRpc(handle, listener),
+    ...(handle.onSelfResumed === undefined ? {} : { onSelfResumed: (listener: () => void) => handle.onSelfResumed?.(listener) ?? (() => undefined) }),
     waitForOutcome: () => handle.waitForOutcome === undefined ? rpcOutcome(handle) : handle.waitForOutcome(),
     hasExited: () => handle.hasExited?.() ?? handle.exitOutcome() !== undefined,
     ...(switchSession === undefined ? {} : { switchSession: (sessionPath: string) => switchSession(sessionPath) }),

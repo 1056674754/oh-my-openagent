@@ -26,7 +26,7 @@ export async function reachRecordedHost(
     return "host_incompatible"
   }
   if (ensured !== "ensured") return "host_unreachable"
-  context.hostSessionProbe.refresh()
+  context.hostSessionProbe.refresh(hostSession.socket)
   return (await context.hostSessionProbe.daemonAlive(hostSession)) ? "alive" : "host_unreachable"
 }
 
