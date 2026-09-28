@@ -47,7 +47,7 @@
     "packages/omo-native/bin/lib/doctor.js: omo doctor x2",
     "packages/omo-native/bin/lib/launcher.js: omo ulw-loop",
     "packages/omo-native/category-coverage-entry.ts: omo doctor",
-    "packages/omo-native/changes.md: omo doctor x5",
+    "packages/omo-native/changes.md: omo doctor x7",
     "packages/omo-native/compile-entry.ts: omo ulw-loop",
     "packages/omo-native/test/bun-bin-shim-node-modules-bin.test.ts: /bin/omo x2",
     "packages/omo-native/test/bun-bin-shim.test-support.ts: /bin/omo",
