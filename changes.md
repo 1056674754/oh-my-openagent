@@ -2,6 +2,18 @@
 
 The `clipboard.read` and `clipboard.write` engine methods were advertised by the SDK and the schema but answered "not implemented". They now reach the session: reading is a read-only request, writing goes through the same gate and single input transaction as other input (suspension, a live stop path, input permission, cancellation) and emits one audit record carrying only the text's length and digest, never the text. The macOS, X11, Wayland and Windows backends share one UTF-8 text clipboard in `senpi-desktop-core` (feature `system-clipboard`); on Linux one clipboard handle lives for the process so the text stays served after the write returns. A clipboard holding no text reads as the empty string. The desktop contract CI runs a live round-trip on the hosted macOS, Windows and Linux (Xvfb) runners.
 
+## 2026-09-28 - X11 computer use keeps offscreen frames and newer user state (#8974)
+
+Partially offscreen X11 windows now keep a full-size capture frame with transparent pixels for the off-root area, so an unchanged window remains targetable from its screenshot instead of being misclassified as resized. Keyboard text, chords and XTEST modifiers read the current server keymap once per operation, so runtime layout changes no longer require reconnecting.
+
+Foreground delivery now confirms core X focus as well as EWMH active-window state. On a non-EWMH server it uses a core-focus fallback, delivers to the requested window, and restores the previous focus. Both the input-local guard and the shared session restore hooks preserve a newer user focus or pointer choice instead of replaying an older snapshot over it.
+
+Filtering toolkits still receive a truthful background-unavailable refusal. The supported Linux QA stack exposes XInput and XTEST but has no writable `/dev/uinput`, and a bounded Xvfb hierarchy probe did not establish an isolated real-input route; MPX support therefore remains a separate real-Xorg/uinput feature rather than an inferred fallback.
+
+## 2026-09-28 - Computer tools publish a root object schema (#9047)
+
+The `computer` and `computer_actions` tools used to publish a root-union JSON schema. Anthropic native tool search sends a deferred tool's schema as-is, so every request with the `computer` tool deferred failed with `400 tools.N.custom.input_schema.type: Field required` (senpi #2252). OpenAI strict function schemas and Gemini also reject a root union. Both tools now publish one root object with an `action` enum and every action's fields as optional, and each field's description names the actions that take it. `execute` still checks the exact per-action shape, including every batch item, and refuses a missing, extra or mistyped field with `COMPUTER_INVALID_ARGUMENTS`, naming the action and the field, before any engine starts. Valid calls behave as before.
+
 ## 2026-09-28 - Boulder plan progress counts every task format and stops on 0/0 (#9019, #6233)
 
 The plan parser in `packages/boulder-state/src/plan-checklist.ts` now counts `T1.2`, `T6.3a`, `F1` and `H1` task IDs written with a `.`, space, `-` or em-dash separator. When the canonical `## TODOs` / `## Final Verification Wave` sections hold no task rows but checkboxes sit under another heading, it falls back to every top-level checkbox. A `- [~]` row, which the continuation directive uses for a task blocked on the user, counts toward the total as in-progress: it is neither completed nor remaining. Progress no longer reads `1/1` when one of two tasks is blocked, and a plan whose open work is all blocked still ends continuation.

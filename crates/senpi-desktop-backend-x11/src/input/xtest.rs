@@ -84,8 +84,13 @@ impl<S: InputServer> X11Input<S> {
         self.server.flush()
     }
 
-    fn motion_xtest(&self, x: i16, y: i16) -> CoreResult<()> {
-        self.server.fake(FakeInput::Motion { x, y })
+    fn motion_xtest(&mut self, x: i16, y: i16) -> CoreResult<()> {
+        self.server.fake(FakeInput::Motion { x, y })?;
+        self.last_pointer_motion = Some(senpi_desktop_core::types::DesktopPoint {
+            x: f64::from(x),
+            y: f64::from(y),
+        });
+        Ok(())
     }
 
     /// Holds the gesture's modifier keys (XTEST) around `body`; they are
@@ -95,9 +100,10 @@ impl<S: InputServer> X11Input<S> {
         modifiers: Modifiers,
         body: impl FnOnce(&mut Self) -> CoreResult<()>,
     ) -> CoreResult<()> {
+        let keymap = self.server.keymap()?;
         let strokes = modifier_keys(modifiers)
             .into_iter()
-            .map(|key| self.server.keymap().stroke(key))
+            .map(|key| keymap.stroke(key))
             .collect::<CoreResult<Vec<Stroke>>>()?;
         let mut pressed = Vec::with_capacity(strokes.len());
         let mut result = Ok(());

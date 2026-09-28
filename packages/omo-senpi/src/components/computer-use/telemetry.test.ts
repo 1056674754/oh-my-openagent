@@ -165,11 +165,11 @@ describe("computer-use telemetry projection", () => {
     const telemetry = createComputerUseTelemetry({ platform: "win32", observers: recorded.observers })
 
     // when
-    telemetry.toolCall({
-      type: "tool_call",
+    telemetry.toolExecutionStarted({
+      type: "tool_execution_start",
       toolCallId: "call-1",
       toolName: "computer",
-      input: { action: "run", code: "private typed text" },
+      args: { action: "run", code: "private typed text" },
     })
     telemetry.permissionTierDenied({
       type: "tool_execution_end",
@@ -199,11 +199,11 @@ describe("computer-use telemetry projection", () => {
     const telemetry = createComputerUseTelemetry({ platform: "linux", observers: recorded.observers })
 
     // when
-    telemetry.toolCall({
-      type: "tool_call",
+    telemetry.toolExecutionStarted({
+      type: "tool_execution_start",
       toolCallId: "call-2",
       toolName: "computer",
-      input: { action: "run", code: "await desktop.click(1, 1)" },
+      args: { action: "run", code: "await desktop.click(1, 1)" },
     })
     telemetry.permissionTierDenied({
       type: "tool_execution_end",
