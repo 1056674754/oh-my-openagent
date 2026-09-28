@@ -8,7 +8,7 @@ import { HostUnavailableError } from "./rpc-host/daemon"
 import type { HostSessionParked } from "./rpc-host/session-client"
 import { readTaskStoreIndex, taskStoreIndexPath } from "./rpc-host/store-index"
 import { childSpec, fakeFallbackRunner, hostRunnerHarness } from "./rpc-host.test-support"
-import { cleanupTempDirs, ensureRecorder, shardEndpoint, tempDir } from "./rpc-host-endpoint.test-support"
+import { cleanupTempDirs, ensureRecorder, posixShardTest, shardEndpoint, tempDir } from "./rpc-host-endpoint.test-support"
 
 const harness = hostRunnerHarness()
 const { fakeHost, runnerOver } = harness
@@ -36,7 +36,7 @@ function openCount(commands: readonly { readonly type: string }[]): number {
 }
 
 describe("RpcHostRunner opens a child on the endpoint its resolver names", () => {
-  test("#given a shard resolver #when two children start #then each opens on the shard, records that socket, and the resolver runs once per start", async () => {
+  posixShardTest("#given a shard resolver #when two children start #then each opens on the shard, records that socket, and the resolver runs once per start", async () => {
     // given
     const host = await fakeHost()
     const shard = shardEndpoint(host, "00000000000000a1")
@@ -61,7 +61,7 @@ describe("RpcHostRunner opens a child on the endpoint its resolver names", () =>
     await second.terminate()
   })
 
-  test("#given a resolution with the alternate-root notice #when two children start #then the notice surfaces once", async () => {
+  posixShardTest("#given a resolution with the alternate-root notice #when two children start #then the notice surfaces once", async () => {
     // given
     const host = await fakeHost()
     const shard = shardEndpoint(host, "00000000000000a2")
@@ -139,7 +139,7 @@ describe("RpcHostRunner opens a child on the endpoint its resolver names", () =>
 })
 
 describe("the agent-dir store index is an admission precondition", () => {
-  test("#given runners for two stores on one shard #when three children open #then the index and the sidecar list exactly the two stores, registered before any ensure or open", async () => {
+  posixShardTest("#given runners for two stores on one shard #when three children open #then the index and the sidecar list exactly the two stores, registered before any ensure or open", async () => {
     // given - an older sidecar without a stores field
     const host = await fakeHost()
     const agentDir = tempDir("dh-t7-agent-")
@@ -203,7 +203,7 @@ describe("the agent-dir store index is an admission precondition", () => {
     expect(notices).toEqual(["host_notice:store_index_unavailable"])
   })
 
-  test("#given a sidecar the runner cannot write but a writable index #when children open #then they open and the failure is noticed once", async () => {
+  posixShardTest("#given a sidecar the runner cannot write but a writable index #when children open #then they open and the failure is noticed once", async () => {
     // given - the shard dir is read-only, so the sidecar lock cannot be taken there
     const host = await fakeHost()
     const agentDir = tempDir("dh-t7-agent-")
@@ -234,7 +234,7 @@ describe("the agent-dir store index is an admission precondition", () => {
 })
 
 describe("transport recovery reattaches ONLY on the recorded socket", () => {
-  test("#given a child whose resolver now names a different shard #when its daemon dies and returns #then the reattach ensures the recorded socket", async () => {
+  posixShardTest("#given a child whose resolver now names a different shard #when its daemon dies and returns #then the reattach ensures the recorded socket", async () => {
     // given
     const host = await fakeHost()
     const recorded = shardEndpoint(host, "00000000000000c1")
@@ -256,7 +256,7 @@ describe("transport recovery reattaches ONLY on the recorded socket", () => {
     await handle.terminate()
   })
 
-  test("#given a recorded host that fails every ensure for a non-incompatibility reason #when the retries are exhausted #then the child ends crashed with transport_gone", async () => {
+  posixShardTest("#given a recorded host that fails every ensure for a non-incompatibility reason #when the retries are exhausted #then the child ends crashed with transport_gone", async () => {
     // given
     const host = await fakeHost()
     const recorded = shardEndpoint(host, "00000000000000c3")
@@ -276,7 +276,7 @@ describe("transport recovery reattaches ONLY on the recorded socket", () => {
     expect(ensure.inputs.map((input) => input.socket)).toEqual(Array.from({ length: 6 }, () => recorded.socket))
   })
 
-  test("#given a recorded host that answers incompatibly after a connection cut #when the child reattaches #then it parks host_incompatible, opens nowhere else, and notices once", async () => {
+  posixShardTest("#given a recorded host that answers incompatibly after a connection cut #when the child reattaches #then it parks host_incompatible, opens nowhere else, and notices once", async () => {
     // given
     const host = await fakeHost()
     const recorded = shardEndpoint(host, "00000000000000c4")
@@ -309,7 +309,7 @@ describe("transport recovery reattaches ONLY on the recorded socket", () => {
     expect(notices).toEqual([`host_unavailable:host_incompatible ${recorded.socket}`])
   })
 
-  test("#given a child whose store index turns unreadable #when its transport is lost #then the reattach parks store_index_unavailable before any ensure or reopen", async () => {
+  posixShardTest("#given a child whose store index turns unreadable #when its transport is lost #then the reattach parks store_index_unavailable before any ensure or reopen", async () => {
     // given
     const host = await fakeHost()
     const agentDir = tempDir("dh-t7-agent-")
@@ -337,7 +337,7 @@ describe("transport recovery reattaches ONLY on the recorded socket", () => {
 })
 
 describe("the session's OWN endpoint is never ensured from inside it", () => {
-  test("#given the session's own socket spelled through a symlinked directory #when a child starts there #then it is recognised as the own endpoint and never ensured", async () => {
+  posixShardTest("#given the session's own socket spelled through a symlinked directory #when a child starts there #then it is recognised as the own endpoint and never ensured", async () => {
     // given
     const host = await fakeHost()
     const own = shardEndpoint(host, "00000000000000d3")
@@ -359,7 +359,7 @@ describe("the session's OWN endpoint is never ensured from inside it", () => {
     await handle.terminate()
   })
 
-  test("#given a child session spawning on its own shard #when it starts and its host restarts #then it opens and reopens there with zero ensures", async () => {
+  posixShardTest("#given a child session spawning on its own shard #when it starts and its host restarts #then it opens and reopens there with zero ensures", async () => {
     // given
     const host = await fakeHost()
     const own = shardEndpoint(host, "00000000000000d1")
@@ -384,7 +384,7 @@ describe("the session's OWN endpoint is never ensured from inside it", () => {
     await handle.terminate()
   })
 
-  test("#given its own shard goes silent #when the child's transport is lost #then it parks own_host_unreachable with zero ensures", async () => {
+  posixShardTest("#given its own shard goes silent #when the child's transport is lost #then it parks own_host_unreachable with zero ensures", async () => {
     // given
     const host = await fakeHost()
     const own = shardEndpoint(host, "00000000000000d2")
