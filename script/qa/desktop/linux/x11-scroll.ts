@@ -41,16 +41,21 @@ export async function scrollDirection(
 			frameId: frame.frameId ?? null,
 			opts: { deliveryMode },
 		};
-		const step = async (dx: number, dy: number, from: ScrollView): Promise<Step> => {
-			const reply = outcome(await engine.exec("scroll", { ...at, dx, dy }));
-			return { reply, view: reply === "ok" ? await observe.scrollViewMoved(from) : observe.scrollView() };
-		};
 		const start = observe.scrollView();
+		let markers = 0;
+		// After each scroll, a pointer motion to a fresh point near the widget's top-left corner (away
+		// from the scroll point) marks the end of the wheel events; see X11Observer.scrollViewAfter.
+		const step = async (dx: number, dy: number): Promise<Step> => {
+			const reply = outcome(await engine.exec("scroll", { ...at, dx, dy }));
+			markers += 1;
+			const marker = { x: start.origin.x + 4 + markers, y: start.origin.y + 4 };
+			return { reply, view: await observe.scrollViewAfter(marker) };
+		};
 		const before = { active: await observe.activeWindow(), ...start };
-		const down = await step(0, VERTICAL_PIXELS, start);
-		const up = await step(0, -VERTICAL_PIXELS, down.view);
-		const right = await step(HORIZONTAL_PIXELS, 0, up.view);
-		const left = await step(-HORIZONTAL_PIXELS, 0, right.view);
+		const down = await step(0, VERTICAL_PIXELS);
+		const up = await step(0, -VERTICAL_PIXELS);
+		const right = await step(HORIZONTAL_PIXELS, 0);
+		const left = await step(-HORIZONTAL_PIXELS, 0);
 		const after = { active: await observe.activeWindow(), ...left.view };
 		const pixelsMoved = (down.view.line - start.line) * start.lineHeight;
 		return result(
