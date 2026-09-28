@@ -10,6 +10,9 @@
 //! actually came back. Some compositors (GNOME, KDE) show a consent dialog
 //! the first time; wlroots' portal does not.
 
+pub mod layout;
+#[cfg(test)]
+mod layout_tests;
 #[cfg(test)]
 mod live_tests;
 pub mod pipewire;
@@ -112,11 +115,11 @@ impl PortalCapture {
             DisplaySelector::Id(id) if id == PORTAL_DISPLAY_ID
         );
         match (!force_screenshot)
-            .then(|| self.screencast.capture(runtime))
+            .then(|| self.screencast.capture(runtime, None))
             .transpose()
         {
-            Ok(Some((image, displays))) => {
-                let (image, displays) = pipewire::select_capture(&self.selector, image, displays)?;
+            Ok(Some(cast)) => {
+                let (image, displays) = pipewire::select_capture(&self.selector, cast.image, cast.displays)?;
                 self.probe = Probe::Granted;
                 self.displays = displays;
                 return match target {

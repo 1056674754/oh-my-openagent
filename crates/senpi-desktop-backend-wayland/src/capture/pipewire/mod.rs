@@ -5,6 +5,8 @@
 //! portal.
 
 mod ffi;
+#[cfg(test)]
+mod geometry_tests;
 mod lib;
 #[cfg(test)]
 mod live_tests;
@@ -23,6 +25,7 @@ use image::{imageops, RgbaImage};
 use senpi_desktop_core::types::DesktopDisplay;
 use tokio::runtime::Runtime;
 
+use super::layout::EisRegion;
 use screencast::Cast;
 pub(super) use selection::select_capture;
 pub use window::crop_window;
@@ -37,6 +40,23 @@ pub enum CastError {
     Failed(String),
 }
 
+/// Where the composite's logical geometry came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Geometry {
+    /// Every stream reported its logical size.
+    Reported,
+    /// A stream without a size took it from the libei region at its position.
+    FromEis,
+    /// A stream reported no size and no libei region proves one.
+    Unknown,
+}
+
+pub struct Composite {
+    pub image: RgbaImage,
+    pub displays: Vec<DesktopDisplay>,
+    pub geometry: Geometry,
+}
+
 pub struct ScreenCast {
     cast: Option<Cast>,
 }
@@ -46,7 +66,7 @@ impl ScreenCast {
         Self { cast: None }
     }
 
-    pub fn capture(&mut self, runtime: &Runtime) -> Result<(RgbaImage, Vec<DesktopDisplay>), CastError> {
+    pub fn capture(&mut self, runtime: &Runtime, eis: Option<&[EisRegion]>) -> Result<Composite, CastError> {
         let pipewire = lib::pipewire().map_err(|reason| CastError::Unavailable(reason.to_owned()))?;
         if self.cast.is_none() {
             let cast = screencast::start(runtime).map_err(|(refused, message)| {
@@ -59,7 +79,7 @@ impl ScreenCast {
             self.cast = Some(cast);
         }
         match self.cast.as_ref().map(|cast| grab_all(pipewire, cast)) {
-            Some(Ok(frames)) => Ok(composite(&frames)),
+            Some(Ok(frames)) => Ok(composite(&frames, eis)),
             Some(Err(message)) => {
                 // A failed grab usually means the cast ended; the next capture starts a new one.
                 self.cast = None;
@@ -87,7 +107,8 @@ fn grab_all(
 
 /// Monitors sit at their logical positions; pixels scale by frame / logical
 /// size (a HiDPI monitor streams more pixels than its logical size).
-fn composite(frames: &[(screencast::MonitorStream, RgbaImage)]) -> (RgbaImage, Vec<DesktopDisplay>) {
+fn composite(frames: &[(screencast::MonitorStream, RgbaImage)], eis: Option<&[EisRegion]>) -> Composite {
+    let _ = eis;
     let min_x = frames
         .iter()
         .map(|(monitor, _)| monitor.position.0)
@@ -145,7 +166,11 @@ fn composite(frames: &[(screencast::MonitorStream, RgbaImage)]) -> (RgbaImage, V
             i64::from(display.pixel_y),
         );
     }
-    (canvas, displays)
+    Composite {
+        image: canvas,
+        displays,
+        geometry: Geometry::Reported,
+    }
 }
 
 fn scaled(offset: i32, scale: f64) -> u32 {
