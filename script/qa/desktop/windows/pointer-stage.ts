@@ -46,14 +46,9 @@ export const POINT_TOLERANCE = 10
 export interface Stage {
   readonly target: PointerHost
   readonly front: PointerHost
-  readonly trace: MouseTrace | null
+  readonly trace: MouseTrace
   readonly frame: { readonly id: string | null; readonly width: number; readonly height: number }
   readonly before: PointerProbe
-}
-
-/** `OMO_QA_MOUSE_TRACE=0` runs without the WH_MOUSE_LL trace, to compare a hooked and an unhooked desktop. */
-function traced(): boolean {
-  return process.env.OMO_QA_MOUSE_TRACE !== "0"
 }
 
 export async function stage(context: ScenarioContext, engine: Engine, tag: string, layout: Layout): Promise<Stage> {
@@ -64,7 +59,7 @@ export async function stage(context: ScenarioContext, engine: Engine, tag: strin
   await engine.exec("raiseWindow", { windowId: front.id })
   await probeHostsUntil([target, front], (seen) => seen.foreground === front.id)
   const before = await probe([target, front], layout.stale)
-  const trace = traced() ? await mouseTrace(context, tag) : null
+  const trace = await mouseTrace(context, tag)
   return {
     target,
     front,
@@ -116,15 +111,15 @@ export async function outcome(
   facts: JsonObject,
   after: PointerProbe,
 ): Promise<ScenarioOutcome> {
-  await state.trace?.stop()
+  await state.trace.stop()
   const failed = checks.find(([, passed]) => !passed)
   const checkFacts: JsonObject = {}
   for (const [name, passed] of checks) checkFacts[name] = passed
   const events: Json = {
     target: hostEvents(state.target),
     front: hostEvents(state.front),
-    // WM_MOUSEMOVE 200, WM_LBUTTONDOWN 201, WM_LBUTTONUP 202, WM_MOUSEWHEEL 20A; null when untraced.
-    mouseTrace: state.trace === null ? null : state.trace.lines().slice(-200),
+    // WM_MOUSEMOVE 200, WM_LBUTTONDOWN 201, WM_LBUTTONUP 202, WM_MOUSEWHEEL 20A.
+    mouseTrace: state.trace.lines().slice(-200),
   }
   return {
     pass: failed === undefined,

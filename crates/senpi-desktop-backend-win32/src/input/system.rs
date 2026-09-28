@@ -138,28 +138,6 @@ pub(super) fn move_to((x, y): (i32, i32), target: Option<Window>) -> CoreResult<
     send(&[mouse_event(flags, 0, dx, dy)], target)
 }
 
-/// #9095 diagnostic (temporary): the absolute move and one wheel event in a
-/// single `SendInput` call.
-pub(super) fn move_and_wheel((x, y): (i32, i32), delta: i32, target: Option<Window>) -> CoreResult<()> {
-    // SAFETY: [FFI] `GetSystemMetrics` takes a scalar index.
-    let (origin_x, origin_y, width, height) = unsafe {
-        (
-            GetSystemMetrics(SM_XVIRTUALSCREEN),
-            GetSystemMetrics(SM_YVIRTUALSCREEN),
-            GetSystemMetrics(SM_CXVIRTUALSCREEN),
-            GetSystemMetrics(SM_CYVIRTUALSCREEN),
-        )
-    };
-    let (Some(dx), Some(dy)) = (
-        absolute_coordinate(x, origin_x, width),
-        absolute_coordinate(y, origin_y, height),
-    ) else {
-        return Err(DesktopError::input_failed("Win32 virtual desktop geometry is unavailable"));
-    };
-    let flags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
-    send(&[mouse_event(flags, 0, dx, dy), mouse_event(MOUSEEVENTF_WHEEL, delta, 0, 0)], target)
-}
-
 /// Presses (`down`) or releases `button` where the cursor is.
 pub(super) fn button(
     button: MouseButton,

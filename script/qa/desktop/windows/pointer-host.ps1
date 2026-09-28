@@ -31,29 +31,6 @@ public static class QaPointerHost {
 # engine's and the probe's.
 [void][QaPointerHost]::SetProcessDpiAwarenessContext([IntPtr]-4)
 Add-Type -AssemblyName System.Windows.Forms
-# Every mouse, paint, focus, activation and key message the form and its EDIT receive, stamped with the
-# QPC counter (Stopwatch.GetTimestamp), so a scenario can line the host's view up with the engine's.
-Add-Type -IgnoreWarnings -ReferencedAssemblies System.Windows.Forms -TypeDefinition @'
-using System;
-using System.Diagnostics;
-using System.IO;
-using System.Windows.Forms;
-public class QaMessageLog : NativeWindow {
-	readonly string path;
-	readonly string name;
-	public QaMessageLog(IntPtr handle, string path, string name) { this.path = path; this.name = name; AssignHandle(handle); }
-	protected override void WndProc(ref Message m) {
-		switch (m.Msg) {
-			case 0x0006: case 0x0007: case 0x0008: case 0x000F: case 0x0021: case 0x0086: case 0x0100: case 0x0101:
-			case 0x0200: case 0x0201: case 0x0202: case 0x020A: case 0x0215:
-				File.AppendAllText(path, String.Format("msg {0} {1:X} {2} {3:X} {4:X}\n", name, m.Msg, Stopwatch.GetTimestamp(), m.WParam.ToInt64(), m.LParam.ToInt64()));
-				break;
-		}
-		base.WndProc(ref m);
-	}
-}
-'@
-
 $box = New-Object System.Windows.Forms.TextBox -Property @{
 	Multiline = $true; ReadOnly = $true; WordWrap = $false; ScrollBars = 'Vertical'; Dock = 'Fill'; HideSelection = $false
 }
@@ -71,8 +48,6 @@ $box.Add_MouseUp({ param($source, $mouse) $at = Get-ScreenPoint $mouse; Write-Ho
 $box.Add_MouseWheel({ param($source, $mouse) $at = Get-ScreenPoint $mouse; Write-HostEvent "wheel $($mouse.Delta) $($at.X) $($at.Y)" })
 $form.Add_Activated({ Write-HostEvent 'activated' })
 $form.Add_Shown({
-	$script:formLog = New-Object QaMessageLog -ArgumentList $form.Handle, $EventLog, 'form'
-	$script:boxLog = New-Object QaMessageLog -ArgumentList $box.Handle, $EventLog, 'edit'
 	# EM_LINESCROLL down by FirstVisibleLine lines leaves that zero-based line at the top.
 	[void][QaPointerHost]::SendMessageW($box.Handle, 0x00B6, [IntPtr]::Zero, [IntPtr]$FirstVisibleLine)
 	# EM_SETSEL 0,0: no selection, so a drag's selection is the only one.

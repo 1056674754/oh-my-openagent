@@ -85,24 +85,6 @@ jobs:
         shell: bash
         run: cargo test -p senpi-desktop-backend-win32 --target "${RUST_TARGET}" --locked -- --include-ignored --test-threads=1 --nocapture
 
-      # TEMPORARY (#9095 diagnosis, removed before merge): each candidate settle step after the engine's
-      # cursor move (OMO_9095_VARIANT), three runs each, over both foreground scroll layouts.
-      - name: "DIAG #9095 - foreground scroll per settle variant"
-        continue-on-error: true
-        shell: pwsh
-        env:
-          OMO_QA_MOUSE_TRACE: "0"
-        run: |
-          New-Item -ItemType Directory -Force -Path $env:QA_DIR | Out-Null
-          foreach ($variant in @('baseline', 'dwmflush', 'dwmflush2', 'dwmflush-move', 'activate-sleep50', 'sleep16', 'sleep5')) {
-            foreach ($run in 1..3) {
-              $env:OMO_9095_VARIANT = $variant
-              Write-Output "DIAG9095-VARIANT $variant run $run"
-              bun script/qa/desktop/windows.ts --json --engine $env:ENGINE --out "$env:QA_DIR/diag-9095-$variant-$run.jsonl" --scenario foreground-scroll-moves-target --scenario foreground-scroll-same-rect
-            }
-          }
-          Remove-Item Env:OMO_9095_VARIANT
-
       - name: QA driver - every scenario
         shell: pwsh
         run: |

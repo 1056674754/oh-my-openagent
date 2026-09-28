@@ -26,8 +26,6 @@ mod barrier;
 #[cfg(target_os = "windows")]
 mod char_sink;
 #[cfg(target_os = "windows")]
-mod diag_timeline;
-#[cfg(target_os = "windows")]
 mod dispatch;
 #[cfg(target_os = "windows")]
 mod foreground;
@@ -58,6 +56,3 @@ pub(crate) mod live_tests;
 
 #[cfg(all(test, target_os = "windows"))]
 mod live_release_tests;
-
-#[cfg(all(test, target_os = "windows"))]
-mod live_pointer_diag;
