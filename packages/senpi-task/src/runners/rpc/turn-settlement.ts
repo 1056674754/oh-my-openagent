@@ -26,6 +26,26 @@ export type TurnSettlement = {
  * `agent_end` is held and settled on `agent_idle`, dropped when another run starts, and a user
  * abort still settles at once as cancelled.
  */
+/**
+ * A reopened session may still have work queued or running even when its transcript ends with a final
+ * answer (a monitor wake, a queued follow-up): only a session that is idle has really finished.
+ */
+export function sessionIsIdle(state: {
+  readonly isStreaming?: boolean
+  readonly isCompacting?: boolean
+  readonly steering?: readonly unknown[]
+  readonly followUp?: readonly unknown[]
+  readonly pendingMessageCount?: number
+}): boolean {
+  return (
+    state.isStreaming === false &&
+    state.isCompacting !== true &&
+    (state.steering?.length ?? 0) === 0 &&
+    (state.followUp?.length ?? 0) === 0 &&
+    (state.pendingMessageCount ?? 0) === 0
+  )
+}
+
 export function createTurnSettlement(input: TurnSettlementInput): TurnSettlement {
   let held: RunnerOutcome | undefined
   const endOutcome = (event: AgentEndEvent): RunnerOutcome =>

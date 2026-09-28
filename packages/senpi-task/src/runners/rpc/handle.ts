@@ -17,7 +17,7 @@ import { classifyChildExit } from "./exit-mapping"
 import { isHarmlessRpcShutdownError, type RpcProtocolClient } from "./protocol-client"
 import { terminateRpcChild } from "./terminate"
 import { exitTurnOutcome, extractAssistantText, promptFailureOutcome } from "./turn-outcome"
-import { createTurnSettlement } from "./turn-settlement"
+import { createTurnSettlement, sessionIsIdle } from "./turn-settlement"
 
 export type CreateRpcChildHandleOptions = {
   readonly client: RpcProtocolClient
@@ -194,6 +194,12 @@ export function createRpcChildHandle(options: CreateRpcChildHandleOptions): Trac
       return runCommand({ type: "abort" }, "abort")
     },
     subscribe: (listener: ChildEventListener) => client.onEvent(listener),
+    adoptFinishedTurn: async (finalResponse) => {
+      if (turnOutcome !== undefined || settlement.pending() !== undefined) return
+      const response = await client.send({ type: "get_state" }).catch(() => undefined)
+      if (response === undefined || response.command !== "get_state" || !response.success || !sessionIsIdle(response.data)) return
+      if (turnOutcome === undefined && settlement.pending() === undefined) settleTurn({ status: "completed", finalResponse })
+    },
     onSelfResumed: (listener) => {
       resumedListeners.add(listener)
       return () => resumedListeners.delete(listener)
