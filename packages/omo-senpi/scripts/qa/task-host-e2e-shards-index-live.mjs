@@ -202,9 +202,14 @@ export async function runIdleGcIndexResume(current, beforeBin, artifacts) {
   return finishRow("idle_gc_index_resume", artifacts, facts, cleanup, error, idleGcIndexResumePassed)
 }
 
-export async function runStoreIndexRegistrationPrecondition(current, artifacts) {
+// `process` pins the host runner; `auto` (the default) first asks the execution-mode gate, which would
+// ensure the session's host, so the auto row proves the store is admitted before that ask too.
+export async function runStoreIndexRegistrationPrecondition(current, artifacts, executionMode = "process") {
+  const rowId = executionMode === "auto" ? "store_index_registration_precondition_auto" : "store_index_registration_precondition"
   const firstScript = taskScript("index-fail", "index failure child", [{ type: "text", text: "must not run" }])
-  const sandbox = newSandbox(current, "index-precondition", { omoConfig: taskConfig(), script: firstScript })
+  const sandbox = newSandbox(current, `index-precondition-${executionMode}`, {
+    omoConfig: taskConfig({ default_execution_mode: executionMode }), script: firstScript,
+  })
   const project = mainProject(sandbox, firstScript)
   const rpcDir = join(sandbox.agentDir, "rpc")
   let first
@@ -265,14 +270,13 @@ export async function runStoreIndexRegistrationPrecondition(current, artifacts) 
     chmodSync(rpcDir, 0o755)
     cleanup = await teardownSandbox(sandbox, [first, retry].filter(Boolean))
   }
-  return finishRow(
-    "store_index_registration_precondition", artifacts, facts, cleanup, error, storeIndexPreconditionPassed,
-  )
+  return finishRow(rowId, artifacts, facts, cleanup, error, storeIndexPreconditionPassed)
 }
 
 export async function runIndexLiveMatrix(current, beforeBin, artifacts) {
   mkdirSync(artifacts, { recursive: true })
   return { cross_endpoint_open_hazard: await runCrossEndpointOpenHazard(current, artifacts),
     idle_gc_index_resume: await runIdleGcIndexResume(current, beforeBin, artifacts),
-    store_index_registration_precondition: await runStoreIndexRegistrationPrecondition(current, artifacts) }
+    store_index_registration_precondition: await runStoreIndexRegistrationPrecondition(current, artifacts),
+    store_index_registration_precondition_auto: await runStoreIndexRegistrationPrecondition(current, artifacts, "auto") }
 }

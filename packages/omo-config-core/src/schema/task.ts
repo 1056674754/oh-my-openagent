@@ -84,6 +84,7 @@ export const OmoTaskSettingsSchema = z.object({
   // When this session's own task host boots ahead of its first child: "first-turn" (default) overlaps the
   // boot with the first model call, "session-start" also warms sessions that never prompt, "off" waits for
   // the first process child. Child sessions and `default_execution_mode: "in-process"` never warm.
+  // Under "first-turn", sessions in a Desktop thread host warm on the first delegation intent instead.
   host_shard_prewarm: z.enum(["off", "first-turn", "session-start"]).default("first-turn"),
   default_concurrency: z.number().int().nonnegative().default(5),
   global_concurrency: z.number().int().nonnegative().default(8),

@@ -13,8 +13,8 @@ function complete(mode = "full") {
 describe("evaluateShardFaultReport", () => {
   test("all twenty-four full-run rules with evidence pass", () => {
     const verdict = evaluateShardFaultReport(complete())
-    expect(SCENARIO_IDS).toHaveLength(24)
-    expect(verdict).toMatchObject({ exitCode: 0, verdict: "PASS", expected: 24, passed: 24, failed: [] })
+    expect(SCENARIO_IDS).toHaveLength(25)
+    expect(verdict).toMatchObject({ exitCode: 0, verdict: "PASS", expected: 25, passed: 25, failed: [] })
   })
 
   test("every full-run rule independently fails when broken", () => {

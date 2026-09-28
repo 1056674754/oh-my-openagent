@@ -18,6 +18,7 @@ import {
 import { log } from "@oh-my-opencode/utils"
 
 import { resolveAgentHome } from "../agent-home/resolve-agent-home"
+import { admitTaskStore } from "./store-admission"
 import {
   createSessionShardRouting,
   resolutionNoticeToken,
@@ -78,10 +79,18 @@ export interface HostExecutionModeDeps {
   readonly env: Readonly<Record<string, string | undefined>>
   readonly notices: HostNotices
   readonly routing: SessionShardRouting
+  // The engine's task store; when set, the first ask admits it to the agent-dir store index before it
+  // may ensure a host (the host runner's admission precondition).
+  readonly storeDir?: string
 }
 
 export function createHostExecutionModeGate(deps: HostExecutionModeDeps): ExecutionModeGate {
+  const storeDir = deps.storeDir
+  const ensuresHosts = deps.settings.process_runner === "host" && deps.platform !== "win32"
   return createExecutionModeGate(() => resolveMode(deps), {
+    ...(storeDir === undefined || !ensuresHosts
+      ? {}
+      : { admit: () => admitTaskStore(deps.agentDir, storeDir, "auto execution mode") }),
     onEnsureFailure: (error) => {
       deps.notices.add(unavailableNotice(failureReason(error), error instanceof Error ? error.message : String(error)))
     },
@@ -177,6 +186,7 @@ export interface EngineHostRuntimeOverrides {
   readonly agentDir?: string
   readonly ensureDaemon?: EnsureTaskDaemonPort
   readonly probeHost?: HostProtocolProbe
+  readonly storeDir?: string
 }
 
 /**
@@ -205,7 +215,15 @@ export function createEngineHostRuntime(
     ...(overrides.probeHost === undefined ? {} : { probeHost: overrides.probeHost }),
   })
   const platform = overrides.platform ?? process.platform
-  const gate = createHostExecutionModeGate({ settings, platform, agentDir, env, notices, routing })
+  const gate = createHostExecutionModeGate({
+    settings,
+    platform,
+    agentDir,
+    env,
+    notices,
+    routing,
+    ...(overrides.storeDir === undefined ? {} : { storeDir: overrides.storeDir }),
+  })
   const hostEndpoint = createHostEndpointPort({
     agentDir,
     env,

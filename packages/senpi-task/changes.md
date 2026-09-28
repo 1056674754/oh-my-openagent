@@ -1,3 +1,30 @@
+## manager: the auto execution-mode gate admits the task store before its first ask
+
+- `manager/execution-mode.ts`: `ExecutionModeGateHooks.admit` runs before the gate's first ask, which may ensure the
+  session's task host. With `task.default_execution_mode: "auto"` both the task tool (`tools/task/execute-spec.ts`) and
+  the manager ask the gate before the host runner's own store admission, so an agent dir whose store index could not
+  be written still got a host started before the spawn failed `store_index_unavailable`. A false `admit` answers
+  `process` without asking and settles nothing: the spawn reaches the host runner, whose admission fails it exactly as
+  before (same code, same record), and the next spawn asks again. `execution-mode.test.ts` pins it (rpc-host-sharding
+  todo 14 B1; the duty chose failing over an in-process fallback because an unwritable index usually means a broken
+  agent dir, and an in-process child would lose the index that `task_output`, cancel and resume rely on).
+
+## runners: warm a task host with its `warm` command; export the store-index registration
+
+- `runners/rpc-host/host-warmup.ts`: `warmTaskHost({ socket, cwd })` sends `warm { cwd, kind: "worker", context }` with
+  the same `child`-role, temp-`state_dir`, `host_warmup` context the warm-up session carried, and answers `warmed` /
+  `already_warm`. An engine that does not know the command (a refusal outside `host_draining`, `warm_failed`,
+  `invalid_session_kind`, `invalid_session_context`, `invalid_path` - an older router answers `missing_session_id`)
+  or cannot warm (`state: "unsupported"`) gets the previous warm-up session (`warm_up_session`). A known refusal or no
+  answer rejects with `HostWarmRefusedError`. The temp directory is removed on every path. `warmHostSession` is no
+  longer exported.
+- `runners/rpc-host/host-request.ts` (new): `askHost(socket, request, timeoutMs)`, the one-connection request
+  `liveness.ts` used privately, now returning refusals too; `liveSessionPaths` keeps its answers.
+- Barrel: `registerStoreIndex`, `StoreIndexUnavailableError`, `warmTaskHost`, `HostWarmRefusedError`, `TaskHostWarmth`.
+- `__fixtures__/fake-host*.ts`: a `warm` answer option and a fixed `socketPath` option.
+
+Tests: `host-warmup.test.ts`.
+
 ## runners: warm a fresh task host with one throwaway session; the auto gate can warm without deciding (rpc-host-sharding PR-A)
 
 - `runners/rpc-host/host-warmup.ts` (new): `warmHostSession({ socket, cwd })` opens one `worker` session with the

@@ -17,6 +17,7 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
 
     // when
     await w.sessionStart("root-1")
+    await w.settled("root-1")
 
     // then
     expect(sockets(w.ensures)).toEqual([w.host.shardSocket()])
@@ -31,12 +32,15 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
 
     // when
     await w.sessionStart("root-1")
+    await w.settled("root-1")
     const atSessionStart = w.ensures.length
     await w.prompt("root-1")
     await w.agentStart("root-1")
+    await w.settled("root-1")
     const afterFirstTurn = w.ensures.length
     await w.prompt("root-1")
     await w.agentStart("root-1")
+    await w.settled("root-1")
 
     // then
     expect(atSessionStart).toBe(0)
@@ -50,8 +54,10 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
 
     // when
     await w.sessionStart("root-1")
+    await w.settled("root-1")
     const atSessionStart = w.ensures.length
     await w.prompt("root-1")
+    await w.settled("root-1")
 
     // then
     expect(atSessionStart).toBe(0)
@@ -65,6 +71,7 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
 
     // when
     await w.agentStart("root-1")
+    await w.settled("root-1")
 
     // then
     expect(w.ensures).toHaveLength(1)
@@ -110,6 +117,7 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
     await w.prompt("root-1")
     await w.agentStart("root-1")
     await w.prompt("root-2")
+    await Promise.all([w.settled("root-1"), w.settled("root-2")])
 
     // then
     expect(w.calls).toEqual(["gate", "gate"])
@@ -123,6 +131,7 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
     // when
     await w.bareTurn()
     await w.bareTurn()
+    await w.settled("root-1")
 
     // then
     expect(w.calls).toEqual(["gate"])
@@ -140,6 +149,8 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
     await w.prompt("root-1")
     await w.agentStart("root-1")
     await w.prompt("root-2")
+
+    await Promise.all([w.settled("root-1"), w.settled("root-2")])
 
     // then: only the new session's first prompt is captured
     expect(capturesAtFirstFire).toEqual(["root-1", "root-1"])
@@ -159,7 +170,7 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
     try {
       // when
       await w.prompt("root-1")
-      await new Promise((resolve) => setImmediate(resolve))
+      await w.settled("root-1")
 
       // then
       expect(w.calls).toEqual(["gate"])
@@ -181,7 +192,7 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
     try {
       // when
       await w.sessionStart("root-1")
-      await new Promise((resolve) => setImmediate(resolve))
+      await w.settled("root-1")
       const noticesAfterWarm = w.host.notices.list()
       const mode = await w.host.executionModeGate.ensure()
 
@@ -200,7 +211,7 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
     // given
     const w = world({ prewarm: "session-start", ensure: "reject-once" })
     await w.sessionStart("root-1")
-    await new Promise((resolve) => setImmediate(resolve))
+    await w.settled("root-1")
 
     // when
     const mode = await w.host.executionModeGate.ensure()
@@ -249,6 +260,7 @@ describe("task.host_shard_prewarm warms the session's own host", () => {
 
     // when
     await w.sessionStart("root-1")
+    await w.settled("root-1")
 
     // then
     expect(sockets(w.ensures)).toEqual([w.host.shardSocket()])

@@ -44,8 +44,8 @@ export {
   readSessionRole,
   SESSION_ROLES,
 } from "./rpc-host/session-role"
-export { HOST_WARMUP_TASK_ID, warmHostSession } from "./rpc-host/host-warmup"
-export type { WarmHostSessionInput } from "./rpc-host/host-warmup"
+export { HOST_WARMUP_TASK_ID, HostWarmRefusedError, warmTaskHost } from "./rpc-host/host-warmup"
+export type { TaskHostWarmth, WarmHostSessionInput } from "./rpc-host/host-warmup"
 export type { MemberSessionIdentity, SessionAncestry, SessionRole } from "./rpc-host/session-role"
 export type {
   CreateHostSessionChannel,
@@ -63,7 +63,7 @@ export type { HostEndpointPortInput } from "./rpc-host/host-endpoint-port"
 export { HOST_NOTICE_TOKENS } from "./rpc-host/host-notice"
 export type { HostNoticeSink, HostNoticeToken } from "./rpc-host/host-notice"
 export { isOwnEndpoint, readOwnHostSocket } from "./rpc-host/own-endpoint"
-export { readTaskStoreIndex, taskStoreIndexPath } from "./rpc-host/store-index"
+export { readTaskStoreIndex, registerStoreIndex, StoreIndexUnavailableError, taskStoreIndexPath } from "./rpc-host/store-index"
 export type { ShardResolver } from "./rpc-host/child-endpoint"
 export { attachOwnEndpoint } from "./rpc-host/child-endpoint"
 export {

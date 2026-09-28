@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
 import { startFakeHost, type FakeHost } from "./__fixtures__/fake-host"
-import { HOST_WARMUP_TASK_ID, warmHostSession } from "./host-warmup"
+import { HOST_WARMUP_TASK_ID, warmTaskHost } from "./host-warmup"
 import { HOST_WARMUP_CONTEXT, isHostWarmupSession } from "./session-role"
 
 const hosts: FakeHost[] = []
@@ -21,55 +21,109 @@ async function world(options: Parameters<typeof startFakeHost>[0] = {}) {
   const tempRoot = mkdtempSync(join(tmpdir(), "omo-warmup-test-"))
   roots.push(tempRoot)
   const warm = () =>
-    warmHostSession({
+    warmTaskHost({
       socket: host.socketPath,
       cwd: "/tmp/parent-cwd",
       tempRoot,
       ports: { probeProtocolInfo: () => host.probeProtocolInfo() },
     })
-  return { host, tempRoot, warm }
+  const of = (type: string) => host.commands.filter((command) => command.type === type)
+  return { host, tempRoot, warm, of }
 }
 
-describe("warmHostSession", () => {
-  test("#given a fresh host #when it is warmed #then one child-shaped, unretained warm-up session opens and is closed", async () => {
+function childWarmContext(stateDir: string) {
+  return { role: "child", task_id: HOST_WARMUP_TASK_ID, state_dir: stateDir, [HOST_WARMUP_CONTEXT]: "1" }
+}
+
+describe("warmTaskHost", () => {
+  test("#given a current host #when it is warmed #then one child-shaped warm command loads the session services and no session opens", async () => {
     // given
     const w = await world()
 
     // when
-    await w.warm()
+    const outcome = await w.warm()
 
     // then
-    const opens = w.host.commands.filter((command) => command.type === "open_session")
-    expect(opens).toHaveLength(1)
-    const payload = opens[0]?.payload ?? {}
-    const context = payload["context"]
-    expect(context).toEqual({
-      role: "child",
-      task_id: HOST_WARMUP_TASK_ID,
-      state_dir: dirname(String(payload["sessionPath"])),
-      [HOST_WARMUP_CONTEXT]: "1",
-    })
-    expect(payload["retain_on_disconnect"]).toBe(false)
+    expect(outcome).toBe("warmed")
+    const warms = w.of("warm")
+    expect(warms).toHaveLength(1)
+    const payload = warms[0]?.payload ?? {}
+    expect(payload["cwd"]).toBe("/tmp/parent-cwd")
     expect(payload["kind"]).toBe("worker")
-    expect(w.host.commands.some((command) => command.type === "close_session")).toBe(true)
-    expect(w.host.sessions()).toEqual([])
-    expect(isHostWarmupSession({ sessionContext: context })).toBe(true)
-  })
-
-  test("#given a warm-up that finished #when its temp root is listed #then its private state directory is gone", async () => {
-    // given
-    const w = await world()
-
-    // when
-    await w.warm()
-
-    // then
+    expect(payload["sessionId"]).toBeUndefined()
+    const context = payload["context"]
+    const stateDir = typeof context === "object" && context !== null && "state_dir" in context ? String(context.state_dir) : ""
+    expect(context).toEqual(childWarmContext(stateDir))
+    expect(w.of("open_session")).toEqual([])
     expect(readdirSync(w.tempRoot)).toEqual([])
   })
 
-  test("#given a host that refuses the open #when it is warmed #then the refusal reaches the caller and nothing is left behind", async () => {
+  test("#given a host that already warmed this profile #when it is warmed #then the answer is kept and no session opens", async () => {
     // given
-    const w = await world({ openFailure: { code: "invalid_launch_profile", detail: "refused" } })
+    const w = await world({ warm: { state: "already_warm" } })
+
+    // when
+    const outcome = await w.warm()
+
+    // then
+    expect(outcome).toBe("already_warm")
+    expect(w.of("open_session")).toEqual([])
+  })
+
+  test("#given an engine from before the warm command #when it is warmed #then one child-shaped, unretained warm-up session opens and is closed instead", async () => {
+    // given
+    const w = await world({ warm: { refuse: "missing_session_id" } })
+
+    // when
+    const outcome = await w.warm()
+
+    // then
+    expect(outcome).toBe("warm_up_session")
+    expect(w.of("warm")).toHaveLength(1)
+    const opens = w.of("open_session")
+    expect(opens).toHaveLength(1)
+    const payload = opens[0]?.payload ?? {}
+    expect(payload["context"]).toEqual(childWarmContext(dirname(String(payload["sessionPath"]))))
+    expect(payload["retain_on_disconnect"]).toBe(false)
+    expect(payload["kind"]).toBe("worker")
+    expect(w.of("close_session")).toHaveLength(1)
+    expect(w.host.sessions()).toEqual([])
+    expect(readdirSync(w.tempRoot)).toEqual([])
+  })
+
+  test("#given a host whose registry cannot warm #when it is warmed #then it falls back to the warm-up session", async () => {
+    // given
+    const w = await world({ warm: { state: "unsupported" } })
+
+    // when
+    const outcome = await w.warm()
+
+    // then
+    expect(outcome).toBe("warm_up_session")
+    expect(w.of("open_session")).toHaveLength(1)
+    expect(w.host.sessions()).toEqual([])
+  })
+
+  test("#given a draining host #when it is warmed #then the refusal reaches the caller and no session is opened on it", async () => {
+    // given
+    const w = await world({ warm: { refuse: "host_draining" } })
+
+    // when
+    const error = await w.warm().then(
+      () => undefined,
+      (caught: unknown) => caught,
+    )
+
+    // then
+    expect(error).toBeInstanceOf(Error)
+    expect(String(error)).toContain("host_draining")
+    expect(w.of("open_session")).toEqual([])
+    expect(readdirSync(w.tempRoot)).toEqual([])
+  })
+
+  test("#given an older host that refuses the fallback open #when it is warmed #then the refusal reaches the caller and nothing is left behind", async () => {
+    // given
+    const w = await world({ warm: { refuse: "missing_session_id" }, openFailure: { code: "invalid_launch_profile", detail: "refused" } })
 
     // when
     const outcome = await w.warm().then(
@@ -86,6 +140,7 @@ describe("warmHostSession", () => {
 
   test("#given an ordinary child context #when it is read #then it is not a warm-up session", () => {
     expect(isHostWarmupSession({ sessionContext: { role: "child", task_id: "t-1" } })).toBe(false)
+    expect(isHostWarmupSession({ sessionContext: childWarmContext("/tmp/x") })).toBe(true)
     expect(isHostWarmupSession({})).toBe(false)
   })
 })
