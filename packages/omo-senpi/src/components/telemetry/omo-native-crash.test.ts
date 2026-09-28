@@ -1,4 +1,3 @@
-import { daemonDirectoryName } from "@code-yeongyu/senpi"
 import { existsSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "bun:test"
@@ -19,6 +18,8 @@ import {
 
 // oh-my-openagent#8931: a crash can only be reported by a LATER process, and exactly once.
 const HOST_ENDPOINT = "0123456789abcdef"
+// The main Senpi entry stays type-only in omo-senpi source; values load through the lazy barrel.
+const { daemonDirectoryName } = await loadSenpiBarrel()
 const RECENT = new Date(FIXED_NOW.getTime() - 60_000).toISOString()
 
 function writeRecords(agentDir: string, host: readonly string[], process: readonly string[]): void {
