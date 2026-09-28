@@ -29,6 +29,11 @@ const LOCK_STALE_MS = 5_000
 // dead holder's last handle closes) is retried briefly, then waited on like a held lock - as team-core does (#9034).
 const REAP_UNLINK_ATTEMPTS = 3
 const REAP_UNLINK_RETRY_MS = 25
+// On win32 a lock file that is being deleted while another process still has it open (a reader of its
+// body) stays in the directory, delete-pending, until that handle closes; every open of it meanwhile -
+// the exclusive create included - fails EPERM/EACCES. That is a lock in transition, not a failure:
+// it is waited on like a held lock and judged again once the name is free.
+const DELETE_PENDING = "delete-pending"
 const sleeper = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT))
 
 export function withTaskRecordLock<T>(recordPath: string, operation: () => T): T {
@@ -107,6 +112,7 @@ function publishLock(lockPath: string, token: string): boolean {
     fd = openSync(lockPath, "wx")
   } catch (error) {
     if (hasCode(error, "EEXIST")) return false
+    if (isWindowsSharingError(error) && lockNameOccupied(lockPath)) return false
     throw error
   }
   try {
@@ -150,6 +156,7 @@ function isAbandoned(lock: LockIdentity): boolean {
 function reapAbandonedLock(lockPath: string): AcquireAttempt {
   const judged = readLockIdentity(lockPath)
   if (judged === undefined) return "retry"
+  if (judged === DELETE_PENDING) return { held: DELETE_PENDING }
   const held = { held: `${judged.dev}:${judged.ino}:${judged.body}` }
   if (!isAbandoned(judged)) return held
   const recoveryPath = `${lockPath}.recovery`
@@ -160,6 +167,7 @@ function reapAbandonedLock(lockPath: string): AcquireAttempt {
   try {
     reapHook?.("recovery_held", lockPath)
     const current = readLockIdentity(lockPath)
+    if (current === DELETE_PENDING) return { held: DELETE_PENDING }
     if (current === undefined || !isSameLock(current, judged)) return "retry"
     reapHook?.("judged_unchanged", lockPath)
     // Fence: a reaper that lost its recovery lock (see below) must not unlink the primary.
@@ -179,7 +187,7 @@ function reapAbandonedLock(lockPath: string): AcquireAttempt {
 function reclaimAbandonedRecoveryLock(recoveryPath: string): boolean {
   const judged = readLockIdentity(recoveryPath)
   if (judged === undefined) return true
-  if (!isAbandoned(judged)) return false
+  if (judged === DELETE_PENDING || !isAbandoned(judged)) return false
   const tombstone = `${recoveryPath}.reaping-${randomUUID()}`
   try {
     renameSync(recoveryPath, tombstone)
@@ -189,7 +197,8 @@ function reclaimAbandonedRecoveryLock(recoveryPath: string): boolean {
     throw error
   }
   const moved = readLockIdentity(tombstone)
-  const reclaimed = moved === undefined || isSameLock(moved, judged)
+  // A tombstone already being deleted cannot be handed back, and the recovery name is free either way.
+  const reclaimed = moved === undefined || moved === DELETE_PENDING || isSameLock(moved, judged)
   if (!reclaimed) {
     try {
       linkSync(tombstone, recoveryPath)
@@ -201,13 +210,24 @@ function reclaimAbandonedRecoveryLock(recoveryPath: string): boolean {
   return reclaimed
 }
 
-function readLockIdentity(lockPath: string): LockIdentity | undefined {
+function readLockIdentity(lockPath: string): LockIdentity | undefined | typeof DELETE_PENDING {
   try {
     const stat = statSync(lockPath)
     return { dev: stat.dev, ino: stat.ino, mtimeMs: stat.mtimeMs, body: readFileSync(lockPath, "utf8") }
   } catch (error) {
     if (hasCode(error, "ENOENT")) return undefined
+    if (isWindowsSharingError(error)) return DELETE_PENDING
     throw error
+  }
+}
+
+/** Whether a create refused with a sharing error met a (delete-pending) file, not a real permission failure. */
+function lockNameOccupied(lockPath: string): boolean {
+  try {
+    statSync(lockPath)
+    return true
+  } catch (error) {
+    return isWindowsSharingError(error)
   }
 }
 
