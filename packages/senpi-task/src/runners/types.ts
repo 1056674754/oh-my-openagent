@@ -92,7 +92,7 @@ export type RpcChildHandle = ChildHandle & {
   // Fires when the child starts a run on its own after its turn settled (omo#9069).
   onSelfResumed?(listener: () => void): () => void
   // A revival found the turn already finished in the transcript: settle it with that answer (omo#9069).
-  adoptFinishedTurn?(finalResponse: string): void
+  adoptFinishedTurn?(finalResponse: string): Promise<void>
   switchSession?(sessionPath: string): Promise<RpcSwitchSessionResult>
   getEntries?(since?: string): Promise<RpcEntriesResult>
   terminate(options?: TerminateOptions): Promise<void>

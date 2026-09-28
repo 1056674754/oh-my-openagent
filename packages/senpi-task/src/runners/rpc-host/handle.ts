@@ -3,7 +3,7 @@ import { log } from "@oh-my-opencode/utils"
 import type { RunnerOutcome } from "../in-process/child-handle"
 import { isBusyChildRejection, type RpcStreamingBehavior } from "../rpc/delivery-semantics"
 import { exitTurnOutcome, extractAssistantText, promptFailureOutcome } from "../rpc/turn-outcome"
-import { createTurnSettlement } from "../rpc/turn-settlement"
+import { createTurnSettlement, sessionIsIdle } from "../rpc/turn-settlement"
 import type { ChildEventListener, ChildExitOutcome, RpcTerminalAssistantMessage } from "../types"
 import {
   classifySessionExit,
@@ -329,7 +329,9 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
       parkedListeners.add(listener)
       return () => parkedListeners.delete(listener)
     },
-    adoptFinishedTurn: (finalResponse) => {
+    adoptFinishedTurn: async (finalResponse) => {
+      if (turnOutcome !== undefined || settlement.pending() !== undefined) return
+      if (!sessionIsIdle(await client.getState())) return
       if (turnOutcome === undefined && settlement.pending() === undefined) settleTurn({ status: "completed", finalResponse })
     },
     onSelfResumed: (listener) => {

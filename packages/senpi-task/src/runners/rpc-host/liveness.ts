@@ -18,6 +18,8 @@ import { probeWithEngine } from "./session-transport"
 
 const LIST_REQUEST_ID = "omo-task-liveness"
 const LIST_TIMEOUT_MS = 10_000
+// Bounded so a wedged accept can never hold a draining host open; the socket is destroyed on connect.
+const BUSY_CONNECT_TIMEOUT_MS = 500
 const WINDOWS_PIPE_PREFIX = "\\\\.\\pipe\\senpi-rpc-"
 const WINDOWS_SECRET_BYTES = 32
 
@@ -29,7 +31,7 @@ export async function daemonReachable(socket: string): Promise<boolean> {
   }
   // A daemon whose loop is blocked still completes the connect from its listen backlog: it is busy,
   // not gone, and parking its children as daemon_unavailable strands live sessions (omo#9069).
-  if (process.platform !== "win32" && (await socketAcceptsConnection(socket))) {
+  if (process.platform !== "win32" && (await socketAcceptsConnection(socket, BUSY_CONNECT_TIMEOUT_MS))) {
     log("senpi-task daemon probe unanswered but the socket accepts; treating the daemon as busy", { socket })
     return true
   }

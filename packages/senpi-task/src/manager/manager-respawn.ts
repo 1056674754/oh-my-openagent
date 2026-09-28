@@ -200,7 +200,7 @@ async function continueInterruptedTurn(record: TaskRecord, sessionPath: string, 
 async function adoptFinishedTurn(record: TaskRecord, sessionPath: string, handle: RpcChildHandle): Promise<void> {
   if (isTerminalRecord(record) || handle.adoptFinishedTurn === undefined) return
   const finished = await sessionTailFinishedText(sessionPath)
-  if (finished !== undefined) handle.adoptFinishedTurn(finished)
+  if (finished !== undefined) await handle.adoptFinishedTurn(finished)
 }
 
 async function cleanupFailure(handle: RpcChildHandle, reason: string): Promise<RespawnResult> {
