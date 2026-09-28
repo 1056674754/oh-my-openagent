@@ -166,6 +166,15 @@ pub trait Backend: Send {
     }
 }
 
+/// The native window that owns an accessibility element.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AxOwner {
+    /// The owner's id, in the form [`Backend::windows`] lists it.
+    Window(String),
+    /// The backend cannot name the owner; callers must not guess it.
+    Unknown,
+}
+
 pub trait AxBackend {
     fn window_root(&mut self, win: &DesktopWindow) -> CoreResult<AxHandle>;
     fn props(&mut self, h: &AxHandle) -> CoreResult<AxProps>;
@@ -177,6 +186,13 @@ pub trait AxBackend {
     fn element_at(&mut self, x: f64, y: f64) -> CoreResult<Option<AxHandle>>;
     fn focused_element(&mut self) -> CoreResult<Option<AxHandle>>;
     fn attributes(&mut self, h: &AxHandle) -> CoreResult<Vec<(String, String)>>;
+
+    /// The window that owns `h`, read live from the platform and named as
+    /// `windows` (the live [`Backend::windows`]) lists it. Backends that
+    /// cannot name it keep this default.
+    fn owner(&mut self, _h: &AxHandle, _windows: &[DesktopWindow]) -> CoreResult<AxOwner> {
+        Ok(AxOwner::Unknown)
+    }
 }
 
 #[cfg(test)]

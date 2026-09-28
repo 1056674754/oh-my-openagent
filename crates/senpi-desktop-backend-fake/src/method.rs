@@ -37,4 +37,5 @@ pub enum FakeMethod {
     AxElementAt,
     AxFocusedElement,
     AxAttributes,
+    AxOwner,
 }
