@@ -73,6 +73,7 @@ export type HostUnavailableReason =
   | "host_unreachable"
   | "ensure_timed_out"
   | "ensure_failed"
+  | "host_busy"
 
 /**
  * The daemon cannot host this child. `fallbackAllowed` marks the LOUD fallbacks to the per-child
@@ -220,8 +221,16 @@ async function ensureTaskDaemonOnce(
     })
   })
   // A host that was already up answered the probe above; one this call started is asked once, so
-  // the caller learns what it can do without opening a second connection of its own.
-  const capabilities = running?.capabilities ?? (await host.probeHost({ socket: ensured.socket }))?.capabilities
+  // the caller learns what it can do without opening a second connection of its own. That probe is
+  // this ensure's last use of the host, so the engine's attach hold (senpi #2242) ends with it: the
+  // daemon is transient, and a hold kept for the life of this omo process would stop its idle exit.
+  // Children attach on their own connections; the idle window (minutes) covers the gap.
+  let capabilities: readonly string[] | undefined
+  try {
+    capabilities = running?.capabilities ?? (await host.probeHost({ socket: ensured.socket }))?.capabilities
+  } finally {
+    ensured.release?.()
+  }
   const result: EnsuredTaskDaemon = {
     action: decision.action,
     reason: decision.reason,

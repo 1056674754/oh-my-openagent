@@ -25,10 +25,14 @@ The run only starts when the memory model's context window is known to fit the w
 
 ### Fixed
 
+**A task waiting for a free slot no longer claims it has started.** ([#9069](https://github.com/code-yeongyu/oh-my-openagent/issues/9069)) When a task's first model could not be used and it moved to the next model in its chain while that model had no free slot, the task was reported as started and running although no child existed yet, and nothing said why it sat there. It is now reported as queued with its position, `task_output` shows which model it is waiting for, and it starts as soon as a slot frees.
+
 **A task's status now matches what its child is actually doing.** ([#9069](https://github.com/code-yeongyu/oh-my-openagent/issues/9069)) Two cases left a process-mode task child's record saying something untrue:
 
 - When a stream rule interrupted the child's output and nudged it to continue, the task was marked failed ("This operation was aborted") and the parent was told, while the child kept working in the same session. The task now finishes only when the child's session is really done, with the result of the run that continued.
 - A child that finished its turn waiting for its own monitor or background job, and later woke up to do more, did that work unseen. The task now goes back to running when the child resumes on its own, and the parent gets a second completion labelled `task completion (resumed turn)` with the new result.
+
+**Task children wait for a busy task host instead of failing to start.** ([#9067](https://github.com/code-yeongyu/oh-my-openagent/issues/9067)) When the shared task host was too busy to answer (its event loop blocked for tens of seconds, for example on a machine under heavy CPU load), every process-mode task child failed with "Task runner failed to start." within 10 to 30 seconds, although the host would have answered moments later. The start now waits for a host that still accepts connections, trying again at the same session path for up to 10 minutes with a visible note, so a first attempt the host processes late is picked up instead of started twice. A host that is really gone still fails the start at once.
 
 **A child whose host dies while it opens now says the host was unreachable.** ([#9020](https://github.com/code-yeongyu/oh-my-openagent/issues/9020)) If the shared task host went away while a child's session was being opened, the task failed with a generic "could not open the child session" and no reason. It now reports `host_unreachable`, like every other lost-host start.
 
