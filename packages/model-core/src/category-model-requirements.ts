@@ -32,14 +32,14 @@ export const CATEGORY_MODEL_REQUIREMENTS: Record<string, ModelRequirement> = {
   },
   "deep-low": {
     fallbackChain: [
-      // The Fast (priority) tier exists only on the OpenAI lanes; Copilot and OpenCode Zen serve
-      // plain gpt-5.6-sol, so the next rung keeps the lane open there at the same effort.
-      { providers: ["openai", "chatgpt-subscription"], model: "gpt-5.6-sol-fast", variant: "medium" },
+      // Plain gpt-5.6-sol leads on every lane that serves it. The Fast (priority) tier exists only on
+      // the OpenAI lanes, so it is the fallback there at the same effort.
       {
         providers: ["openai", "chatgpt-subscription", "github-copilot", "opencode"],
         model: "gpt-5.6-sol",
         variant: "medium",
-      }
+      },
+      { providers: ["openai", "chatgpt-subscription"], model: "gpt-5.6-sol-fast", variant: "medium" }
     ],
   },
   "deep-high": {

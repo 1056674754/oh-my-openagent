@@ -184,7 +184,7 @@ describe("sisyphus-task", () => {
 
       // when / #then
       expect(low).toBeDefined()
-      expect(low.model).toBe("openai/gpt-5.6-sol-fast")
+      expect(low.model).toBe("openai/gpt-5.6-sol")
       expect(low.variant).toBe("medium")
       expect(high).toBeDefined()
       expect(high.model).toBe("openai/gpt-6-astra")
@@ -892,8 +892,8 @@ describe("sisyphus-task", () => {
       ["openai/gpt-5.6-sol-fast"],
       ["openai/gpt-5.6-sol"],
     ])("keeps deep-low open on either GPT-5.6 Sol tier (%s) while deep-high stays Astra-only", (solId) => {
-      // #given: deep-low gates on gpt-5.6-sol-fast OR gpt-5.6-sol; the builtin default config is the
-      // GPT-5.6 Sol Fast tier and the runtime chain walk (category-resolver) picks the rung the registry carries
+      // #given: deep-low gates on gpt-5.6-sol-fast OR gpt-5.6-sol; the builtin default config is plain
+      // GPT-5.6 Sol and the runtime chain walk (category-resolver) picks the rung the registry carries
       const availableModels = new Set<string>([solId])
 
       // #when
@@ -904,7 +904,7 @@ describe("sisyphus-task", () => {
 
       // #then
       const resolved = expectResolvedCategoryConfig(result)
-      expect(resolved.config.model).toBe("openai/gpt-5.6-sol-fast")
+      expect(resolved.config.model).toBe("openai/gpt-5.6-sol")
       expect(resolved.config.variant).toBe("medium")
       expect(resolveCategoryConfig("deep-high", { systemDefaultModel: SYSTEM_DEFAULT_MODEL, availableModels })).toBeNull()
     })
