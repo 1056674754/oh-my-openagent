@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+**Your own `computer-use` skill no longer opens every session with a "Skill conflicts" warning.** ([#9160](https://github.com/code-yeongyu/oh-my-openagent/issues/9160)) With computer use on, OmO Native added its built-in `computer-use` skill on every start, even when you already had a skill of that name (Orca CLI ships one), so each session opened with a collision box. The built-in skill now steps aside for a same-name user, project or package skill, which is the one that loads, and `/computer status` says so in one line. The same applies to the `x-search` skill. `disabled_skills` now hides both the way it hides the bundled skills; the `computer` and `x_search` tools stay available either way.
+
 ## [5.1.1] - 2026-09-29
 
 ### Changed

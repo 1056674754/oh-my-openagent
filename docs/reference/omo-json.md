@@ -125,7 +125,7 @@ Source: `packages/omo-config-core/src/schema/config.ts`.
 
 ### `disabled_skills` (every harness)
 
-The one supported way to turn a skill off. A name listed here is absent from the run: on OmO Native / Senpi it never enters the `<available_skills>` index, the `/skill:` commands, or `get_commands`; on the OpenCode plugin it is dropped from the builtin set and the skill tool. Unlike other arrays, layers are unioned: the shared base, the `[harness]` block, the user file, the project file, and the active profile all add names, and a project cannot re-enable a skill the user file disabled by omitting it.
+The one supported way to turn a skill off. A name listed here is absent from the run: on OmO Native / Senpi it never enters the `<available_skills>` index, the `/skill:` commands, or `get_commands`; on the OpenCode plugin it is dropped from the builtin set and the skill tool. On OmO Native it also covers the skills a feature contributes on its own, `computer-use` and `x-search`: the skill is gone and its tool stays. Unlike other arrays, layers are unioned: the shared base, the `[harness]` block, the user file, the project file, and the active profile all add names, and a project cannot re-enable a skill the user file disabled by omitting it.
 
 ```jsonc
 // ~/.omo/omo.jsonc
