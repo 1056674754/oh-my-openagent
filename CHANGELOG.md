@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.1] - 2026-09-29
+
 ### Changed
 
 **The `unspecified-low` category now opens on Claude Sonnet 5.5 at `medium`.** ([#9144](https://github.com/code-yeongyu/oh-my-openagent/issues/9144)) `unspecified-low` is where delegated work lands when no specialist category fits and the job is contained. It led with MiMo V2.6 Pro at `max`; Claude Sonnet 5.5 at `medium` now comes first, on the Claude subscription, Anthropic API, GitHub Copilot and OpenCode lanes. Every earlier rung stays, in the same order, behind it: MiMo V2.6 Pro, Grok 4.7, GPT-5.6 Terra, Claude Sonnet 5, Qwen 3.8 Max Preview, DeepSeek V4 Pro and MiMo V2.5 Pro. OmO Native picks Sonnet 5.5 once the engine release that lists it is adopted; until then the category keeps running on MiMo V2.6 Pro.

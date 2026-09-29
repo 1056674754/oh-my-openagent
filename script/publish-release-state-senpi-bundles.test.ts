@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test"
 import { spawnSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join, relative } from "node:path"
+import { dirname, join, relative, sep } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { runBlock } from "./release-workflow-test-steps"
@@ -18,7 +18,7 @@ function bundleOutputs(): string[] {
   }
   const outputs: unknown = buildCore.resolveOutputs({})
   if (typeof outputs !== "object" || outputs === null) throw new Error("resolveOutputs returned no output map")
-  return Object.values(outputs).filter((path): path is string => typeof path === "string").map((path) => relative(repoRoot, path))
+  return Object.values(outputs).filter((path): path is string => typeof path === "string").map((path) => relative(repoRoot, path).split(sep).join("/"))
 }
 const workflow = readFileSync(join(repoRoot, ".github", "workflows", "publish.yml"), "utf8")
 const prepareStep = runBlock(workflow, "      - name: Prepare release state (generation)\n", "      - name: Publish prepared release state\n")
