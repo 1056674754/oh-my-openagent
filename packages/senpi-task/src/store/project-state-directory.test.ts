@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, relative, resolve } from "node:path"
 
@@ -67,6 +67,18 @@ describe("projectStateKey", () => {
 
   test("#given the same project spelled two ways #then the key is stable", () => {
     expect(projectStateKey("/work/app/")).toBe(projectStateKey("/work/./app"))
+  })
+
+  test("#given a project reached through a symlink #then it shares the key of its real path", () => {
+    const root = mkdtempSync(join(tmpdir(), "omo-project-key-"))
+    try {
+      mkdirSync(join(root, "real", "app"), { recursive: true })
+      symlinkSync(join(root, "real"), join(root, "link"))
+
+      expect(projectStateKey(join(root, "link", "app"))).toBe(projectStateKey(join(root, "real", "app")))
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   test("#given a folder name with path-hostile characters #then the key keeps only safe characters", () => {
