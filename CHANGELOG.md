@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+**`deep-low` and Geeky · Normal lead with GPT-6.1 Sol at medium.** ([#9214](https://github.com/code-yeongyu/oh-my-openagent/issues/9214)) The default deep delegation lane now starts on `gpt-6.1-sol` (medium) from your ChatGPT subscription or the OpenAI API, then its Fast tier `gpt-6.1-sol-fast`, and keeps GPT-5.6 Sol (medium) and GPT-5.6 Sol Fast behind them, so GitHub Copilot, OpenCode Zen and an engine that does not list GPT-6.1 Sol yet still run the lane on GPT-5.6 Sol as before. The `geeky-normal` model profile likewise applies GPT-6.1 Sol (medium) first and GPT-5.6 Sol (medium) when 6.1 Sol is not served. The effort stays medium on every rung. Other categories, the other profiles and the Recommended default are unchanged.
+
 - OmO Native moves from senpi 2026.9.29-3 to senpi 2026.9.29-4; the engine changes below come with it.
 
 **Breaking: an untrusted project's legacy `.pi/` resources no longer load.** ([senpi#2375](https://github.com/code-yeongyu/senpi/pull/2375)) Extensions, skills, prompt templates, themes and hooks under a project's `.pi/` now follow project trust like the rest of the project config. A project whose only project resources are in `.pi/` now asks whether you trust it instead of opening as trusted. Trusted projects load them as before.
