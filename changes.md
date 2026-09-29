@@ -1,3 +1,9 @@
+## 2026-09-29 - omo doctor runs the computer-use diagnostic again: omo-ai ships the prelude assets beside the doctor runtime (#9193)
+
+On 5.1.1 every `omo doctor` printed `WARN computer use: diagnostics unavailable: ENOENT ... plugin/runtime/category-coverage/assets.generated.json`, on every OS. `plugin/runtime/category-coverage/index.js` inlines the computer-use doctor, and with it `senpi-desktop-prelude`'s `assets.ts`, which reads `assets.generated.json` from beside the bundle at import time. `build-extension-core.mjs` stages that file beside the extension bundles in `extensions/`, but `script/build-omo-native.ts` never staged it beside the category-coverage bundle, so the published tarball had it only in `plugin/extensions/`.
+
+`buildCategoryCoverageRuntime` now copies the prelude assets next to the bundle it builds, the same beside-the-bundle contract the extensions and personas follow, and `runtime/category-coverage/assets.generated.json` joins the native payload's required artifacts. `script/verify-omo-ai-payload.mjs` pins it too, and it gains a rule that reads every packed `.js`/`.mjs` file: a bundle that reads `join(dirname(fileURLToPath(import.meta.url)), "<file>")` fails the gate unless `<file>` is packed beside it. The rule matches both the bundled and the terser-minified shape of that read, so a future sibling asset a bundle reads but the package does not ship fails packing instead of reaching users.
+
 ## 2026-09-29 - Adopt senpi 2026.9.29-3: running sessions survive an update, unknown slash commands stay out of the model, and the web search, MCP and Bedrock fixes
 
 Every senpi pin moves from 2026.9.29 to 2026.9.29-3 (root devDependency, `omo-native`, the `omo-senpi` and `senpi-task` peer and dev pins, their pin tests, `bun.lock`, the version comment in `packages/omo-native/bin/lib/provider-map.json`, and the engine version named in `senpi-task`'s category coverage test). 2026.9.29-2 and -3 bring:
