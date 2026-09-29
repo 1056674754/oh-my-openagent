@@ -15,6 +15,8 @@ const workflowPath = new URL("../.github/workflows/publish-platform.yml", import
 const signingScript = new URL("../.github/scripts/macos-sign-and-notarize.sh", import.meta.url)
 const entitlements = new URL("../.github/scripts/omo-bun-executable.entitlements", import.meta.url)
 const signingMaterial = ["CSC_LINK", "CSC_KEY_PASSWORD", "APPLE_API_KEY", "APPLE_API_KEY_ID", "APPLE_API_ISSUER"]
+// The signing script only ever runs on macOS runners, and the sandbox's POSIX PATH stub cannot shadow tools under Windows bash.
+const posixBashTest = test.skipIf(process.platform === "win32")
 
 const stepsSchema = z.array(z.object({ name: z.string().optional(), if: z.string().optional() }))
 const jobs = z.object({ jobs: z.object({
@@ -60,7 +62,7 @@ describe("macOS signing in the platform publish workflow", () => {
     expect(engine[signEngine]?.if).toContain("startsWith(matrix.host, 'darwin-')")
   })
 
-  test("the release digest describes the signed bytes, not the unsigned build output", () => {
+  posixBashTest("the release digest describes the signed bytes, not the unsigned build output", () => {
     const { root, env } = sandbox()
     try {
       const binaries = join(root, ".omo", "release-binaries")
@@ -82,7 +84,7 @@ describe("macOS signing in the platform publish workflow", () => {
     }
   })
 
-  test("refuses to ship an unsigned binary when signing is required and material is missing", () => {
+  posixBashTest("refuses to ship an unsigned binary when signing is required and material is missing", () => {
     const { root, calls, env } = sandbox()
     try {
       const binary = join(root, "omo-darwin-arm64")
