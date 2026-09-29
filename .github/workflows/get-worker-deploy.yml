@@ -51,3 +51,15 @@ jobs:
           curl -fsS https://get.omo.dev/healthz
           curl -fsSI https://get.omo.dev/install.sh | grep -i '^cache-control: public, max-age=300'
           curl -fsS https://get.omo.dev/channels/latest
+      - name: Write job summary
+        if: always()
+        shell: bash
+        working-directory: .
+        env:
+          JOB_SUMMARY_TITLE: get.omo.dev deploy
+          JOB_SUMMARY_STATUS: ${{ job.status }}
+          JOB_SUMMARY_DETAILS: |
+            - Applies D1 migrations and deploys the omo-get Worker.
+            - Smoke-checks healthz, install.sh caching and the latest channel.
+          JOB_SUMMARY_NEXT: Check wrangler authentication and D1 migration output first.
+        run: GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" bash .github/scripts/write-job-summary.sh
