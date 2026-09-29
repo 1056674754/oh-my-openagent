@@ -111,7 +111,7 @@ report_other_installs() { # report_other_installs <launcher>
   local launcher="$1" first="" candidate real owner=""
   first="$(command -v omo 2>/dev/null || true)"
   while IFS= read -r candidate; do
-    [ -n "$candidate" ] && [ "$candidate" != "$launcher" ] || continue
+    if [ -z "$candidate" ] || [ "$candidate" = "$launcher" ]; then continue; fi
     real="$(readlink -f "$candidate" 2>/dev/null || printf '%s' "$candidate")"
     case "$real" in
       */node_modules/omo-ai/*) owner="omo-ai (npm or bun global install)" ;;
