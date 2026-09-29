@@ -1,3 +1,18 @@
+## 2026-09-30 - deep-low leads with GPT-6.1 Sol at medium (#9214)
+
+- `category/fallback-chains.ts` `deep-low`: `gpt-6.1-sol` (medium) on `chatgpt-subscription|openai`, then `gpt-6.1-sol-fast`
+  (medium) on the same lanes, then the unchanged `gpt-5.6-sol` (medium, all four GPT lanes) and `gpt-5.6-sol-fast` (medium)
+  rungs. The comment above the chain says why: 6.1 Sol is served only on the two OpenAI lanes, so 5.6 Sol keeps Copilot,
+  OpenCode Zen and a registry without 6.1 on the lane at the same effort.
+- `category/openai-categories.ts`: the builtin default becomes `chatgpt-subscription/gpt-6.1-sol` medium and
+  `DEEP_LOW_GATE_MODELS` becomes `gpt-6.1-sol`, `gpt-6.1-sol-fast`, `gpt-5.6-sol-fast`, `gpt-5.6-sol`, so a 5.6-Sol-only
+  registry still opens the lane. The task tool's listing annotation reads `(requires gpt-6.1-sol or gpt-6.1-sol-fast or
+  gpt-5.6-sol-fast or gpt-5.6-sol)`.
+- Tests: `fallback-chains.test.ts`, `resolve-category.test.ts` and `openai-categories.test.ts` pin the new chain, default and
+  gate; two new `openai-categories.test.ts` cases resolve `gpt-6.1-sol` over `gpt-5.6-sol` on the subscription lane and
+  the 6.1 Fast tier over plain 5.6 Sol; `gated-categories.test.ts` pins the new annotation. `scripts/manual-category-qa.ts`
+  expects the gate's attempted model `chatgpt-subscription/gpt-6.1-sol`.
+
 ## 2026-09-29 - A refused launch spec is a typed start failure that names the file and its fix (#9208)
 
 - `runners/rpc-host/daemon.ts` `loadDaemonLaunchSpec`: a `DaemonLaunchSpecError("launch_spec_insecure")` from
