@@ -4,6 +4,8 @@ Each GitHub Release of oh-my-openagent attaches per-OS/arch single-file `omo` ex
 
 ## One-line install (recommended)
 
+[Install OmO](install.md) is the full guide: every platform, channels, fixing your `PATH`, updating and uninstalling.
+
 ```sh
 curl -fsSL https://get.omo.dev/install.sh | bash            # latest
 curl -fsSL https://get.omo.dev/install.sh | bash -s -- beta # beta channel, or pass a version such as 5.1.1
