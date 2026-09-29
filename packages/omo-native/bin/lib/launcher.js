@@ -162,6 +162,12 @@ async function spawnSenpi(args, withExtension) {
   await spawnNode(senpi.cliPath, finalArgs, { env })
 }
 
+// Routine launch notices go straight to stderr: Bun renders every console.error line red on a
+// color terminal, which made a healthy startup look like a failure (#8442).
+function notice(line) {
+  process.stderr.write(`${line}\n`)
+}
+
 function isInteractiveDefault(args) {
   return process.stderr.isTTY === true && !args.includes("-p") && !args.includes("--print")
 }
@@ -180,7 +186,7 @@ function reportLegacyFlatAdoption() {
   }
   if (!result.adopted) return
   const moved = [...result.copied, ...result.backfilled].join(", ")
-  console.error(`omo: carried forward settings from the legacy ~/.omo layout (${moved})`)
+  notice(`omo: carried forward settings from the legacy ~/.omo layout (${moved})`)
 }
 
 /**
@@ -301,9 +307,9 @@ export async function runLauncher(args = process.argv.slice(2)) {
     return
   }
   if (isInteractiveDefault(args)) {
-    console.error(releaseBanner())
+    notice(releaseBanner())
     if (process.stdout.isTTY === true && setupSuggestionForLaunch()) {
-      console.error("omo: sibling credentials detected; run `omo setup` to review them")
+      notice("omo: sibling credentials detected; run `omo setup` to review them")
     }
   }
   await spawnSenpi(args, true)
