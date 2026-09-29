@@ -17,6 +17,7 @@ import {
 } from "../compile-entry"
 import { compiledUpdate, pickUpdateVersion, releaseAssetName, releaseVersionOf, replaceCommand } from "../compiled-update"
 import { engineDependencyDir } from "../bin/lib/engine-dependency.js"
+import { registerEngineRuntimeModules } from "../engine-runtime-modules"
 import {
   isProvisionedExecutable,
   materializeProvisionedExecutable,
@@ -87,6 +88,7 @@ describe("provisioned executable handoff", () => {
 
 describe("compiled OMO OAuth module identity", () => {
   test("registers the loader in the same pi-ai graph senpi resolves for the provider", async () => {
+    await registerEngineRuntimeModules()
     const loadedFlow = await loadChatGptSubscriptionOAuth()
 
     expect(loadedFlow).toBe(chatgptSubscriptionOAuth)
