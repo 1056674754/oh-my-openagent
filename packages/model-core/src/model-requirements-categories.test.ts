@@ -152,7 +152,7 @@ describe("CATEGORY_MODEL_REQUIREMENTS", () => {
     ])
   })
 
-  test("unspecified-low follows the approved 7-rung chain headed by mimo-v2.6-pro max", () => {
+  test("unspecified-low follows the approved 8-rung chain headed by claude-sonnet-5-5 medium", () => {
     // given
     const requirement = CATEGORY_MODEL_REQUIREMENTS["unspecified-low"]
 
@@ -161,6 +161,11 @@ describe("CATEGORY_MODEL_REQUIREMENTS", () => {
 
     // then
     expect(chain).toEqual([
+      {
+        providers: ["anthropic", "anthropic-api", "github-copilot", "opencode"],
+        model: "claude-sonnet-5-5",
+        variant: "medium",
+      },
       {
         providers: ["xiaomi", "opencode-go"],
         model: "mimo-v2.6-pro",

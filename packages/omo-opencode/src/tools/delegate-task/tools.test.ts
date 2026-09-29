@@ -3859,8 +3859,8 @@ describe("sisyphus-task", () => {
       
       // then - default model from DEFAULT_CATEGORIES is used
       const category = expectResolvedCategoryConfig(resolved)
-      expect(category.config.model).toBe("xiaomi/mimo-v2.6-pro")
-      expect(category.config.variant).toBe("max")
+      expect(category.config.model).toBe("anthropic/claude-sonnet-5-5")
+      expect(category.config.variant).toBe("medium")
     })
 
     test("category built-in model takes precedence over inheritedModel for builtin category", () => {
