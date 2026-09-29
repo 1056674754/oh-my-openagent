@@ -2,7 +2,7 @@ import { spawn } from "node:child_process"
 import { mkdirSync, rmSync, watch, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { isolatedChildEnv } from "./sandbox-child-env.mjs"
+import { isolatedChildEnv, sandboxStateDir } from "./sandbox-child-env.mjs"
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const { createSandbox, seedSandbox } = await import(pathToFileURL(join(scriptDir, "drive.mjs")).href)
@@ -78,7 +78,7 @@ export function prepareScenarioSandbox(projectConfig = PROJECT_OMO_CONFIG) {
   mkdirSync(sessionDir, { recursive: true })
   mkdirSync(join(sandbox.cwd, ".omo"), { recursive: true })
   writeFileSync(join(sandbox.cwd, ".omo", "omo.json"), `${JSON.stringify(projectConfig, null, 2)}\n`)
-  const stateDir = join(sandbox.cwd, ".omo", "senpi-task")
+  const stateDir = sandboxStateDir(sandbox)
   mkdirSync(join(stateDir, "tasks"), { recursive: true })
   mkdirSync(join(stateDir, "logs"), { recursive: true })
   return { sandbox, sessionDir, stateDir }

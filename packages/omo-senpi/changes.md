@@ -1,3 +1,13 @@
+## thread, task: agent state stays out of the user's repository (#9201, DESKTOP-31)
+
+- `components/thread/live-surface.ts` `defaultThreadStateDirectory`: the thread tools' mailbox and receipts move from
+  `<project>/.omo/thread-tools` to the same per-project folder as the task state
+  (`@oh-my-opencode/senpi-task` `resolveProjectStateDirectory`); a pre-existing in-project folder keeps being used.
+- `components/task/engine-state-dir.test.ts`: a fresh project stays empty after the engine persists task state, a
+  pre-existing `.omo/senpi-task` is kept, and `task.state_dir` wins.
+- Root `test-setup.ts` drops an inherited `OMO_`/`SENPI_`/`PI_CODING_AGENT_DIR`, so a test run started inside a live
+  session resolves agent-dir state under the hermetic HOME, as in CI.
+
 ## skill-commands, skills: argument-taking skills wait for their arguments in the slash picker (#9168)
 
 - `skills/{hyperplan,init-deep,mass-ulw,ulw-loop,ulw-plan,ulw-research}/SKILL.md` and the shared-pool
