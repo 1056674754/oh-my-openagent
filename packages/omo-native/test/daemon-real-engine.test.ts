@@ -232,14 +232,20 @@ if (process.platform !== "win32") {
         if (statusSawReachableShard(env)) reachableReads += 1
       }
 
+      // The supervisor is detached by `host ensure`, so there is no exit event to await: it is watched by pid.
+      // The backoff between reads only limits spawn load on a busy runner; it is not a timing assertion, and the
+      // reads keep arriving well inside the idle window.
       const exitDeadline = Date.now() + OBSERVED_IDLE_EXIT_MS * 3
       let readsAwaitingExit = 0
+      let backoffMs = 100
       while (pidAlive(supervisorPid)) {
         if (Date.now() > exitDeadline) {
           throw new Error(`shard pid ${supervisorPid} still alive after ${readsAwaitingExit} more status reads; observing reads must not reset its idle timer`)
         }
         runStatus(env)
         readsAwaitingExit += 1
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.min(backoffMs, Math.max(0, exitDeadline - Date.now())))
+        backoffMs = Math.min(backoffMs * 2, 500)
       }
 
       expect(reachableReads).toBe(REQUIRED_REACHABLE_READS)
