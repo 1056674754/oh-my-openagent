@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+**`omo update` no longer reports success while leaving the old version installed.** ([#9198](https://github.com/code-yeongyu/oh-my-openagent/issues/9198)) It now looks up the version published on your channel and installs exactly that, for example `bun add -g omo-ai@5.1.2`. If you are already on it, nothing is installed. If the package manager finishes but OmO is still on the old version, `omo update` says `omo is still <old>; <new> is published`, prints the command to retry, and exits with an error. `omo update --dry-run` shows the exact command. When the npm registry can't be reached, it installs the unpinned `omo-ai` as before and tells you it could not confirm the version.
+
 ## [5.1.2] - 2026-09-29
 
 ### Added
