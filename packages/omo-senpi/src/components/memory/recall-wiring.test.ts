@@ -107,6 +107,7 @@ describe("resolveAgentRecallSettings", () => {
       sidecar_max_tokens: 48000,
       max_concurrent_wakes: 2,
       tool_budget: 4,
+      ranker: "substring",
     })
     expect(other).toEqual({
       enabled: true,
@@ -116,6 +117,7 @@ describe("resolveAgentRecallSettings", () => {
       sidecar_max_tokens: 48000,
       max_concurrent_wakes: 2,
       tool_budget: 8,
+      ranker: "substring",
     })
   })
 })
@@ -295,6 +297,27 @@ describe("createMemoryRecallWiring collectCandidates", () => {
 
     // then
     expect(collected?.candidates).toHaveLength(1)
+  }, 30_000)
+
+  test("#given recall.ranker bm25 and an inflected Korean prompt #when candidates are collected #then the stem memory is collected where the default ranker collects nothing", async () => {
+    // given
+    const { repo, context } = await fixture(tempDirs, [
+      {
+        relativePath: "reference/publish.md",
+        content: "---\ndescription: npm 퍼블리시 절차\n---\n배포 토큰은 키체인에 저장한다\n",
+      },
+    ])
+    const prompt = "퍼블리시할 때 막히면 어디서 꺼내 써"
+    const substring = wiringFor({ repo, identity: context })
+    const bm25 = wiringFor({ repo, identity: context, recall: { ranker: "bm25" } })
+
+    // when
+    const bySubstring = await substring.collectCandidates(eventContext([userEntry("m1", prompt)]))
+    const byBm25 = await bm25.collectCandidates(eventContext([userEntry("m1", prompt)]))
+
+    // then
+    expect(bySubstring).toBeUndefined()
+    expect(byBm25?.candidates.map((candidate) => candidate.path)).toEqual(["reference/publish.md"])
   }, 30_000)
 
   test("#given a path already surfaced in the session #when candidates are collected #then it never repeats", async () => {

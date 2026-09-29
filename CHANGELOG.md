@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+**Memory recall can rank candidates with BM25.** Set `memory.recall.ranker` to `"bm25"` in `omo.json` to pick the memories the Kibitzer judges by word rarity instead of the earliest verbatim match. Korean, Chinese and Japanese text is split into two-character pieces, so a question like `퍼블리시할 때 토큰 어디 있어` finds a note about `퍼블리시` that the default ranker misses. The default stays `"substring"`, so nothing changes unless you opt in. `bun packages/omo-senpi/scripts/qa/recall-ranker-bench.mjs` compares both rankers on a bundled synthetic corpus. The approach comes from [birkin-mnemosyne](https://github.com/ashmoonori-afk/birkin-mnemosyne).
+
 ### Fixed
 
 **An npm-installed comment checker is found again, in the old and the new package layout.** ([#9180](https://github.com/code-yeongyu/oh-my-openagent/issues/9180)) The OpenCode edition's comment-checker hook looked for `@code-yeongyu/comment-checker` only in the `bin/` folder its install script used to fill, so an npm install of 0.7.1 or later (binaries under `vendor/`) was never used and the hook fell back to downloading its own copy. The hook, `omo doctor` and the LazyCodex fallback now find the binary under `vendor/` and in the per-platform packages the checker is moving to. Those packages cut its install from about 255 MiB to 51 MiB.

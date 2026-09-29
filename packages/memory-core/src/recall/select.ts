@@ -4,6 +4,7 @@
 // projection does not fit recall files, so the haystack is composed directly).
 
 import { matchScoreNormalized, normalizeText, parseQuery } from "../search"
+import { rankRecallDocumentsBm25, tokenizeRecallText } from "./bm25"
 import type { RecallDocument } from "./provider"
 
 export interface RecallCandidate {
@@ -32,12 +33,17 @@ function normalizedHaystack(document: RecallDocument): string {
   return haystack
 }
 
+/** `substring`: FTS-lite AND scorer (default). `bm25`: OR-scored BM25 with CJK bigrams (see bm25.ts). */
+export type RecallRanker = "substring" | "bm25"
+
 export interface SelectRecallOptions {
   readonly maxItems: number
   /** Paths already surfaced earlier in the session; they never repeat. */
   readonly surfaced: ReadonlySet<string>
   /** Additional paths to skip, such as memories already visible in the transcript. Empty when omitted. */
   readonly excludePaths?: ReadonlySet<string>
+  /** Candidate ranking; `substring` when omitted. */
+  readonly ranker?: RecallRanker
 }
 
 export function selectRecallCandidates(
@@ -48,6 +54,7 @@ export function selectRecallCandidates(
   const maxItems = Math.max(0, options.maxItems)
   const parsedQueries = queries.map(parseQuery).filter((query) => query.terms.length > 0 || query.phrases.length > 0)
   if (maxItems === 0 || parsedQueries.length === 0) return []
+  if (options.ranker === "bm25") return selectBm25Candidates(documents, queries, options, maxItems)
 
   const queryTerms = collectQueryTerms(parsedQueries)
   const scored: RecallCandidate[] = []
@@ -74,6 +81,33 @@ export function selectRecallCandidates(
   return scored
     .sort((left, right) => left.score - right.score || left.path.localeCompare(right.path))
     .slice(0, maxItems)
+}
+
+/**
+ * BM25 path. The score keeps the RecallCandidate contract (ascending, lower is better) as
+ * 1 / (1 + bm25), and the excerpt centers on the first query token the body actually contains, so a
+ * bigram hit inside a longer Korean word still anchors the window.
+ */
+function selectBm25Candidates(
+  documents: readonly RecallDocument[],
+  queries: readonly string[],
+  options: SelectRecallOptions,
+  maxItems: number,
+): RecallCandidate[] {
+  // One-character tokens (a lone CJK syllable, a version digit) match almost anywhere and would drag the window.
+  const queryTokens = [...new Set(queries.flatMap(tokenizeRecallText))].filter((token) => Array.from(token).length > 1)
+  const candidates: RecallCandidate[] = []
+  for (const { document, score } of rankRecallDocumentsBm25(documents, queries)) {
+    if (options.surfaced.has(document.path) || options.excludePaths?.has(document.path)) continue
+    candidates.push({
+      path: document.path,
+      description: document.description,
+      excerpt: buildExcerpt(document.body, queryTokens),
+      score: 1 / (1 + score),
+    })
+    if (candidates.length === maxItems) break
+  }
+  return candidates
 }
 
 function collectQueryTerms(

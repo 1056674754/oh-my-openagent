@@ -182,6 +182,7 @@ export function createMemoryRecallWiring(options: MemoryRecallWiringOptions): Me
       maxItems: recall.max_items,
       surfaced,
       excludePaths,
+      ranker: recall.ranker,
     })
     if (candidates.length === 0) return undefined
     return {

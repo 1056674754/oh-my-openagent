@@ -283,3 +283,103 @@ describe("selectRecallCandidates", () => {
     expect(candidates).toEqual([])
   })
 })
+
+describe("selectRecallCandidates with the bm25 ranker", () => {
+  const BM25_OPTS = { ...BASE_OPTS, ranker: "bm25" as const }
+
+  it("#given the ranker omitted #when candidates are selected #then results equal the explicit substring ranker", () => {
+    // given
+    const documents = [
+      doc("reference/a.md", "Deploy", "the kubernetes ingress gateway is flaky"),
+      doc("notes/b.md", "Kubernetes notes", "kubernetes kubernetes everywhere"),
+    ]
+
+    // when
+    const omitted = selectRecallCandidates(documents, ["kubernetes"], BASE_OPTS)
+    const explicit = selectRecallCandidates(documents, ["kubernetes"], { ...BASE_OPTS, ranker: "substring" })
+
+    // then
+    expect(explicit).toEqual(omitted)
+  })
+
+  it("#given an inflected Korean planner term #when bm25 selects #then the stem note surfaces where substring finds nothing", () => {
+    // given
+    const documents = [
+      doc("reference/publish.md", "npm 퍼블리시 절차", "배포 토큰은 키체인에 저장한다"),
+      doc("reference/travel.md", "여행 계획", "다음 달 제주도"),
+    ]
+    const queries = ["퍼블리시할", "보관할"]
+
+    // when
+    const substring = selectRecallCandidates(documents, queries, BASE_OPTS)
+    const bm25 = selectRecallCandidates(documents, queries, BM25_OPTS)
+
+    // then
+    expect(paths(substring)).toEqual([])
+    expect(paths(bm25)).toEqual(["reference/publish.md"])
+  })
+
+  it("#given a distinctive term and a common term #when bm25 selects #then the distinctive match ranks first", () => {
+    // given: substring ranking prefers the earliest occurrence of any single term
+    const documents = [
+      doc("notes/journal.md", "Session journal", "session notes and more session notes"),
+      doc("reference/tmux.md", "Targeting rules", "kill a session with tmux using an exact target"),
+    ]
+
+    // when
+    const candidates = selectRecallCandidates(documents, ["session", "tmux"], BM25_OPTS)
+
+    // then
+    expect(paths(candidates)[0]).toBe("reference/tmux.md")
+  })
+
+  it("#given bm25 candidates #when scores are read #then they stay ascending and lower-is-better in (0, 1]", () => {
+    // given
+    const documents = [
+      doc("reference/tmux.md", "tmux", "tmux exact targeting"),
+      doc("notes/other.md", "notes", "tmux mentioned once among many other unrelated words here"),
+    ]
+
+    // when
+    const candidates = selectRecallCandidates(documents, ["tmux", "targeting"], BM25_OPTS)
+
+    // then
+    const scores = candidates.map((candidate) => candidate.score)
+    expect(scores).toEqual([...scores].sort((left, right) => left - right))
+    for (const score of scores) {
+      expect(score).toBeGreaterThan(0)
+      expect(score).toBeLessThanOrEqual(1)
+    }
+  })
+
+  it("#given surfaced, excluded paths and a cap #when bm25 selects #then exclusions apply before the cap", () => {
+    // given
+    const documents = ["a", "b", "c", "d"].map((name) => doc(`reference/${name}.md`, "tmux", "tmux rules"))
+    const options = {
+      ...BM25_OPTS,
+      maxItems: 1,
+      surfaced: new Set(["reference/a.md"]),
+      excludePaths: new Set(["reference/b.md"]),
+    }
+
+    // when
+    const candidates = selectRecallCandidates(documents, ["tmux"], options)
+
+    // then
+    expect(paths(candidates)).toEqual(["reference/c.md"])
+  })
+
+  it("#given a Korean match inside a longer word #when bm25 builds the excerpt #then it is centered on the matched text", () => {
+    // given
+    const body = `${"앞부분 설명 ".repeat(30)}퍼블리시 토큰 위치는 키체인이다 ${"뒷부분 설명 ".repeat(30)}`
+    const documents = [doc("reference/publish.md", "절차", body)]
+
+    // when
+    const candidates = selectRecallCandidates(documents, ["퍼블리시할"], BM25_OPTS)
+
+    // then
+    const excerpt = candidates[0]?.excerpt ?? ""
+    expect(excerpt).toContain("퍼블리시 토큰")
+    expect(excerpt.length).toBeLessThanOrEqual(200)
+  })
+})

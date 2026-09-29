@@ -32,6 +32,9 @@
 //                  the wake falls back to it inside the SAME turn, the nudge reaches the parent, the
 //                  wake record is a non-diagnostic completion on the fallback model, and no gate
 //                  notice is raised.
+//   bm25-ranker    `memory.recall.ranker: "bm25"`: a Korean prompt that only shares an inflected verb form
+//                  with a stored memory's stem still offers that memory to the sidecar, and its nudge reaches
+//                  the parent.
 //
 // Every wait is an RPC event, a filesystem change or a process exit with a bounded timeout. Evidence
 // is structured: the mock's request log, the parent session JSONL and every child transcript.
@@ -83,14 +86,29 @@ import {
   writeOmoConfig,
 } from "./kibitzer-sidecar-support.mjs"
 
-export const SCENARIOS = ["happy", "provider-429", "context-reseed", "category-unavailable", "refused-pinned-model"]
+export const SCENARIOS = ["happy", "provider-429", "context-reseed", "category-unavailable", "refused-pinned-model", "bm25-ranker"]
 /** The pinned model the refused-pinned-model provider refuses, and the builtin quick rung it falls back to. */
 const REFUSED_MODEL = "refused-1"
 const BUILTIN_RUNG = { provider: "deepseek", id: "deepseek-flash" }
 /** Scenario-specific omo config on top of the lane's defaults; `{}` categories kills the recall chain. */
 const CONFIG = {
   "category-unavailable": { categories: {} },
+  "bm25-ranker": { recall: { ranker: "bm25" } },
   "refused-pinned-model": { categories: { quick: { description: "QA pin outside the builtin quick chain", model: `omo-mock/${REFUSED_MODEL}` } } },
+}
+/**
+ * A Korean memory whose prompt only shares an inflected verb form with the stored stem:
+ * the default substring ranker plans no query that matches it, the bm25 ranker meets it through bigrams.
+ */
+const KOREAN_PUBLISH = {
+  path: "reference/npm-publish-ko.md",
+  description: "npm 퍼블리시 절차",
+  body: "배포 토큰은 키체인에 저장한다.",
+  prompt: "퍼블리시할 때 막히면 어디서 꺼내 써",
+}
+/** Scenario-specific seed corpus; every other scenario seeds the two disjoint English memories. */
+const SEEDS = {
+  "bm25-ranker": [MEMORIES.rollout, MEMORIES.helm, KOREAN_PUBLISH],
 }
 /** A non-transient refusal: Devin's Connect trailer surfaces as `permission_denied`; an HTTP provider answers 403. */
 const PERMISSION_DENIED_STEP = {
@@ -175,7 +193,7 @@ async function withHarness(scenario, options, run) {
     facts.sandboxRoot = sandbox.root
     const env = sandboxEnv(sandbox)
     assertSandboxEnv(sandbox, env)
-    const seed = await seedMemories(command, sandbox, env, router, [MEMORIES.rollout, MEMORIES.helm])
+    const seed = await seedMemories(command, sandbox, env, router, SEEDS[scenario] ?? [MEMORIES.rollout, MEMORIES.helm])
     facts.seed = { sessionId: seed.sessionId, identities: seed.identities, results: seed.results, teardown: seed.teardown }
     if (!record(`${scenario}.memory-seeded`, seed.ok, seed.ok ? `identity=${seed.identities[0]} memories=${seed.seeded.length}` : `seed failed: ${JSON.stringify(seed.results)} identities=${seed.identities.length} stderr=${seed.stderr?.replace(/\n/g, " | ")}`)) return facts
     identity = seed.identities[0]
@@ -491,7 +509,37 @@ async function runRefusedPinnedModel({ session, state, identity, router, facts, 
   }
 }
 
-const RUNNERS = { happy: runHappy, "provider-429": runProvider429, "context-reseed": runContextReseed, "category-unavailable": runCategoryUnavailable, "refused-pinned-model": runRefusedPinnedModel }
+// ---- bm25-ranker --------------------------------------------------------------------------------------------------
+
+async function runBm25Ranker({ session, state, identity, router, facts, parentTurns, record }) {
+  router.setParentSteps([{ type: "text", text: "Checking." }, { type: "text", text: "Done." }])
+  router.setSidecarSteps([nudgeStep(KOREAN_PUBLISH)])
+
+  // memory.recall.ranker = "bm25": the inflected prompt must still offer the stem memory to the sidecar.
+  await prompt(session, KOREAN_PUBLISH.prompt)
+  const held = await waitForAccepted(identity, state, KOREAN_PUBLISH, { description: "bm25-ranker: inflected Korean prompt surfaced the stem memory" })
+  const lineage = sidecarDirs(identity)[0]
+  const seedText = lineage === undefined ? "" : messageText(childTranscripts(lineage.dir)[0]?.users[0])
+  const candidates = candidatePathsOf(seedText)
+  record("inflected-korean-candidate", candidates.includes(KOREAN_PUBLISH.path), `candidates=${candidates.join(",")}`)
+  record("nudge-accepted", held.nudges.some((nudge) => nudge.path === KOREAN_PUBLISH.path), `held=${JSON.stringify(held)}`)
+
+  // The next turn drains the held nudge into the parent transcript.
+  await prompt(session, KOREAN_PUBLISH.prompt)
+  const entries = readEntries(state.sessionFile)
+  record("nudge-reached-parent", nudgedPaths(entries).includes(KOREAN_PUBLISH.path) && entries.some(isRecall), `paths=${nudgedPaths(entries).join(",")} recallMessages=${entries.filter(isRecall).length}`)
+  facts.result = {
+    resident: sidecarDirs(identity).length === 1,
+    ranker: "bm25",
+    candidates,
+    nudged: nudgedPaths(entries).length,
+    nudgedPaths: nudgedPaths(entries),
+    sidecarRequests: router.state.sidecar,
+    parentRequests: parentTurns(),
+  }
+}
+
+const RUNNERS = { happy: runHappy, "provider-429": runProvider429, "context-reseed": runContextReseed, "category-unavailable": runCategoryUnavailable, "refused-pinned-model": runRefusedPinnedModel, "bm25-ranker": runBm25Ranker }
 
 // ---- main --------------------------------------------------------------------------------------------------------
 
