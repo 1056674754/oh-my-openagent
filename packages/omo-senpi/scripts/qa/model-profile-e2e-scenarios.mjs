@@ -44,9 +44,9 @@ export const SCENARIOS = {
   },
   "geeky-normal-sol": {
     omoConfig: { model_profile: "geeky-normal" },
-    mockModels: ["mock-1", "gpt-5.6-sol"],
+    mockModels: ["mock-1", "gpt-5.6-sol", "gpt-6.1-sol"],
     cliModel: undefined,
-    expect: { model: "gpt-5.6-sol", notice: APPLIED_TYPE, thinking: "medium" },
+    expect: { model: "gpt-6.1-sol", notice: APPLIED_TYPE, thinking: "medium" },
   },
   "geeky-heavy-astra": {
     omoConfig: { model_profile: "geeky-heavy" },
