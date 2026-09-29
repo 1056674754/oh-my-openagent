@@ -34,7 +34,7 @@
   },
   "dependencies": {
     "@code-yeongyu/lsp-daemon": "file:../lsp-daemon",
-    "@earendil-works/pi-tui": "0.84.2",
+    "@earendil-works/pi-tui": "npm:@code-yeongyu/senpi-tui@2026.9.29",
     "@oh-my-opencode/ast-grep-mcp": "workspace:*",
     "@oh-my-opencode/boulder-state": "workspace:*",
     "@oh-my-opencode/comment-checker-core": "workspace:*",
