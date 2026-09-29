@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**Kibitzer recall and quick delegation work with a single Z.ai or Xiaomi login.** ([#9202](https://github.com/code-yeongyu/oh-my-openagent/issues/9202)) The `quick` category had no Z.ai or Xiaomi model, so on a machine logged in to only one of them recall stayed off and quick tasks were unavailable. It now falls back to `glm-5.3-flash` (Z.ai) and `mimo-v2.6-flash` (Xiaomi) at low effort, after every model it already used, so machines that had a quick model keep the same one.
+
 ## [5.1.3] - 2026-09-29
 
 ### Changed

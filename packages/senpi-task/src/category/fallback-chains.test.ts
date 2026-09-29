@@ -64,7 +64,9 @@ describe("CATEGORY_FALLBACK_CHAINS", () => {
         { providers: ["opencode-go"], model: "minimax-m3", variant: "max" },
         { providers: ["opencode-go"], model: "minimax-m2.7", variant: "max" },
         { providers: ["xai"], model: "grok-4.20-0309-non-reasoning" },
-        { providers: ["anthropic-subscription", "anthropic", "anthropic-api", "github-copilot"], model: "claude-haiku-4-5", variant: "off" }
+        { providers: ["anthropic-subscription", "anthropic", "anthropic-api", "github-copilot"], model: "claude-haiku-4-5", variant: "off" },
+        { providers: ["zai", "zai-coding-cn"], model: "glm-5.3-flash", variant: "low" },
+        { providers: ["xiaomi"], model: "mimo-v2.6-flash", variant: "low" }
       ],
       "unspecified-low": [
         { providers: ["anthropic-subscription", "anthropic", "anthropic-api", "github-copilot", "opencode"], model: "claude-sonnet-5-5", variant: "medium" },

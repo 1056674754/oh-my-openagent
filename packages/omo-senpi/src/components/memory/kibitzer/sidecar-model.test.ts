@@ -64,6 +64,21 @@ describe("resolveKibitzerSidecarModel", () => {
     expect(refused).toMatchObject({ kind: "unavailable", category: "quick", cause: "beyond_category" })
     expect(refused.kind === "unavailable" ? refused.missingProviders : undefined).toContain("chatgpt-subscription")
   })
+
+  test.each([
+    { provider: "zai", ids: ["glm-5.3", "glm-5.3-flash"], expected: "zai/glm-5.3-flash" },
+    { provider: "xiaomi", ids: ["mimo-v2.6-pro", "mimo-v2.6-flash"], expected: "xiaomi/mimo-v2.6-flash" },
+  ])("#given only $provider is logged in and quick is not configured #when resolved #then recall runs on $expected", ({ provider, ids, expected }) => {
+    const models: SenpiModelPort[] = ids.map((id) => ({ provider, id }))
+    const single = {
+      getAvailable: () => models,
+      find: (p: string, id: string) => models.find((candidate) => candidate.provider === p && candidate.id === id),
+    }
+
+    const resolution = resolveKibitzerSidecarModel({ config: { categories: {} }, registry: single })
+
+    expect(resolution).toMatchObject({ kind: "resolved", category: "quick", model: expected, thinking: "low" })
+  })
 })
 
 // A catalog that knows every model below, and an availability list naming only the connected ones:

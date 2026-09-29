@@ -13,6 +13,15 @@
 - `runners/rpc-host-launch-spec.test.ts`: a 0664 spec fails typed with the path and never falls back, the same spec at
   0644 opens on the host, and the record plus the team error name the reason, the path and the fix.
 
+## category: quick ends with glm-5.3-flash and mimo-v2.6-flash, so a Z.ai-only or Xiaomi-only machine has a quick model (#9202)
+
+- `CATEGORY_FALLBACK_CHAINS.quick` appends `zai|zai-coding-cn/glm-5.3-flash (low)` and `xiaomi/mimo-v2.6-flash (low)`
+  after `claude-haiku-4-5`. Trailing keeps every provider set that resolved quick before on the same model. `low` is
+  the lowest effort both accept: `glm-5.3-flash` maps `off` to null and `mimo-v2.6-flash` cannot disable thinking.
+- `quick-single-provider.test.ts` resolves quick on a `zai`, `zai-coding-cn` and `xiaomi` registry (red on dev: no
+  rung, `model_unavailable`) and pins that haiku still wins when a Claude login is present. `coverage.test.ts` now
+  lists quick as usable on a Z.ai-only machine; `dead-chain.test.ts` and `fallback-chains.test.ts` list the new rungs.
+
 ## store: task state moves out of the user's repository (#9201, DESKTOP-31)
 
 - `store/project-state-directory.ts`: `resolveProjectStateDirectory(projectDir, name)` puts a project's runtime state at
