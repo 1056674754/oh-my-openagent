@@ -5,13 +5,18 @@
 
 import { createRequire } from "node:module"
 import { dirname, join, resolve } from "node:path"
-import { existsSync } from "node:fs"
+import { existsSync, realpathSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, "..")
 export const senpiPackageDir = join(repoRoot, "node_modules", "@code-yeongyu", "senpi")
-const senpiRequire = createRequire(join(senpiPackageDir, "package.json"))
+// Resolve from senpi's REAL path: bun's isolated store links senpi's dependencies beside that
+// path (`.bun/<key>/node_modules`), not beside the `node_modules/@code-yeongyu/senpi` symlink,
+// so a require rooted at the symlink finds nothing once senpi stops bundling its dependencies.
+const senpiRequire = createRequire(
+  join(existsSync(senpiPackageDir) ? realpathSync(senpiPackageDir) : senpiPackageDir, "package.json"),
+)
 
 export interface SidecarSource {
   /** Absolute source path (file or directory). */

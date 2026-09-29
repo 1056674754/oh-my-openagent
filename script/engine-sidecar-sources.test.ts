@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { realpathSync } from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -7,7 +8,10 @@ import { engineSidecarSources } from "./engine-sidecar-sources"
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, "..")
-const installedSenpiRequire = createRequire(join(repoRoot, "node_modules", "@code-yeongyu", "senpi", "package.json"))
+// Node resolves a symlinked package from its real path, so the engine's view starts there.
+const installedSenpiRequire = createRequire(
+  join(realpathSync(join(repoRoot, "node_modules", "@code-yeongyu", "senpi")), "package.json"),
+)
 
 // Independent of the production resolver: the installed engine either resolves the
 // package's manifest or Node reports it missing.

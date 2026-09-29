@@ -7,11 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- OmO Native moves from senpi 2026.9.29-3 to senpi 2026.9.29-4; the engine changes below come with it.
+
+**Breaking: an untrusted project's legacy `.pi/` resources no longer load.** ([senpi#2375](https://github.com/code-yeongyu/senpi/pull/2375)) Extensions, skills, prompt templates, themes and hooks under a project's `.pi/` now follow project trust like the rest of the project config. A project whose only project resources are in `.pi/` now asks whether you trust it instead of opening as trusted. Trusted projects load them as before.
+
+**Breaking: interactive sessions no longer join a shared engine host.** ([senpi#2328](https://github.com/code-yeongyu/senpi/issues/2328)) Every interactive launch runs on its own local runtime. Extensions lose `pi.sharedHostEnabled`, and the `experimental.sharedHost` setting and the `SENPI_ENABLE_SHARED_HOST` / `SENPI_DISABLE_SHARED_HOST` variables are ignored if set. On first load `experimental.sharedHost` is removed from the global settings file.
+
+**Local sessions can pass messages and whole sessions to each other.** ([senpi#2328](https://github.com/code-yeongyu/senpi/issues/2328)) An extension can open a terminal session to other local sessions with `pi.session.registerControlEndpoint`, and each message delivered that way is admitted once and waits while you are typing. A multi-session host hands a quiet session to your terminal with `release_session`, and with `interrupt: true` it stops the running work first and returns what it took out of the queue. Host status shows each endpoint's kind, whether it answers and who owns it, and a suspended terminal no longer holds the listing for 10 seconds.
+
+**Claude answers in your language.** ([senpi#2366](https://github.com/code-yeongyu/senpi/issues/2366)) With a "reply in Korean" rule, or when you write in Korean, the routing line, the handoff block and todo labels come back in that language. The handoff labels (`Ask`, `For you`, `Now`, `Next`) stay as they are. Thanks to @floweredao for the report.
+
+**The engine installs smaller and faster.** ([senpi#2360](https://github.com/code-yeongyu/senpi/issues/2360), [senpi#2362](https://github.com/code-yeongyu/senpi/issues/2362)) senpi now declares its real dependencies instead of shipping its whole dependency tree inside the tarball, and it no longer ships sourcemaps.
+
 ### Fixed
 
 **Teams and process-mode subagents work again on installs made under `umask 002`.** ([#9208](https://github.com/code-yeongyu/oh-my-openagent/issues/9208)) With the Ubuntu default umask for private-group users, npm installed the task-host launch spec group-writable, the task host refused it, and every `team_create` failed with only "The task host is unavailable." OmO now makes that file private (0644) when it launches, never following a symlink and never touching a file another user owns. When the task host still refuses the spec, the task, the `team_create` error and `omo doctor` name the file and the fix (`chmod 644 <path>`). Reported and diagnosed by @devswha.
 
 **An npm-installed comment checker is found again, in the old and the new package layout.** ([#9180](https://github.com/code-yeongyu/oh-my-openagent/issues/9180)) The OpenCode edition's comment-checker hook looked for `@code-yeongyu/comment-checker` only in the `bin/` folder its install script used to fill, so an npm install of 0.7.1 or later (binaries under `vendor/`) was never used and the hook fell back to downloading its own copy. The hook, `omo doctor` and the LazyCodex fallback now find the binary under `vendor/` and in the per-platform packages the checker is moving to. Those packages cut its install from about 255 MiB to 51 MiB.
+
+**Agent mailbox state no longer lands in your repository.** ([#9201](https://github.com/code-yeongyu/oh-my-openagent/issues/9201)) OmO Native's thread tools kept their mailbox and receipts in `<project>/.omo/thread-tools`. They now live in the same per-project state folder as task state, outside the project. A project that already has the folder keeps using it.
+
+**A Claude `Request not allowed` error no longer strands a session on a fallback model.** ([senpi#2376](https://github.com/code-yeongyu/senpi/issues/2376)) A transient 403 from a Claude subscription is retried on the same model before the session falls back. A fallback target that answers with a billing error no longer pins the session: that provider is skipped for its cooldown, and the next turn returns to your original model with a notice saying why.
+
+**A project you trusted loads its `.agents/skills` again.** ([senpi#2371](https://github.com/code-yeongyu/senpi/issues/2371)) They appear under `/skill:` without launching with `--approve`. An untrusted project no longer picks up resources another session loaded from the same folder as trusted. Thanks to @sorenjuul for the report and the root-cause analysis.
+
+**Session files survive a failed write.** ([senpi#2328](https://github.com/code-yeongyu/senpi/issues/2328)) Opening a session saved by an older version rewrites it through a complete copy, so a full disk or an I/O error keeps the original intact. A write refused for permissions or space no longer leaves the refused entry in the session, and a prompt whose messages could not be saved reports that error. A refused delivery, a half-written first save or the release of a never-saved session no longer leaves a session stuck or ends an engine host.
+
+**Every `extension_ui_response` gets a reply.** ([senpi#2372](https://github.com/code-yeongyu/senpi/issues/2372)) A host or a terminal endpoint that settles one answers with the frame's own id, so a client can tell a delivered answer from a lost one.
 
 **The startup banner is no longer red.** ([#8442](https://github.com/code-yeongyu/oh-my-openagent/issues/8442)) Under Bun, `omo` printed its version banner, the `omo setup` credentials hint and the legacy-settings notice in the error color, so a healthy start looked like a failure. They now print without color; the text and the stream are unchanged. (#8870 by @cynkai)
 
