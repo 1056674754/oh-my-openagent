@@ -57,6 +57,15 @@ describe("bundled skill argument hints", () => {
     expect(hinted).toEqual(ARGUMENT_READING_SKILLS)
   })
 
+  test("#given a shipped skill whose body consumes the typed text #when its frontmatter is parsed #then it declares a hint", () => {
+    const unhinted = [...shippedSkillFiles()]
+      .filter(([, path]) => /\$ARGUMENTS|<user-request>/.test(readFileSync(path, "utf8")))
+      .filter(([, path]) => typeof argumentHintOf(path) !== "string")
+      .map(([name]) => name)
+
+    expect(unhinted).toEqual([])
+  })
+
   test("#given the scan's inputs #when resolved #then both pools are read and a shadowed name resolves to the native copy", () => {
     const files = shippedSkillFiles()
 
