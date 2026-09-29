@@ -1,3 +1,9 @@
+## 2026-09-30 - lsp: post-edit install nudges stay inside projects and appear once per server (#9223)
+
+- `components/lsp/post-edit-outcome.ts` (moved out of `index.ts`) turns a daemon `not_installed` availability into the structured post-edit outcome, carrying `serverId`, `installDecisionTool` and a recorded decision.
+- `components/lsp/index.ts` `handlePostEditDiagnosticsToolResult` classifies each edited file against the session cwd and the engine-resolved agent dir (`resolveSessionAgentDir`, else `resolveAgentHome`): files outside a project, in the agent dir, or in a temp dir get no nudge, and each server is nudged once per session (reset on compaction).
+- `plugin/extensions/omo.js` regenerated on linux for the change above.
+
 ## 2026-09-30 - memory/kibitzer: connected-first sidecar model order (#9216)
 
 - `components/memory/kibitzer/sidecar-connected-order.ts` (new) `orderKibitzerCandidatesByConnection`: with a known, non-empty availability list the first connected candidate leads and unconnected ones trail; none connected returns the providers to connect.

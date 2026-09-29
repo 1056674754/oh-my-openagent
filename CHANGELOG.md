@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Kibitzer recall and quick delegation work with a single Z.ai or Xiaomi login.** ([#9202](https://github.com/code-yeongyu/oh-my-openagent/issues/9202)) The `quick` category had no Z.ai or Xiaomi model, so on a machine logged in to only one of them recall stayed off and quick tasks were unavailable. It now falls back to `glm-5.3-flash` (Z.ai) and `mimo-v2.6-flash` (Xiaomi) at low effort, after every model it already used, so machines that had a quick model keep the same one.
 
+### Fixed
+
+**Editing a file outside a project no longer asks you to install a language server.** ([#9223](https://github.com/code-yeongyu/oh-my-openagent/issues/9223)) After an edit to OmO's own config, a scratch file in a temp folder, or any file with no project around it, the LSP check told the agent to install the missing server "in THIS repository" and to ask you first, which would have created a `package.json` in your home or temp folder, and it came back on every edit. Those files now get no install prompt, and inside a project the prompt for a missing server appears once per session instead of after every edit. Thanks to @haamsuk-collab for the report.
+
 ## [5.1.3] - 2026-09-29
 
 ### Changed
