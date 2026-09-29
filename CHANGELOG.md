@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.3] - 2026-09-29
+
 ### Changed
 
 - OmO Native moves from senpi 2026.9.29-3 to senpi 2026.9.29-4; the engine changes below come with it.
