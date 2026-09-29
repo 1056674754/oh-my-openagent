@@ -74,3 +74,15 @@ jobs:
           path: .omo/canary/*
           retention-days: 3
           if-no-files-found: error
+
+      - name: Write job summary
+        if: always()
+        env:
+          JOB_SUMMARY_TITLE: macOS signing canary (${{ inputs.release_tag }})
+          JOB_SUMMARY_STATUS: ${{ job.status }}
+          JOB_SUMMARY_DETAILS: |
+            - Re-signs the release's Darwin assets with the Developer ID certificate and notarizes them.
+            - Requires Gatekeeper to report source=Notarized Developer ID for every file.
+            - Uploads the notarized copies as a 3-day artifact; nothing is published.
+          JOB_SUMMARY_NEXT: Check the signing step first (missing secrets, notarytool status and log), then the run step.
+        run: GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" bash .github/scripts/write-job-summary.sh
