@@ -27,22 +27,24 @@ import { printSetupReport } from "./bin/lib/setup-report.js"
 import { isInternalSupervisorLaunch, runInternalSupervisor } from "./supervisor-fast-path"
 import { spawnSync } from "node:child_process"
 import { delimiter } from "node:path"
-import { registerBunOAuthFlows } from "../../node_modules/@code-yeongyu/senpi/node_modules/@earendil-works/pi-ai/dist/bun-oauth.js"
+import { registerBunRuntimeModules } from "@code-yeongyu/senpi/bun-runtime"
 import {
   migrateHostSessionSockets,
   planHostSessionSocketMigration,
 } from "../senpi-task/src/store/rollback-migrate"
 import { pruneMissingStoreIndexEntriesSync } from "../senpi-task/src/runners/rpc-host/store-index"
 
-// Register statically bundled OAuth flows before loading senpi's CLI graph.
-// Bun's compiled filesystem cannot resolve the opaque dynamic cursor loader.
-registerBunOAuthFlows()
+// Register the statically bundled OAuth flows and Bedrock/Cursor/Devin provider modules before
+// loading senpi's CLI graph: Bun's compiled filesystem cannot resolve their opaque dynamic loaders.
+// senpi's `./bun-runtime` export binds them to the pi-ai graph senpi itself resolves, whether that
+// dependency is bundled inside senpi or installed beside it.
+registerBunRuntimeModules()
 
 // The engine is imported via a RELATIVE string LITERAL, inlined at both import
 // sites, and both properties are load-bearing:
 //  - `@code-yeongyu/senpi/dist/cli.js` is not in senpi's exports map (only ".",
-//    "./rpc-entry", "./client"), so the bare subpath fails exports enforcement
-//    at build time.
+//    "./bun-runtime", "./rpc-entry", "./client"), so the bare subpath fails
+//    exports enforcement at build time.
 //  - bun's bundler only traces import() whose argument is a literal: a
 //    module-level const or a runtime-resolved URL (import.meta.resolve +
 //    pathToFileURL) drops the entire engine graph from the binary (1 module
