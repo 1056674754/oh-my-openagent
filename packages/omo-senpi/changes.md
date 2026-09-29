@@ -1,3 +1,16 @@
+## computer-use, x-search: a feature skill yields to a loaded same-name skill and honors disabled_skills (#9160)
+
+- `components/bundled-skills/contributed-skill.ts`: `resolveContributedSkill` decides one `resources_discover` pass for a
+  skill a component contributes on its own. `disabled_skills` hides it (`readDisabledSkills`, now shared with the
+  bundled-skills component). A `skill:<name>` entry in `pi.getCommands()` whose `sourceInfo.path` is not ours means
+  senpi already loaded a same-name skill, which wins first-path either way, so ours is withheld instead of becoming a
+  "Skill conflicts" collision. Our own path left over from an earlier pass still contributes.
+- `components/computer-use/index.ts`: the `computer-use` skill goes through it; `/computer status` adds
+  `skill: your own computer-use skill is active in place of the built-in guide (<path>)` when it yielded. New `env`
+  option for the config read.
+- `components/x-search/index.ts`: the conditional `x-search` skill goes through it. Both tools stay registered.
+- `extension/types.ts`: `getCommands()` entries carry the optional `sourceInfo.path` senpi already reports.
+
 ## memory: a late Kibitzer verdict no longer steers an extra turn after the final answer
 
 - `components/memory/kibitzer/delivery.ts`: an accepted verdict steers at once only while the running session has a
