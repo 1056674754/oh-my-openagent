@@ -1,6 +1,6 @@
 import installPs1 from "../scripts/install.ps1"
 import installSh from "../scripts/install.sh"
-import { recordDownload, requestCountry } from "./datapoint"
+import { isQaInstall, recordDownload, requestCountry } from "./datapoint"
 import type { RequestContext } from "./env"
 
 const SCRIPT_TTL_SECONDS = 300
@@ -14,7 +14,7 @@ export function isScriptName(value: string): value is ScriptName {
 
 export function serveScript(request: Request, ctx: RequestContext, name: ScriptName): Response {
   if (request.method === "GET") {
-    recordDownload(ctx.env, { kind: "script", source: "worker", version: "", asset: name, country: requestCountry(request) })
+    recordDownload(ctx.env, { kind: "script", source: "worker", version: "", asset: name, country: requestCountry(request), qa: isQaInstall(request) })
   }
   return new Response(request.method === "HEAD" ? null : SCRIPTS[name], {
     headers: {

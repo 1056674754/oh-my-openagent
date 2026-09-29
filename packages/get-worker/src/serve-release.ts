@@ -1,4 +1,4 @@
-import { recordDownload, requestCountry } from "./datapoint"
+import { isQaInstall, recordDownload, requestCountry } from "./datapoint"
 import type { RequestContext } from "./env"
 import {
   assetKind,
@@ -64,7 +64,7 @@ export async function serveReleaseAsset(
   const isGet = request.method === "GET"
   const record = (source: "r2" | "cache" | "github") => {
     if (!isGet) return
-    recordDownload(ctx.env, { kind, source, version, asset, country: requestCountry(request) })
+    recordDownload(ctx.env, { kind, source, version, asset, country: requestCountry(request), qa: isQaInstall(request) })
   }
 
   const cacheKey = new Request(`https://get.omo.dev/v/${version}/${asset}`, { method: "GET" })

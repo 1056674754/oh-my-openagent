@@ -119,6 +119,14 @@ describe("release assets", () => {
     expect(h.points).toEqual([])
   })
 
+  test("tags installer QA downloads so the rollup can leave them out", async () => {
+    const h = harness()
+    mirror(h, "5.1.1", { "omo-linux-x64": "bytes" })
+    await route(get("/v/5.1.1/omo-linux-x64", { "User-Agent": "omo-install.sh/1 omo-install-qa" }), h.ctx)
+    await route(get("/v/5.1.1/omo-linux-x64", { "User-Agent": "omo-install.sh/1" }), h.ctx)
+    expect(h.points.map((p) => p.blobs[5])).toEqual(["qa", ""])
+  })
+
   test("counts SHA256SUMS and desktop engines under their own kinds", async () => {
     const h = harness()
     mirror(h, "5.1.1", { SHA256SUMS: "s", "senpi-desktop-engine-darwin-arm64": "e" })

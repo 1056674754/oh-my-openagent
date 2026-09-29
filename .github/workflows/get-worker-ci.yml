@@ -22,6 +22,10 @@ concurrency:
 permissions:
   contents: read
 
+# Installs from this workflow are tagged so they stay out of the public download count.
+env:
+  OMO_INSTALL_QA: "1"
+
 jobs:
   worker:
     runs-on: ubuntu-latest

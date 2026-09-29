@@ -1,4 +1,4 @@
-import { recordDownload, requestCountry } from "./datapoint"
+import { isQaInstall, recordDownload, requestCountry } from "./datapoint"
 import type { RequestContext } from "./env"
 import { type Channel, channelPointerKey, isReleaseVersion, releaseVersionOfNpmVersion } from "./release-names"
 
@@ -60,7 +60,7 @@ export async function serveChannel(request: Request, ctx: RequestContext, channe
     })())
   if (request.method === "GET" && response.ok) {
     const version = (await response.clone().text()).trim()
-    recordDownload(ctx.env, { kind: "channel", source: "worker", version, asset: channel, country: requestCountry(request) })
+    recordDownload(ctx.env, { kind: "channel", source: "worker", version, asset: channel, country: requestCountry(request), qa: isQaInstall(request) })
   }
   return response
 }

@@ -20,6 +20,7 @@ describe("rollup query", () => {
     const sql = rollupQuery("omo_downloads")
     expect(sql).toContain("toStartOfDay(NOW() - INTERVAL '6' DAY)")
     expect(sql).toContain("SUM(_sample_interval * double1)")
+    expect(sql).toContain("blob6 != 'qa'")
     expect(() => rollupQuery("omo; DROP TABLE x")).toThrow(RollupError)
   })
 

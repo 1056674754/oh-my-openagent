@@ -29,7 +29,7 @@ export function rollupQuery(dataset: string, days: number = ROLLUP_DAYS): string
   if (!SAFE_DATASET.test(dataset)) throw new RollupError(`invalid dataset name ${dataset}`)
   return `SELECT formatDateTime(timestamp, '%Y-%m-%d') AS day, blob1 AS kind, blob2 AS source, blob3 AS version, blob4 AS asset, SUM(_sample_interval * double1) AS count
 FROM ${dataset}
-WHERE timestamp >= toStartOfDay(NOW() - INTERVAL '${days - 1}' DAY) AND blob1 IN ('binary', 'checksums', 'engine')
+WHERE timestamp >= toStartOfDay(NOW() - INTERVAL '${days - 1}' DAY) AND blob1 IN ('binary', 'checksums', 'engine') AND blob6 != 'qa'
 GROUP BY day, kind, source, version, asset
 FORMAT JSON`
 }

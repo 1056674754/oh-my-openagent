@@ -13,15 +13,17 @@ NPM_DIST_TAGS="https://registry.npmjs.org/-/package/omo-ai/dist-tags"
 VERSION_RE='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$'
 MARK_BEGIN="# >>> omo installer >>>"
 MARK_END="# <<< omo installer <<<"
+USER_AGENT="omo-install.sh/1"
+[ "${OMO_INSTALL_QA:-}" = 1 ] && USER_AGENT="${USER_AGENT} omo-install-qa" # QA runs stay out of the public count
 
 say() { printf '%s\n' "$*" >&2; }
 fail() { say "omo installer: $*"; exit 1; }
 
 fetch() { # fetch <url> <output file|->
   if command -v curl >/dev/null 2>&1; then
-    curl --proto '=https' --tlsv1.2 -fsSL --retry 2 --connect-timeout 15 -A "omo-install.sh/1" -o "$2" "$1"
+    curl --proto '=https' --tlsv1.2 -fsSL --retry 2 --connect-timeout 15 -A "$USER_AGENT" -o "$2" "$1"
   elif command -v wget >/dev/null 2>&1; then
-    wget -q --https-only -U "omo-install.sh/1" -O "$2" "$1"
+    wget -q --https-only -U "$USER_AGENT" -O "$2" "$1"
   else
     fail "curl or wget is required"
   fi

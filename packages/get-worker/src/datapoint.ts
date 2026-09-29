@@ -9,15 +9,20 @@ export interface DownloadEvent {
   readonly version: string
   readonly asset: string
   readonly country: string
+  readonly qa: boolean
 }
 
-// Column order is the rollup's contract: blob1 kind, blob2 source, blob3 version, blob4 asset, blob5 country.
+// Column order is the rollup's contract: blob1 kind, blob2 source, blob3 version, blob4 asset, blob5 country, blob6 "qa" for tagged QA installs.
 export function recordDownload(env: Env, event: DownloadEvent): void {
   env.DOWNLOADS.writeDataPoint({
-    blobs: [event.kind, event.source, event.version, event.asset, event.country],
+    blobs: [event.kind, event.source, event.version, event.asset, event.country, event.qa ? "qa" : ""],
     doubles: [1],
     indexes: [event.kind],
   })
+}
+
+export function isQaInstall(request: Request): boolean {
+  return /\bomo-install-qa\b/.test(request.headers.get("User-Agent") ?? "")
 }
 
 export function requestCountry(request: Request): string {

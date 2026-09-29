@@ -15,6 +15,7 @@ function Install-Omo {
   $GitHubDownload = 'https://github.com/code-yeongyu/oh-my-openagent/releases/download'
   $NpmDistTags = 'https://registry.npmjs.org/-/package/omo-ai/dist-tags'
   $UserAgent = 'omo-install.ps1/1'
+  if ($env:OMO_INSTALL_QA -eq '1') { $UserAgent += ' omo-install-qa' } # QA runs stay out of the public count
 
   function Write-OmoSay([string]$Message) { Write-Host $Message }
   function Stop-OmoInstall([string]$Message) { throw "omo installer: $Message" }
