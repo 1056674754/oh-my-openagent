@@ -1,3 +1,18 @@
+## 2026-09-29 - `omo update --help` prints usage and an unknown flag is a usage error instead of an update (#9207)
+
+`isSelfUpdate()` routes `update` to the launcher whenever every argument after it is a flag or a self/senpi/omo target,
+and `runSelfUpdate()` only knew `--dry-run` and `--print`, so `omo update --help`, `-h` or a mistyped flag such as
+`--forse` ran the package-manager install. The routing and a new `updateUsageAnswer()` now live in
+`bin/lib/update-args.js`, shared by `launcher.js`, `self-update.js`, `compile-entry.ts` and `compiled-update.ts`.
+`--help` / `-h` print the `omo update` usage and exit 0; any other flag besides `--dry-run`, `--print` and the documented
+`--self` exits 2 with `omo update: unknown option <flag>` on stderr. Both answers come before the registry lookup, so
+nothing is fetched or installed. The compiled binary answers the same way before its GitHub release lookup; that path
+only ever prints the replace command, and its `--dry-run` / `--print` output is unchanged. Plain `omo update`,
+`--dry-run`, `--print`, `--self` and the self/senpi/omo targets behave as before, and `update --extensions` /
+`update --models` still go to the engine. `test/self-update-usage.test.ts` and `test/compiled-update-usage.test.ts`
+cover both paths with installer and release-lookup spies; on dev 16 of their 33 cases failed, all of them the help and
+unknown-flag cases.
+
 ## 2026-09-29 - `omo update` installs the exact published version and fails when the install did not move (#9198)
 
 On a Bun-global install, `omo update` could exit 0 with the old version still installed: `updateTarget()` spawned the

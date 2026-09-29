@@ -2,12 +2,9 @@ import { join } from "node:path"
 import { runChild } from "./child-process.js"
 import { fetchNpmDistTagsSync } from "./npm-dist-tags.js"
 import { channelDistTagVersion, channelPackageSpec, packageManifest, readJson, releaseChannel, resolveSenpi, updateTarget } from "./package-paths.js"
+import { isPrintOnlyUpdate, updateUsageAnswer } from "./update-args.js"
 
-const PRINT_ONLY_FLAGS = new Set(["--dry-run", "--print"])
-
-export function isPrintOnlyUpdate(args) {
-  return args.slice(1).some((arg) => PRINT_ONLY_FLAGS.has(arg))
-}
+export { isPrintOnlyUpdate }
 
 export function formatUpdateCommand(update) {
   return `omo is updated via ${update.manager}: ${update.command}`
@@ -30,8 +27,9 @@ export function formatVersionChange(before, after) {
 /**
  * Resolves the version the running build's channel dist-tag names (the lookup `omo doctor` uses for
  * "Latest"), then prints and optionally runs the package-manager command that installs exactly that
- * version. `--dry-run` and `--print` print the resolved command only. Already on the target, it says
- * so and installs nothing. After a manager exit 0 it re-reads the installed version: one that did not
+ * version. `--help`/`-h` print the usage and an unknown flag exits 2, both before the registry lookup,
+ * so neither can install anything (#9207). `--dry-run` and `--print` print the resolved command only.
+ * Already on the target, it says so and installs nothing. After a manager exit 0 it re-reads the installed version: one that did not
  * reach the target exits non-zero with the retry command, because the manager's own success does not
  * prove the install moved (#9198). An unreachable registry falls back to the unpinned channel spec.
  * `run` defaults to `runChild` so tests inject a spawn without touching the child-process helper.
@@ -62,6 +60,12 @@ export async function runSelfUpdate(args, options = {}) {
   const run = options.run ?? runChild
   const readInstalled = options.readInstalled ?? readInstalledVersion
   const env = options.env ?? process.env
+
+  const usage = updateUsageAnswer(args)
+  if (usage !== undefined) {
+    ;(usage.stream === "stderr" ? error : log)(usage.text)
+    return usage.exitCode
+  }
 
   const before = readInstalled()
   const channel = releaseChannel(before.omo)
