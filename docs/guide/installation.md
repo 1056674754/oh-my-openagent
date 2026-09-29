@@ -20,7 +20,7 @@ Both `lazycodex-ai` and `lazycodex` are shipped bin aliases that default to the 
 
 - Already use OpenCode, or want the most-tested path? Choose **Ultimate**: `bunx oh-my-openagent install`.
 - Already use Codex CLI? Choose **Light**: `npx lazycodex-ai install`.
-- Want one command without installing a host first? Choose **OmO Native**: `bun add -g omo-ai`.
+- Want one command without installing a host first? Choose **OmO Native**: `curl -fsSL https://get.omo.dev/install.sh | bash` (Windows: `irm https://get.omo.dev/install.ps1 | iex`), or `bun add -g omo-ai`.
 
 Ultimate and Light are plugins that load into a host you already run. OmO Native is standalone: it ships a pinned senpi engine with OMO built in.
 
