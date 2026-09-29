@@ -52,11 +52,11 @@ OmO 就是一个 `omo` 命令，把你的 token 变成真正完成的工作：�
 ## 安装
 
 ```bash
-bun add -g omo-ai
+curl -fsSL https://get.omo.dev/install.sh | bash
 omo
 ```
 
-没有 bun？用 `npm i -g omo-ai` 也可以。包名是 `omo-ai`；npm 上那个无关的 `omo` 包属于别人。
+Windows 请在 PowerShell 中运行 `irm https://get.omo.dev/install.ps1 | iex`。脚本会为你的系统和 CPU 安装原生 `omo` 到 `~/.local/bin`，并用发布的校验和验证。想用包管理器的话，`bun add -g omo-ai`(或 `npm i -g omo-ai`)安装的是同一个 OmO。包名是 `omo-ai`；npm 上那个无关的 `omo` 包属于别人。
 
 打开项目，运行 `omo`，说出要做的事。设置就这么多。
 
