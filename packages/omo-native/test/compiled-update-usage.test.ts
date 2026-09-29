@@ -7,7 +7,7 @@ afterEach(() => {
 })
 
 const ASSET = releaseAssetName(undefined, "linux", "x64")
-const DESTINATION = "/opt/omo/bin/omo"
+const DESTINATION = "/opt/omo-release/omo"
 const AVAILABLE = `omo 9.9.10 is available (running 9.9.9). Replace this binary with:\n${replaceCommand(`${RELEASES_URL}/download/v9.9.10/${ASSET}`, DESTINATION, "linux")}`
 
 async function releaseUpdate(args: string[] | undefined) {
