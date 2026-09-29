@@ -25,24 +25,20 @@ import { migrationReport } from "./bin/lib/doctor-migration.js"
 import { detectHarnesses, needsSetupSuggestion } from "./bin/lib/setup-detect.js"
 import { printSetupReport } from "./bin/lib/setup-report.js"
 import { isInternalSupervisorLaunch, runInternalSupervisor } from "./supervisor-fast-path"
+import { registerEngineRuntimeModules } from "./engine-runtime-modules"
 import { spawnSync } from "node:child_process"
 import { delimiter } from "node:path"
-import { registerBunOAuthFlows } from "../../node_modules/@code-yeongyu/senpi/node_modules/@earendil-works/pi-ai/dist/bun-oauth.js"
 import {
   migrateHostSessionSockets,
   planHostSessionSocketMigration,
 } from "../senpi-task/src/store/rollback-migrate"
 import { pruneMissingStoreIndexEntriesSync } from "../senpi-task/src/runners/rpc-host/store-index"
 
-// Register statically bundled OAuth flows before loading senpi's CLI graph.
-// Bun's compiled filesystem cannot resolve the opaque dynamic cursor loader.
-registerBunOAuthFlows()
-
 // The engine is imported via a RELATIVE string LITERAL, inlined at both import
 // sites, and both properties are load-bearing:
 //  - `@code-yeongyu/senpi/dist/cli.js` is not in senpi's exports map (only ".",
-//    "./rpc-entry", "./client"), so the bare subpath fails exports enforcement
-//    at build time.
+//    "./bun-runtime", "./rpc-entry", "./client"), so the bare subpath fails
+//    exports enforcement at build time.
 //  - bun's bundler only traces import() whose argument is a literal: a
 //    module-level const or a runtime-resolved URL (import.meta.resolve +
 //    pathToFileURL) drops the entire engine graph from the binary (1 module
@@ -337,6 +333,7 @@ async function main(): Promise<void> {
     if (await runCompiledLauncher(process.argv.slice(2), execDir)) return
     process.argv.splice(2, process.argv.length - 2, ...buildSenpiArgs(process.argv.slice(2), execDir))
     Object.assign(process.env, remapSenpiEnvironment(process.env, execDir))
+    await registerEngineRuntimeModules()
     await import("../../node_modules/@code-yeongyu/senpi/dist/cli.js") // literal: see import note above
     return
   }
@@ -386,6 +383,7 @@ async function main(): Promise<void> {
   process.argv.splice(2, process.argv.length - 2, ...buildSenpiArgs(process.argv.slice(2), execDir))
   Object.assign(process.env, remapSenpiEnvironment(process.env, execDir))
   if (isInternalSupervisorLaunch(process.argv.slice(2)) && await runInternalSupervisor(process.argv.slice(2))) return
+  await registerEngineRuntimeModules()
   await import("../../node_modules/@code-yeongyu/senpi/dist/cli.js") // literal: see import note above
 }
 
