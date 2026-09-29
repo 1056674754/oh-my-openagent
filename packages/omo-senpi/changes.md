@@ -1,3 +1,9 @@
+## 2026-09-30 - memory/kibitzer: connected-first sidecar model order (#9216)
+
+- `components/memory/kibitzer/sidecar-connected-order.ts` (new) `orderKibitzerCandidatesByConnection`: with a known, non-empty availability list the first connected candidate leads and unconnected ones trail; none connected returns the providers to connect.
+- `components/memory/kibitzer/sidecar-model.ts` `resolveKibitzerSidecarModel` applies it to category-sourced resolutions and returns `category_unavailable` when nothing is connected. The `task` tool path is untouched.
+- `plugin/extensions/omo.js` regenerated on linux/amd64 (node 24, bun 1.4.2) for the change above; `build-extension.mjs --check` and `build-install.mjs --check` pass on the regenerated tree.
+
 ## 2026-09-29 - plugin bundles carry the typed launch_spec_insecure start failure (#9208)
 
 - `plugin/extensions/omo-task.js`, `omo-member.js`, `omo.js` (source-digest marker only) and `plugin/runtime/rollback-migrate.js`
