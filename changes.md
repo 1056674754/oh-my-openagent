@@ -1,3 +1,13 @@
+## 2026-09-29 - Adopt senpi 2026.9.29: Claude Sonnet 5.5, a self-updating Claude Code fingerprint, and the Claude continuity fixes
+
+Every senpi pin moves from 2026.9.28-7 to 2026.9.29 (root devDependency, `omo-native`, the `omo-senpi` and `senpi-task` peer and dev pins, their pin tests, `bun.lock`, and the version comment in `packages/omo-native/bin/lib/provider-map.json`). The new engine brings:
+
+- **Claude Sonnet 5.5** (`claude-sonnet-5-5`) in the catalog for anthropic, Bedrock, OpenRouter, Vercel AI Gateway, Venice and OpenCode, shaped like Opus 5.5 (adaptive-only thinking, no forced tool choice), with its own prompt preset (senpi #2325, fixes senpi #2321). `senpi-task/src/category/coverage.test.ts` lists it in the pinned anthropic catalog.
+- **The Anthropic OAuth `claude-cli/<version>` fingerprint follows the latest published Claude Code** (floor 2.1.284, six-hour background refresh cached beside models.json, `PI_CLAUDE_CODE_VERSION` pin, one retry at the version a `claude_code_version_too_old` rejection names). The bundled `claude-agent-sdk` is 0.3.284, the first Claude Code that knows Sonnet 5.5 (senpi #2325). omo's launcher floor rewrite (`bin/lib/claude-code-floor.js`, 2.1.280) is a no-op on this engine: the `claudeCodeVersion` declaration it rewrites is still there and already above the floor.
+- **Claude subscription continuity**: a streaming turn survives a thinking-level change and failed turns stop being reported as re-sends (senpi #2322); a detached binding forks at one shared-prefix boundary (senpi #1986); recovery resumes at an earlier verified checkpoint instead of re-sending everything (senpi #2324); a cold seed that overflows the window compacts once and retries instead of killing the session (senpi #2330, fixes senpi #2329, refs #7975).
+- **Ambient cloud credentials never make Bedrock the startup model** over configured providers (senpi #2332, fixes senpi #2327).
+- Changelog completeness for the Together default (now Kimi K3; models.dev retired K2.6 there) and `session.log` keeping `sessionId` (senpi #2333, refs #8759).
+
 ## 2026-09-29 - LazyCodex agent sync keeps a user's model and applies `[codex].agents` overrides (#5245)
 
 `packages/omo-codex/src/install/link-cached-plugin-agents.ts` still copies each bundled agent TOML over
