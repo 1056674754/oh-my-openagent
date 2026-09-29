@@ -25,6 +25,7 @@ import { isSelfUpdate, updateUsageAnswer } from "./bin/lib/update-args.js"
 import { migrationReport } from "./bin/lib/doctor-migration.js"
 import { piConfigReport } from "./bin/lib/doctor-pi-config.js"
 import { launchSpecDoctorLines } from "./bin/lib/launch-spec-mode.js"
+import { configDoctorLines } from "./config-doctor-runtime"
 import { detectHarnesses, needsSetupSuggestion } from "./bin/lib/setup-detect.js"
 import { printSetupReport } from "./bin/lib/setup-report.js"
 import { isInternalSupervisorLaunch, runInternalSupervisor } from "./supervisor-fast-path"
@@ -167,6 +168,7 @@ function runCompiledDoctor(inventory: Awaited<ReturnType<typeof detectHarnesses>
     lines.push(...daemonReportLines({ engine, pluginRoot: join(execDir, "plugin"), agentDir: canonicalAgentDir(), env: process.env, platform: process.platform }))
   }
   lines.push(...migrationReport({ ...migration, standalone: true }, null))
+  lines.push(...configDoctorLines({ cwd: process.cwd(), env: migration.env ?? process.env }))
   lines.push(...piConfigReport({ env: migration.env, homeDir: migration.homeDir }))
   if (needsSetupSuggestion(inventory)) lines.push("INFO no credentials found; run omo setup to review sibling stores")
   console.log(lines.join("\n"))
