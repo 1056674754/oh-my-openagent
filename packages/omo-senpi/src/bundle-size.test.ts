@@ -80,7 +80,17 @@ const builtExtensionPath = join(packageRoot, "plugin", "extensions", "omo.js")
 // green. dev measured 1,297,500 with 2,500 bytes of slack left under the previous ceiling; this branch
 // measures 1,301,126 after minification (macOS arm64, bun 1.4.2). 1,340,000 keeps ~3% headroom rather
 // than the failing value.
-const BUDGET_BYTES = 1_340_000
+// Raised 1,340,000 -> 1,420,000 for computer use (#8893): the `computer-use` component and the first-party
+// `@oh-my-opencode/senpi-desktop-{protocol,engine,prelude,service,tool}` workspaces enter the entry (the
+// computer tool, its eval-kernel prelude assets, the engine client and runtime). Their only third-party
+// dependency, typebox, was already inlined; bundle-purity stays green. Measured 1,380,186 bytes after
+// minification (darwin/arm64, bun 1.4.2); 1,420,000 keeps ~2.9% headroom rather than the failing value.
+// Raised 1,420,000 -> 1,460,000 for per-session task hosts (#9110): shard routing and socket naming, the
+// per-host crash notice, host pre-warm, endpoint-aware thread tools and crash telemetry. First-party code
+// only - no manifest changes, bundle-purity stays green. dev measured 1,414,341 (5,659 bytes of slack left
+// under the previous ceiling); this branch measures 1,420,760 (+6,419) after minification (linux/amd64 and
+// darwin/arm64, bun 1.4.2). 1,460,000 keeps ~2.8% headroom rather than the failing value.
+const BUDGET_BYTES = 1_460_000
 
 describe("omo-senpi bundle size budget", () => {
   it("#given the built extension #when its byte size is measured #then it stays within the documented byte budget", () => {
