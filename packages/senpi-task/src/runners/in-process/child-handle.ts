@@ -34,6 +34,9 @@ export type RunnerFailure = {
   readonly message: string
   readonly reason?: RunnerFailureReason
   readonly cause?: unknown
+  // Set only with `launch_spec_insecure`: the refused spec path omo resolved itself, never child
+  // output, so the public start failure may name the file and its fix (#9208).
+  readonly launch_spec_path?: string
   /**
    * Structured exit facts for the internal event log, when the child actually reached a process exit.
    *

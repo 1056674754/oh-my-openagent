@@ -1,3 +1,18 @@
+## 2026-09-29 - A refused launch spec is a typed start failure that names the file and its fix (#9208)
+
+- `runners/rpc-host/daemon.ts` `loadDaemonLaunchSpec`: a `DaemonLaunchSpecError("launch_spec_insecure")` from
+  `readDaemonLaunchSpec` becomes `HostUnavailableError("launch_spec_insecure")` with `fallbackAllowed: false` and the
+  spec path. `rejectInsecureMode` is unchanged. Before, the error was not a `HostUnavailableError`, so `RpcHostRunner`
+  wrapped it as `host_unavailable` with no reason and every surface said only "The task host is unavailable."
+- `launch_spec_insecure` joins `HOST_START_FAILURE_REASONS`; `RunnerFailure.launch_spec_path` carries the path omo
+  resolved itself (never child output). `manager/start-failure.ts` `describeStartFailure` names it, home-relative, in
+  the public message with `chmod 644 <path>`, so the task record's `failure_reason` / `error_message`, the task tool
+  result and the `team_create` error (`member '<name>' failed to start: ...`) all show it. Rollback to R0 drops the new
+  reason like every post-R0 reason.
+- `TaskDaemonPorts.launchSpecPath` lets a test point the ensure at a spec file on disk.
+- `runners/rpc-host-launch-spec.test.ts`: a 0664 spec fails typed with the path and never falls back, the same spec at
+  0644 opens on the host, and the record plus the team error name the reason, the path and the fix.
+
 ## store: task state moves out of the user's repository (#9201, DESKTOP-31)
 
 - `store/project-state-directory.ts`: `resolveProjectStateDirectory(projectDir, name)` puts a project's runtime state at
