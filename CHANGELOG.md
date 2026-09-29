@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+**Picking a skill that needs input from the slash menu now waits for you to type it.** ([#9168](https://github.com/code-yeongyu/oh-my-openagent/issues/9168)) On OmO Native, choosing `/ulw-execute`, `/ulw-plan`, `/ulw-loop`, `/ulw-research`, `/mass-ulw`, `/hyperplan`, `/init-deep`, `/refactor` or `/remove-ai-slops` from the slash menu with Enter sent it right away with nothing after it, so the skill started without the plan name, request or goal it works on. These skills now declare what they take, and Enter leaves `/ulw-execute ` (or `/skill:ulw-execute `) in the input with the hint shown in the menu; type the arguments and press Enter again to send. Skills that take no input still run on one Enter. The waiting half needs the engine release that reads the hint (code-yeongyu/senpi#2258); until OmO adopts it, the menu behaves as before.
+
 **Your own `computer-use` skill no longer opens every session with a "Skill conflicts" warning.** ([#9160](https://github.com/code-yeongyu/oh-my-openagent/issues/9160)) With computer use on, OmO Native added its built-in `computer-use` skill on every start, even when you already had a skill of that name (Orca CLI ships one), so each session opened with a collision box. The built-in skill now steps aside for a same-name user, project or package skill, which is the one that loads, and `/computer status` says so in one line. The same applies to the `x-search` skill. `disabled_skills` now hides both the way it hides the bundled skills; the `computer` and `x_search` tools stay available either way.
 
 ## [5.1.1] - 2026-09-29
