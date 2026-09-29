@@ -11,6 +11,14 @@
   world-writable launch spec now fails the start typed `launch_spec_insecure` with the spec path and `chmod 644 <path>`,
   and rollback strips the new reason like every post-R0 reason. No adapter source changed.
 
+## memory, telemetry: Kibitzer recall runs on a Z.ai-only or Xiaomi-only machine (#9202)
+
+- `memory/kibitzer/sidecar-model.test.ts`: with only `zai` or only `xiaomi` logged in and no quick config, the sidecar
+  resolves `zai/glm-5.3-flash` or `xiaomi/mimo-v2.6-flash` at `low`. On dev both refused with `beyond_category`,
+  because the quick chain had no rung for them. The chain change is in senpi-task.
+- `telemetry/model-vocabulary.ts`: adds `glm-5.3-flash` under `zai` and `zai-coding-cn`, and `mimo-v2.6-flash` under
+  `xiaomi`, so the new rungs export by name. `docs/reference/senpi-telemetry.md` is regenerated.
+
 ## thread, task: agent state stays out of the user's repository (#9201, DESKTOP-31)
 
 - `components/thread/live-surface.ts` `defaultThreadStateDirectory`: the thread tools' mailbox and receipts move from
@@ -20,7 +28,6 @@
   pre-existing `.omo/senpi-task` is kept, and `task.state_dir` wins.
 - Root `test-setup.ts` drops an inherited `OMO_`/`SENPI_`/`PI_CODING_AGENT_DIR`, so a test run started inside a live
   session resolves agent-dir state under the hermetic HOME, as in CI.
-
 ## skill-commands, skills: argument-taking skills wait for their arguments in the slash picker (#9168)
 
 - `skills/{hyperplan,init-deep,mass-ulw,ulw-loop,ulw-plan,ulw-research}/SKILL.md` and the shared-pool

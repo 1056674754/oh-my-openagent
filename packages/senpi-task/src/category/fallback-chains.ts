@@ -102,7 +102,13 @@ export const CATEGORY_FALLBACK_CHAINS: Readonly<Record<string, readonly Delegate
       providers: ["anthropic-subscription", "anthropic", "anthropic-api", "github-copilot"],
       model: "claude-haiku-4-5",
       variant: "off",
-    }
+    },
+    // Trailing, so every provider set that resolved quick before resolves the same model: these
+    // rungs only answer a machine logged in to Z.ai or Xiaomi alone. Neither flash model can turn
+    // thinking off (glm-5.3-flash maps `off` to null, mimo-v2.6-flash refuses disabled thinking), so
+    // both run at the lowest effort they accept, like qwen3.6-flash.
+    { providers: ["zai", "zai-coding-cn"], model: "glm-5.3-flash", variant: "low" },
+    { providers: ["xiaomi"], model: "mimo-v2.6-flash", variant: "low" }
   ],
   "unspecified-low": [
     {

@@ -26,12 +26,12 @@ const GPT_PROVIDERS = ["chatgpt-subscription", "openai", "github-copilot", "open
 describe("resolveCategoryCoverage", () => {
   describe("#given a zai-only registry", () => {
     describe("#when coverage is resolved with no user categories", () => {
-      it("#then only unspecified-high is usable and each gap names its unconnected chain providers", () => {
+      it("#then quick and unspecified-high are usable and each gap names its unconnected chain providers", () => {
         const coverage = resolveCategoryCoverage({}, registryOf("zai", ZAI_MODELS))
 
-        expect(coverage.usable).toEqual(["unspecified-high"])
+        expect(coverage.usable).toEqual(["quick", "unspecified-high"])
         expect(coverage.unusable.map((gap) => gap.name)).toEqual([
-          "architect", "artistry", "deep-high", "deep-low", "quick", "ultrabrain", "unspecified-low", "visual-engineering", "writing",
+          "architect", "artistry", "deep-high", "deep-low", "ultrabrain", "unspecified-low", "visual-engineering", "writing",
         ])
         const providersOf = (name: string) => coverage.unusable.find((gap) => gap.name === name)?.providers
         expect(providersOf("architect")).toEqual(["anthropic-subscription", "anthropic", "anthropic-api", "github-copilot", "opencode"])

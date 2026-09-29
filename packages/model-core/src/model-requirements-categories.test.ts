@@ -106,7 +106,7 @@ describe("CATEGORY_MODEL_REQUIREMENTS", () => {
     ])
   })
 
-  test("quick follows the approved 8-rung chain", () => {
+  test("quick follows the approved 9-rung chain", () => {
     // given
     const requirement = CATEGORY_MODEL_REQUIREMENTS["quick"]
 
@@ -148,7 +148,9 @@ describe("CATEGORY_MODEL_REQUIREMENTS", () => {
         providers: ["anthropic", "anthropic-api", "github-copilot"],
         model: "claude-haiku-4-5",
         variant: "off",
-      }
+      },
+      { providers: ["zai-coding-plan"], model: "glm-5.3-flash", variant: "low" },
+      { providers: ["xiaomi"], model: "mimo-v2.6-flash", variant: "low" }
     ])
   })
 
