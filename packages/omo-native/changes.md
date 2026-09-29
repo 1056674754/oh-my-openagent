@@ -1,3 +1,17 @@
+## 2026-09-29 - `omo update` installs the exact published version and fails when the install did not move (#9198)
+
+On a Bun-global install, `omo update` could exit 0 with the old version still installed: `updateTarget()` spawned the
+unpinned `bun add -g omo-ai` (or `omo-ai@beta`), and `runSelfUpdate()` counted any manager exit 0 as success, so
+`omo 5.1.1 -> 5.1.1` read as an update. `runSelfUpdate()` now reads the running version's channel dist-tag (`latest` or
+`beta`) through the same registry lookup `omo doctor` uses for `Latest`, which moved from `doctor.js` into
+`bin/lib/npm-dist-tags.js`, and `updateTarget()` takes that version and installs the exact spec for every layout it
+handles: `bun add -g omo-ai@<version>` for Bun global and legacy Bun home-root installs, `npm i -g omo-ai@<version>` for
+npm. Already on that version, `omo update` says `omo <version> is up to date` and installs nothing. After a manager exit
+0 it re-reads the installed version; if it is not the target it prints `omo is still <version>; <target> is published`
+with the exact retry command and exits 1. `--dry-run` and `--print` show the pinned command. When the registry cannot be
+reached it says it could not confirm the version and runs the unpinned channel spec as before. The `INFO Update:` line
+of `omo doctor` and the engine's update hint keep the unpinned channel spec.
+
 ## 2026-09-29 - The launch banner and routine launch notices print without Bun's error color (#8442)
 
 `bin/lib/launcher.js` writes the interactive version banner, the `sibling credentials detected` hint and the `carried forward settings from the legacy ~/.omo layout` notice with `process.stderr.write` instead of `console.error`, and `compile-entry.ts` does the same for `compiledBannerLines`. Under Bun, `console.error` wraps every line in ANSI red on a color terminal, so a healthy start looked like a failure. The lines stay on stderr with the same text; real error lines (`could not adopt legacy state`, the `ulw-loop` refusal) keep `console.error`. Measured on a PTY with `FORCE_COLOR=1` and the pinned engine: dev printed `\e[0m\e[31momo (omo-ai 5.1.2)\e[0m`, this change prints `omo (omo-ai 5.1.2)`, and the color-stripped `omo --help` output is byte-identical (228 lines, exit 0). `test/launcher-banner-color.test.ts` fails on dev and passes here. Contributed by @cynkai.
