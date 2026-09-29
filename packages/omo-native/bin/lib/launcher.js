@@ -11,24 +11,12 @@ import { migrateLegacyBunGlobalManifest } from "./legacy-bun-global-migration.js
 import { adoptLegacyFlatState, canonicalAgentDir } from "./agent-dir.js"
 import { nearestNodeBin, packageManifest, packageRoot, readJson, releaseBanner, releaseChannel, resolveSenpi, updateTarget } from "./package-paths.js"
 import { runSelfUpdate } from "./self-update.js"
+import { isSelfUpdate } from "./update-args.js"
 import { detectHarnesses } from "./setup-detect.js"
 import { readSetupSuggestionCache, spawnSetupSuggestionRefresh } from "./setup-detect-cache.js"
 import { printSetupReport } from "./setup-report.js"
 
 const earlyCommands = new Set(["install", "remove", "list", "config", "auth", "app-server", "host"])
-const selfUpdateTargets = new Set(["self", "senpi", "omo"])
-// Updating extensions or model catalogs is the engine's job; everything else under `update`
-// would try to replace the pinned engine, so the launcher answers it instead.
-const engineUpdateTargets = new Set(["--extensions", "--models"])
-
-function isSelfUpdate(args) {
-  if (args[0] !== "update") return false
-  const rest = args.slice(1)
-  if (rest.length === 0) return true
-  if (rest.some((arg) => engineUpdateTargets.has(arg))) return false
-  return rest.every((arg) => arg.startsWith("-") || selfUpdateTargets.has(arg))
-}
-
 // Identity the engine adopts for this install: what the user sees, where state lives, which
 // environment prefix is read first, what goes on the wire, and which channel to check for
 // updates. The engine consumes this once and scrubs it, so nested engine processes are
