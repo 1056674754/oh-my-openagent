@@ -1,3 +1,4 @@
+import { resolveProjectStateDirectory } from "../../../senpi-task/src/store/project-state-directory.ts"
 import { AGENT_DIR_ENV_NAMES } from "./task-host-e2e-sandbox.mjs"
 
 /**
@@ -33,4 +34,23 @@ export function isolatedChildEnv(baseEnv, agentDir) {
   for (const name of [...HOST_ROUTING_ENV_NAMES, ...SESSION_IDENTITY_ENV_NAMES]) delete env[name]
   for (const name of AGENT_DIR_ENV_NAMES) env[name] = agentDir
   return env
+}
+
+/** The agent-dir lanes of a child launched through isolatedChildEnv, keyed as the engine reads them. */
+export function sandboxAgentDirEnv(agentDir) {
+  return Object.fromEntries(AGENT_DIR_ENV_NAMES.map((name) => [name, agentDir]))
+}
+
+/**
+ * Where the task engine inside a child launched with `childEnv` keeps the runtime state of the
+ * project at `cwd` (task records, logs, children sessions, team runtime, DAG runs). The engine
+ * resolves it from its OWN environment, so `childEnv` must carry the child's agent-dir lanes.
+ */
+export function engineStateDir(cwd, childEnv, name = "senpi-task") {
+  return resolveProjectStateDirectory(cwd, name, { env: childEnv })
+}
+
+/** engineStateDir of a sandbox (`{ cwd, agentDir }`) whose children run on isolatedChildEnv. */
+export function sandboxStateDir(sandbox, name = "senpi-task") {
+  return engineStateDir(sandbox.cwd, sandboxAgentDirEnv(sandbox.agentDir), name)
 }
