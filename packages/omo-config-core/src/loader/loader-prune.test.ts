@@ -58,7 +58,7 @@ describe("loadOmoConfig surgical pruning", () => {
     }
   })
 
-  test("#given a wrong-typed model value in agents.oracle beside a valid agents.sisyphus #when loading #then sisyphus survives, oracle is pruned, and one validation diagnostic names agents.oracle", () => {
+  test("#given a wrong-typed model value in agents.oracle beside a valid agents.sisyphus #when loading #then sisyphus survives, oracle is pruned, and one invalid-value diagnostic names agents.oracle.model", () => {
     // given
     const fixture = makeFixture()
     writeProjectConfig(
@@ -79,9 +79,10 @@ describe("loadOmoConfig surgical pruning", () => {
       expect(result.config.agents?.sisyphus?.model).toBe("anthropic/claude-opus-5")
       expect(result.config.agents?.oracle).toBeUndefined()
       expect(result.sources.some((source) => source.loaded)).toBe(true)
-      const dropped = result.diagnostics.filter((d) => d.kind === "validation" && d.path === "agents.oracle")
+      const dropped = result.diagnostics.filter((d) => d.kind === "invalid-value")
       expect(dropped).toHaveLength(1)
-      expect(dropped[0]?.issuePaths?.[0]).toBe("agents.oracle.model")
+      expect(dropped[0]?.path).toBe(join(fixture.homeDir, "project", ".omo", "omo.jsonc"))
+      expect(dropped[0]?.issuePaths).toEqual(["agents.oracle.model"])
     } finally {
       rmSync(fixture.root, { force: true, recursive: true })
     }
@@ -109,8 +110,8 @@ describe("loadOmoConfig surgical pruning", () => {
       expect(result.config.agents?.sisyphus?.model).toBe("anthropic/claude-opus-5")
       expect(result.config.agents?.oracle).toBeUndefined()
       expect(result.config.agents?.explore).toBeUndefined()
-      const dropped = result.diagnostics.filter((d) => d.kind === "validation" && d.path?.startsWith("agents."))
-      expect(dropped).toHaveLength(2)
+      const dropped = result.diagnostics.filter((d) => d.kind === "invalid-value")
+      expect(dropped.map((d) => d.issuePaths?.[0]).sort()).toEqual(["agents.explore.model", "agents.oracle.model"])
     } finally {
       rmSync(fixture.root, { force: true, recursive: true })
     }
@@ -136,14 +137,14 @@ describe("loadOmoConfig surgical pruning", () => {
       // then
       expect(result.config.categories?.quick?.model).toBe("gpt-5.6")
       expect(result.config.categories?.deep).toBeUndefined()
-      const dropped = result.diagnostics.filter((d) => d.kind === "validation" && d.path === "categories.deep")
-      expect(dropped).toHaveLength(1)
+      const dropped = result.diagnostics.filter((d) => d.kind === "invalid-value")
+      expect(dropped.map((d) => d.issuePaths?.[0])).toEqual(["categories.deep.model"])
     } finally {
       rmSync(fixture.root, { force: true, recursive: true })
     }
   })
 
-  test("#given an invalid agent leaf beside a malformed non-record value #when loading #then the layer is rejected wholesale and defaults are returned with a validation diagnostic", () => {
+  test("#given a file whose every value is invalid (an agent model and a task field) #when loading #then nothing valid is left, the file is rejected, and defaults are returned with a validation diagnostic", () => {
     // given
     const fixture = makeFixture()
     writeProjectConfig(
@@ -168,7 +169,7 @@ describe("loadOmoConfig surgical pruning", () => {
     }
   })
 
-  test("#given a layer whose only issue is a malformed non-record value with no agents or categories keys #when loading #then the record-leaf gate rejects the layer instead of prune-attempting it", () => {
+  test("#given a file whose only value is a malformed task field #when loading #then nothing valid is left and the file is rejected with its validation diagnostic", () => {
     // given
     const fixture = makeFixture()
     writeProjectConfig(
