@@ -17,6 +17,7 @@ const SOL_FAST = "chatgpt-subscription/gpt-6-sol-fast"
 const SOL_COPILOT = "github-copilot/gpt-6-sol"
 const SOL_56 = "chatgpt-subscription/gpt-5.6-sol"
 const SOL_56_COPILOT = "github-copilot/gpt-5.6-sol"
+const SOL_61 = "chatgpt-subscription/gpt-6.1-sol"
 const ASTRA = "chatgpt-subscription/gpt-6-astra"
 
 const DAILY_NORMAL = {
@@ -195,6 +196,17 @@ describe("builtin chain routing", () => {
         known: ["daily-heavy", "daily-normal", "geeky-heavy", "geeky-normal", "recommended"],
       })
     }
+  })
+
+  it("resolves geeky-normal to gpt-6.1-sol medium when the subscription serves it next to gpt-5.6-sol", () => {
+    const result = resolveModelProfile({ active: "geeky-normal", availableModels: [SOL_56, SOL_61] })
+
+    expect(result).toMatchObject({
+      kind: "resolved",
+      provider: "chatgpt-subscription",
+      modelId: "gpt-6.1-sol",
+      reasoning: "medium",
+    })
   })
 
   it("resolves geeky-normal to gpt-5.6-sol medium when only Copilot serves it", () => {

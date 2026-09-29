@@ -8,7 +8,8 @@
 //                    each leaf's first rung + thinking level in the applied notice.
 //   daily-normal-kimi / daily-normal-glm  later Daily · Normal rungs.
 //   geeky-normal-gpt6-only-unavailable  only GPT-6 Sol ids served: unavailable, the lane never falls back to GPT-6.
-//   geeky-normal-api-sol / geeky-normal-copilot-sol  gpt-5.6-sol medium through the openai / github-copilot ids.
+//   geeky-normal-sol serves gpt-6.1-sol next to gpt-5.6-sol and proves 6.1 Sol is the first rung.
+//   geeky-normal-api-sol / geeky-normal-copilot-sol  the gpt-5.6-sol medium fallback through the openai / github-copilot ids.
 //   unset            empty omo.json applies the recommended ladder (kimi-k3 on kimi-coding here).
 //   unset-skips-gateway  recommended never takes opengateway's vendor-prefixed Opus; kimi-k3 wins.
 //   empty-registry   Daily · Normal against only mock-1: unavailable, session keeps mock-1.
