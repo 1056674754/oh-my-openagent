@@ -29,6 +29,9 @@ export const NATIVE_AGENT_NAMES = [
 // OpenCode's own primary agents: the native main session has no per-mode agent, it runs the default model.
 const OPENCODE_PRIMARY_AGENTS = new Set(["build", "plan"])
 
+// The OpenCode edition's plan agents, keyed to the native agent that does the same job.
+const AGENT_ALIASES = { metis: "plan-consultant", momus: "plan-reviewer" }
+
 // omo-config-core schema/legacy-category-names.ts: the loader renames these and reports it.
 const CATEGORY_ALIASES = { deep: "deep-low" }
 
@@ -208,14 +211,17 @@ function convertAgents(raw, context, dropped) {
   for (const [origin, entries] of [["opencode agent", raw.opencodeAgents], ["agent", raw.agents]]) {
     for (const [name, entry] of Object.entries(entries)) {
       if (!hasModelChoice(entry)) continue
-      if (!native.has(name)) {
+      const target = Object.hasOwn(AGENT_ALIASES, name) ? AGENT_ALIASES[name] : name
+      // A native name beside its alias in the same source wins, as categories resolve the pair.
+      if (target !== name && Object.hasOwn(entries, target) && hasModelChoice(entries[target])) continue
+      if (!native.has(target)) {
         dropped.push(OPENCODE_PRIMARY_AGENTS.has(name) && origin === "opencode agent"
           ? `${origin} ${name}: the OpenCode primary agent; omo's main session runs the default model instead`
           : `${origin} ${name}: omo has no agent of that name (its agents: ${NATIVE_AGENT_NAMES.join(", ")}); route that work through a category instead`)
         continue
       }
       const converted = convertEntry(`${origin} ${name}`, entry, context, dropped)
-      if (converted !== undefined) agents.set(name, converted)
+      if (converted !== undefined) agents.set(target, converted)
     }
   }
   return [...agents].map(([name, entry]) => ({ name, entry })).sort((left, right) => left.name.localeCompare(right.name))
