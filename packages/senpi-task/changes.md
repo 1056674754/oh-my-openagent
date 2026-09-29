@@ -1,3 +1,14 @@
+## category, agents: builtin chains resolve only on the providers they list (#9146)
+
+- A machine whose only provider was a gateway (OpenRouter, opengateway, a Vercel gateway) ran builtin categories and agents
+  on that gateway's copy of the rung model, so an OpenRouter key was billed for Opus 5.5, GPT-6 Astra and, where the gateway
+  spells it `claude-fable-5-1`, Fable. `delegate-core` no longer matches a rung on an unlisted provider unless the caller
+  passes `allowUnlistedProviders` (only the omo-senpi `model_profile` matcher does), and `category/builtins.ts` gates and
+  chain viability count only models served by a provider the chain lists (`resolver.ts` dropped the gateway-id unwrap
+  `modelIdsOf`). A gateway-only machine now sees every builtin as unavailable and hidden; an explicit
+  `categories.<name>.model`/`models` or agent `model` naming the gateway still resolves on it, and a mixed registry picks
+  the listed provider. `category/listed-providers-only.test.ts` pins it on OpenRouter- and opengateway-shaped registries.
+
 ## lifecycle: the revival selector names the children it leaves suspended `deferred`
 
 - `lifecycle/revival-selection.ts` / `residency.ts`: `selectRevivalBatch` returns `{ selected, deferred }` (was `overflow`): the

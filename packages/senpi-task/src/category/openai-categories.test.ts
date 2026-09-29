@@ -154,7 +154,7 @@ describe("resolveCategory on GPT registries", () => {
   ] as const
 
   for (const { category, variant, append } of astraCases) {
-    it(`#given only the openai API lane serving gpt-6-astra #when ${category} resolves #then cross-provider fallthrough still gives Astra at ${variant} with its append`, () => {
+    it(`#given only the openai API lane serving gpt-6-astra #when ${category} resolves #then its listed rung gives Astra at ${variant} with its append`, () => {
       const result = resolveCategory(category, {}, astraRegistry)
       expect(result.kind).toBe("resolved")
       if (result.kind !== "resolved") throw new Error("Expected resolved")
