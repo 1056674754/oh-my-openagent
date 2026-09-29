@@ -1,3 +1,10 @@
+## 2026-09-29 - plugin bundles carry the typed launch_spec_insecure start failure (#9208)
+
+- `plugin/extensions/omo-task.js`, `omo-member.js`, `omo.js` (source-digest marker only) and `plugin/runtime/rollback-migrate.js`
+  regenerated on linux/amd64 (node 24, bun 1.4.2) for the senpi-task change: a task host that refuses a group- or
+  world-writable launch spec now fails the start typed `launch_spec_insecure` with the spec path and `chmod 644 <path>`,
+  and rollback strips the new reason like every post-R0 reason. No adapter source changed.
+
 ## thread, task: agent state stays out of the user's repository (#9201, DESKTOP-31)
 
 - `components/thread/live-surface.ts` `defaultThreadStateDirectory`: the thread tools' mailbox and receipts move from

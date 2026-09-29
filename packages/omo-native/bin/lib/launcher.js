@@ -6,7 +6,7 @@ import { doctorCoverageLines } from "./category-coverage.js"
 import { doctorComputerUseLines } from "./computer-use-doctor.js"
 import { runDaemonCommand } from "./daemon.js"
 import { runDoctor } from "./doctor.js"
-import { ensureEnginePrepared } from "./engine-prepare.js"
+import { ensureEnginePrepared, preparePluginLaunchSpec } from "./engine-prepare.js"
 import { migrateLegacyBunGlobalManifest } from "./legacy-bun-global-migration.js"
 import { adoptLegacyFlatState, canonicalAgentDir } from "./agent-dir.js"
 import { nearestNodeBin, packageManifest, packageRoot, readJson, releaseBanner, releaseChannel, resolveSenpi, updateTarget } from "./package-paths.js"
@@ -124,6 +124,7 @@ function senpiEnvironment(senpiRoot) {
 }
 
 function preparedSenpi() {
+  preparePluginLaunchSpec({ pluginRoot: join(packageRoot, "plugin") })
   const senpi = resolveSenpi()
   ensureEnginePrepared({
     senpiRoot: senpi.packageRoot,
@@ -255,6 +256,8 @@ export async function runLauncher(args = process.argv.slice(2)) {
     return
   }
   if (command === "doctor") {
+    // Doctor is a launch too: it reports only what the launch-time preparation could not fix.
+    preparePluginLaunchSpec({ pluginRoot: join(packageRoot, "plugin") })
     const [categoryCoverage, computerUse] = args[1] === "--reap"
       ? [[], []]
       : await Promise.all([

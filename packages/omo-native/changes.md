@@ -1,3 +1,20 @@
+## 2026-09-29 - A umask 002 install no longer breaks every process child and team; a refused launch spec names itself (#9208)
+
+npm and bun extract `plugin/daemon-launch-spec.json` with the installing user's umask, so under `umask 002` (the Ubuntu
+default for users with a private group) it lands 0664. The task host refuses a group- or world-writable spec
+(`launch_spec_insecure`, unchanged), so every process-mode child and every `team_create` failed. New
+`bin/lib/launch-spec-mode.js` `normalizeLaunchSpecMode` removes only the group and world write bits, only from a regular
+file owned by the current user, using `lstat` so a symlink is never followed: a link or a file owned by another user is
+left as it is, and the host still refuses it. `engine-prepare.js` `preparePluginLaunchSpec` runs it fail-open (a failed
+chmod warns with `chmod 644 <path>` and never blocks the launch), and the launcher calls it on every launch through
+`preparedSenpi()` and before `omo doctor`, not behind the engine stamp, because reinstalling omo-ai rewrites the plugin
+while the engine keeps its stamp. postinstall (`senpi-patch.mjs`) runs it too, for installs whose scripts run. On
+Windows it does nothing: the host does not check modes there. The compiled binary needs no normalization, since its
+runtime extraction already sets each file to the mode recorded in its manifest (0644 for the spec).
+`launchSpecDoctorLines` applies the host's own rule (following symlinks, as the reader does) and `omo doctor`, npm and
+compiled, prints `FAIL launch spec: launch_spec_insecure: <path> ...` with `chmod 644 <path>` (or the ownership fix)
+and exits 1 when the spec would still be refused.
+
 ## 2026-09-29 - `omo update --help` prints usage and an unknown flag is a usage error instead of an update (#9207)
 
 `isSelfUpdate()` routes `update` to the launcher whenever every argument after it is a flag or a self/senpi/omo target,
