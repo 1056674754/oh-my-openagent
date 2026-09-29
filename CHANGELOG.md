@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.2] - 2026-09-29
+
 ### Added
 
 **A one-line installer at get.omo.dev.** ([#9166](https://github.com/code-yeongyu/oh-my-openagent/issues/9166)) `curl -fsSL https://get.omo.dev/install.sh | bash` on macOS and Linux, or `irm https://get.omo.dev/install.ps1 | iex` in Windows PowerShell, installs the native `omo` binary for your OS and CPU into `~/.local/bin`, after checking it against the release `SHA256SUMS`. When get.omo.dev is unreachable it falls back to the npm registry and GitHub Releases. `bun add -g omo-ai` keeps working. omo.dev now shows the command for your OS and has an install page at `/docs/install` ([#9177](https://github.com/code-yeongyu/oh-my-openagent/issues/9177)).
