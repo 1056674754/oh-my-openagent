@@ -4,6 +4,23 @@
 - `components/memory/kibitzer/sidecar-model.ts` `resolveKibitzerSidecarModel` applies it to category-sourced resolutions and returns `category_unavailable` when nothing is connected. The `task` tool path is untouched.
 - `plugin/extensions/omo.js` regenerated on linux/amd64 (node 24, bun 1.4.2) for the change above; `build-extension.mjs --check` and `build-install.mjs --check` pass on the regenerated tree.
 
+## 2026-09-30 - model-profile: Geeky · Normal leads with gpt-6.1-sol medium; telemetry knows the 6.1 Sol ids (#9214)
+
+- `src/components/model-profile/builtin-profiles.ts`: `geeky-normal` is `gpt-6.1-sol` (medium) on `chatgpt-subscription|openai`
+  (the new `GPT_6_1_PROVIDERS`: Copilot and OpenCode Zen do not serve 6.1 Sol, and every builtin rung must name a pair the
+  product knows), then `gpt-5.6-sol` (medium) on the shared `GPT_PROVIDERS` ranking. The `recommended` row and every other
+  profile are unchanged.
+- `src/components/telemetry/model-vocabulary.ts`: `gpt-6.1-sol` and `gpt-6.1-sol-fast` join the `chatgpt-subscription`,
+  `openai` and `openai-codex` vocabularies and `gpt-6.1-sol` the `vercel` one, so the new deep-low rungs export as themselves
+  instead of `custom`; `docs/reference/senpi-telemetry.md` is regenerated from the schemas.
+- Tests: `builtin-profiles.test.ts` pins the two-rung chain, `resolve.test.ts` resolves `chatgpt-subscription/gpt-6.1-sol`
+  medium when the subscription serves both, and `index.test.ts` applies it at session start; the Copilot-only and GPT-6-only
+  cases still resolve 5.6 Sol and report unavailable. `scripts/qa/model-profile-e2e-scenarios.mjs` `geeky-normal-sol` serves
+  `gpt-6.1-sol` next to `gpt-5.6-sol` and expects 6.1 Sol.
+- `plugin/extensions/omo.js`, `omo-task.js`, `omo-init-deep-advisor.js` regenerated on linux/amd64 (node 24, bun 1.4.2) for
+  the chain, profile and vocabulary changes; `omo-member.js`, `memory-run-supervisor.mjs` and `omo-computer-use.js` rebuilt
+  byte-identical, so they are unchanged.
+
 ## 2026-09-29 - plugin bundles carry the typed launch_spec_insecure start failure (#9208)
 
 - `plugin/extensions/omo-task.js`, `omo-member.js`, `omo.js` (source-digest marker only) and `plugin/runtime/rollback-migrate.js`
