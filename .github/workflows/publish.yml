@@ -507,10 +507,12 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
           git add CHANGELOG.md package.json packages/omo-native/package.json packages/oh-my-opencode-*/package.json packages/omo-senpi/package.json packages/omo-senpi/plugin/package.json packages/omo-codex/package.json packages/omo-codex/plugin/package.json packages/omo-codex/plugin/package-lock.json packages/omo-codex/plugin/.codex-plugin/plugin.json packages/omo-codex/plugin/components/*/package.json packages/omo-codex/plugin/hooks/*.json packages/omo-codex/plugin/components/*/hooks/hooks.json bun.lock
-          # build-extension.mjs also stamps the version into the agent-toolkit SDK bundle under
-          # plugin/runtime; it must be committed with the extensions or the freshness check
-          # rejects the release commit as stale-output (#8329).
-          git add -f packages/omo-senpi/plugin/extensions packages/omo-senpi/plugin/runtime/agent-toolkit-sdk/sdk.js
+          # build-extension.mjs also rewrites the committed bundles under plugin/runtime (the
+          # agent-toolkit SDK, the rollback migrator); commit every tracked one it touched or the
+          # freshness check rejects the release commit as stale-output (#8329, v5.1.1). `-u` stages
+          # only tracked files, so gitignored staged runtimes (lsp-daemon, ast-grep-mcp) stay out.
+          git add -f packages/omo-senpi/plugin/extensions
+          git add -u packages/omo-senpi/plugin/runtime
           git add packages/omo-codex/scripts/install-dist/install-local.mjs
           git diff --cached --quiet || git commit -m "release: v${VERSION}"
 
