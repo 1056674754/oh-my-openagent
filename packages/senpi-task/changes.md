@@ -33,6 +33,7 @@
   `<project>/.omo/senpi-task`, an untracked folder in every repository a session ran in.
 - Tests that pinned the old default read the resolved directory instead; `claim-race.test.ts` passes its environment to the
   spawned children so they resolve under the hermetic test HOME.
+
 ## lifecycle: a reopened parent reclaims its live daemon child when the host that owned it died (#9183)
 
 - `lifecycle/reconcile.ts` `hasForeignLiveOwner`: a resident host-session record whose daemon session is still live stayed

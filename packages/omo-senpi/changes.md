@@ -28,6 +28,7 @@
   pre-existing `.omo/senpi-task` is kept, and `task.state_dir` wins.
 - Root `test-setup.ts` drops an inherited `OMO_`/`SENPI_`/`PI_CODING_AGENT_DIR`, so a test run started inside a live
   session resolves agent-dir state under the hermetic HOME, as in CI.
+
 ## skill-commands, skills: argument-taking skills wait for their arguments in the slash picker (#9168)
 
 - `skills/{hyperplan,init-deep,mass-ulw,ulw-loop,ulw-plan,ulw-research}/SKILL.md` and the shared-pool
