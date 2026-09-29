@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, test } from "bun:test"
 
-import { loadOmoConfig } from "../index"
+import { loadOmoConfig, omoConfigDiagnosticLines } from "../index"
 
 const MERGED_CONFIG_DIAGNOSTIC_PATH = "(merged omo config)"
 
@@ -99,6 +99,52 @@ describe("loadOmoConfig prunes only the invalid path in every section", () => {
     expect(member).toMatchObject({ kind: "category", name: "worker", category: "quick", prompt: "go" })
     expect(member?.color).toBeUndefined()
     expect(droppedKeys(result)).toEqual(["teams.alpha.members.0.color"])
+  })
+
+  test("#given an unknown key inside an array element (teams.alpha.members[0].bogus) #when loading #then only that key is dropped and reported as an unknown key", () => {
+    // given
+    const fixture = makeFixture()
+    const path = writeUserConfig(fixture, {
+      teams: {
+        alpha: {
+          members: [{ kind: "category", name: "worker", category: "quick", prompt: "go", bogus: true }],
+        },
+      },
+    })
+
+    // when
+    const result = load(fixture)
+
+    // then
+    const member = result.config.teams?.alpha?.members[0]
+    expect(member).toMatchObject({ kind: "category", name: "worker", category: "quick", prompt: "go" })
+    expect(member).not.toHaveProperty("bogus")
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ kind: "unknown-keys", path, issuePaths: ["teams.alpha.members.0.bogus"] }),
+    ])
+    expect(omoConfigDiagnosticLines(result.diagnostics, { homeDir: fixture.homeDir })).toEqual([
+      "config: ~/.omo/omo.jsonc: teams.alpha.members.0.bogus ignored (unknown key)",
+    ])
+  })
+
+  test("#given unknown keys at the root and inside an array element #when loading #then one unknown-keys diagnostic lists both dotted keys and none has an empty key list", () => {
+    // given
+    const fixture = makeFixture()
+    const path = writeUserConfig(fixture, {
+      bogus_top: 1,
+      teams: { alpha: { members: [{ kind: "category", name: "worker", category: "quick", prompt: "go", extra: "x" }] } },
+    })
+
+    // when
+    const result = load(fixture)
+
+    // then
+    const unknown = result.diagnostics.filter((d) => d.kind === "unknown-keys")
+    expect(unknown).toHaveLength(1)
+    expect(unknown[0]?.path).toBe(path)
+    expect([...(unknown[0]?.issuePaths ?? [])].sort()).toEqual(["bogus_top", "teams.alpha.members.0.extra"])
+    expect(unknown.every((d) => (d.issuePaths?.length ?? 0) > 0 && !d.message.endsWith(": "))).toBe(true)
+    expect(result.diagnostics.some((d) => d.kind === "invalid-value")).toBe(false)
   })
 
   test("#given invalid values in a harness block and a profile beside valid siblings #when loading the senpi view of that profile #then only the invalid keys are dropped", () => {

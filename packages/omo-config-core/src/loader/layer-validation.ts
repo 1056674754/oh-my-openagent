@@ -68,14 +68,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+/** The object an unrecognized-keys issue points at, walking through array elements (`teams.alpha.members.0`). */
 function containerAt(record: Record<string, unknown>, path: readonly string[]): Record<string, unknown> | null {
-  let container: Record<string, unknown> = record
+  let node: unknown = record
   for (const segment of path) {
-    const next = container[segment]
-    if (!isRecord(next)) return null
-    container = next
+    if (Array.isArray(node)) {
+      const index = Number(segment)
+      if (!Number.isInteger(index) || index < 0 || index >= node.length) return null
+      node = node[index]
+    } else if (isRecord(node) && Object.hasOwn(node, segment)) {
+      node = node[segment]
+    } else {
+      return null
+    }
   }
-  return container
+  return isRecord(node) ? node : null
 }
 
 /** Delete every unrecognized key reported by zod, returning the pruned clone plus the dotted path of each removal. */
@@ -147,7 +154,9 @@ export function validateConfigLayer(path: string, data: unknown): OmoConfigLayer
   const diagnostics: OmoConfigDiagnostic[] = []
   if (unknownIssues.length > 0) {
     const { issuePaths, stripped } = stripUnrecognizedKeys(record, unknownIssues)
-    diagnostics.push({ kind: "unknown-keys", message: `Ignored unknown keys in ${path}: ${issuePaths.join(", ")}`, path, issuePaths })
+    if (issuePaths.length > 0) {
+      diagnostics.push({ kind: "unknown-keys", message: `Ignored unknown keys in ${path}: ${issuePaths.join(", ")}`, path, issuePaths })
+    }
     const strippedValidation = validateLayerRecord(stripped)
     if (strippedValidation.success) return { loaded: true, diagnostics, value: stripped }
     candidate = stripped
