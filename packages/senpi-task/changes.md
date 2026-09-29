@@ -1,3 +1,15 @@
+## store: task state moves out of the user's repository (#9201, DESKTOP-31)
+
+- `store/project-state-directory.ts`: `resolveProjectStateDirectory(projectDir, name)` puts a project's runtime state at
+  `<agent dir>/projects/<folder>-<sha256 of the path, 12 hex>/<name>`, the agent dir being the first of
+  `OMO_`/`SENPI_`/`PI_CODING_AGENT_DIR`, else `<HOME>/.omo/agent`. The path hash keeps two same-named projects apart. A
+  `<project>/.omo/<name>` an earlier release created keeps winning, so in-flight tasks and resumable DAG runs recorded there
+  stay reachable. The module imports only node builtins so QA drivers load it directly.
+- `store/state-dir.ts` `resolveStateDir` uses it; an explicit `task.state_dir` still wins. Before, the default was
+  `<project>/.omo/senpi-task`, an untracked folder in every repository a session ran in.
+- Tests that pinned the old default read the resolved directory instead; `claim-race.test.ts` passes its environment to the
+  spawned children so they resolve under the hermetic test HOME.
+
 ## lifecycle: a reopened parent reclaims its live daemon child when the host that owned it died (#9183)
 
 - `lifecycle/reconcile.ts` `hasForeignLiveOwner`: a resident host-session record whose daemon session is still live stayed

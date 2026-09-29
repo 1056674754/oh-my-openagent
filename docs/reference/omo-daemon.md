@@ -314,9 +314,9 @@ may keep working for minutes. Follow these steps in order:
    finds every task store from the agent-dir store index, the sidecars, and each
    `--store <dir>`, refuses if any recorded endpoint is still live, and rewrites every
    retained child's record from its `p-*`/`i-*` socket to `rpc.sock` through the locked
-   task-store path (one `host_session_migrated` event each). Task records live in each
-   project's `.omo/senpi-task` directory (or a custom `task.state_dir`), not in the
-   agent dir, so every such store must be covered. Its last line must say
+   task-store path (one `host_session_migrated` event each). Task records live in one store per
+   project: `<agent dir>/projects/<folder>-<path hash>/senpi-task`, a project's older
+   `.omo/senpi-task` directory, or a custom `task.state_dir`, so every such store must be covered. Its last line must say
    `endpoints without a store map: none`. It refuses with exit 3 when the store index
    is missing or unreadable while shard state exists: then pass `--store <dir>` for
    every project that ran task children (a complete list), or `--allow-missing-index`
