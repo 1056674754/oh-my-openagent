@@ -35,6 +35,8 @@
     "changes.md: /bin/omo x4",
     "changes.md: omo doctor x11",
     "docs/guide/binary-install.md: /bin/omo",
+    "docs/guide/install.md: /bin/omo x3",
+    "docs/guide/install.md: command -v omo",
     "docs/guide/migrating-from-opencode.md: /bin/omo",
     "docs/guide/migrating-from-opencode.md: omo doctor x4",
     "docs/reference/configuration.md: omo doctor",

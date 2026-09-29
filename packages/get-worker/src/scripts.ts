@@ -4,7 +4,7 @@ import { isQaInstall, recordDownload, requestCountry } from "./datapoint"
 import type { RequestContext } from "./env"
 
 const SCRIPT_TTL_SECONDS = 300
-const DOCS_URL = "https://omo.dev/docs/guide/installation"
+const DOCS_URL = "https://omo.dev/docs/install"
 const SCRIPTS = { "install.sh": installSh, "install.ps1": installPs1 } as const
 export type ScriptName = keyof typeof SCRIPTS
 

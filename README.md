@@ -1,6 +1,6 @@
 > [!NOTE]
 > **OmO 5.0: OmO ❤️ Pi**
-> Install it with `bun add -g omo-ai`. Memory system, CodeMode, Anthropic subscriptions, all covered.
+> Install it with `curl -fsSL https://get.omo.dev/install.sh | bash`. Memory system, CodeMode, Anthropic subscriptions, all covered.
 > [![OmO Herdr DAG - live OmO workflow DAGs in a Herdr side pane](./.github/assets/omo-herdr-dag.png)](https://github.com/jc01rho/omo-herdr-dag)
 > *Just type "mass ulw" with your prompt - now you are the master of graph engineering. Multi-model ultracode, together with a better memory system. (The right panel is [omo-herdr-dag](https://github.com/jc01rho/omo-herdr-dag).)*
 
@@ -55,7 +55,7 @@ curl -fsSL https://get.omo.dev/install.sh | bash
 omo
 ```
 
-On Windows, in PowerShell: `irm https://get.omo.dev/install.ps1 | iex`. The script installs the native `omo` binary for your OS and CPU into `~/.local/bin`, checks it against the release checksums, and falls back to GitHub Releases when the mirror is unreachable. Add `-s -- beta` (or a version such as `-s -- 5.1.1`) after `bash` to pick another channel.
+On Windows, in PowerShell: `irm https://get.omo.dev/install.ps1 | iex`. The script installs the native `omo` binary for your OS and CPU into `~/.local/bin`, checks it against the release checksums, and falls back to GitHub Releases when the mirror is unreachable. Add `-s -- beta` (or a version such as `-s -- 5.1.1`) after `bash` to pick another channel. Windows CMD, fixing your `PATH`, updating and uninstalling are covered at [omo.dev/docs/install](https://omo.dev/docs/install).
 
 Prefer a package manager? `bun add -g omo-ai` (or `npm i -g omo-ai`) installs the same OmO. The package is `omo-ai`; the unrelated `omo` package on npm is someone else's.
 
