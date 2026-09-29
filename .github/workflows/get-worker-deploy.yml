@@ -34,14 +34,14 @@ jobs:
       - name: Apply D1 migrations
         uses: cloudflare/wrangler-action@v4
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          apiToken: ${{ secrets.CLOUDFLARE_GET_DEPLOY_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: packages/get-worker
           command: d1 migrations apply omo-get --remote
       - name: Deploy
         uses: cloudflare/wrangler-action@v4
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          apiToken: ${{ secrets.CLOUDFLARE_GET_DEPLOY_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: packages/get-worker
           command: deploy
