@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+**The startup banner is no longer red.** ([#8442](https://github.com/code-yeongyu/oh-my-openagent/issues/8442)) Under Bun, `omo` printed its version banner, the `omo setup` credentials hint and the legacy-settings notice in the error color, so a healthy start looked like a failure. They now print without color; the text and the stream are unchanged. (#8870 by @cynkai)
+
 ## [5.1.2] - 2026-09-29
 
 ### Added
