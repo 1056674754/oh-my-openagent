@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { engineStateDir, isolatedChildEnv, sandboxStateDir } from "./sandbox-child-env.mjs";
@@ -43,7 +43,9 @@ describe("sandboxStateDir", () => {
 		const stateDir = sandboxStateDir(sandbox);
 
 		expect(stateDir).toBe(engineStateDir(sandbox.cwd, isolatedChildEnv(caller, sandbox.agentDir)));
-		expect(stateDir.startsWith(join(sandbox.agentDir, "projects"))).toBe(true);
+		// The engine resolves the agent dir, so on Windows `/tmp/...` gains the drive letter: compare resolved paths.
+		const insideProjects = relative(resolve(sandbox.agentDir, "projects"), stateDir);
+		expect(isAbsolute(insideProjects) || insideProjects.split(sep)[0] === "..").toBe(false);
 		expect(stateDir).not.toBe(engineStateDir(sandbox.cwd, caller));
 	});
 });
