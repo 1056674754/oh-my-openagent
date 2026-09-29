@@ -99,7 +99,7 @@ jobs:
           docker run --rm -v "$PWD/packages/get-worker/scripts:/scripts:ro" alpine:3.21 sh -euc '
             apk add --no-cache bash curl libstdc++ libgcc >/dev/null
             adduser -D qa
-            su qa -c "bash /scripts/install.sh" 2>&1 | tee /tmp/install.log
+            su qa -c "OMO_INSTALL_QA=1 bash /scripts/install.sh" 2>&1 | tee /tmp/install.log
             grep -F "(omo-linux-x64-musl" /tmp/install.log
             su qa -c "/home/qa/.local/bin/omo --version"
           '
