@@ -35,7 +35,7 @@ describe("install scripts", () => {
     expect(await (await route(get("/", { "User-Agent": "Mozilla/5.0 WindowsPowerShell/5.1" }), h.ctx)).text()).toBe(installPs1)
     const browser = await route(get("/", { "User-Agent": "Mozilla/5.0 Safari/605" }), h.ctx)
     expect(browser.status).toBe(302)
-    expect(browser.headers.get("Location")).toBe("https://omo.dev/docs/guide/installation")
+    expect(browser.headers.get("Location")).toBe("https://omo.dev/docs/install")
   })
 })
 

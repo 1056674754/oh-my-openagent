@@ -172,6 +172,16 @@ jobs:
           if ("$second" -notmatch 'already installed') { throw 'second run was not idempotent' }
           $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
           if (($userPath -split ';' | Where-Object { $_ -eq $env:OMO_INSTALL_DIR }).Count -ne 1) { throw 'user PATH entry missing or duplicated' }
+      # The exact Windows CMD line omo.dev and docs/guide/install.md show, against the live get.omo.dev.
+      - name: The CMD one-liner from omo.dev installs
+        if: matrix.shell == 'powershell'
+        shell: cmd
+        run: |
+          set "OMO_INSTALL_DIR=%RUNNER_TEMP%\omo-%GITHUB_RUN_ID%-cmd"
+          powershell -ExecutionPolicy Bypass -c "irm https://get.omo.dev/install.ps1 | iex"
+          if errorlevel 1 exit /b 1
+          "%OMO_INSTALL_DIR%\omo.exe" --version
+          if errorlevel 1 exit /b 1
       - name: Write job summary
         if: always()
         shell: bash
