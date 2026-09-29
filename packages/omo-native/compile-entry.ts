@@ -23,6 +23,7 @@ import { daemonReportLines, runDaemonCommand } from "./bin/lib/daemon.js"
 import { runDoctor } from "./bin/lib/doctor.js"
 import { migrationReport } from "./bin/lib/doctor-migration.js"
 import { piConfigReport } from "./bin/lib/doctor-pi-config.js"
+import { launchSpecDoctorLines } from "./bin/lib/launch-spec-mode.js"
 import { detectHarnesses, needsSetupSuggestion } from "./bin/lib/setup-detect.js"
 import { printSetupReport } from "./bin/lib/setup-report.js"
 import { isInternalSupervisorLaunch, runInternalSupervisor } from "./supervisor-fast-path"
@@ -160,6 +161,9 @@ function runCompiledDoctor(inventory: Awaited<ReturnType<typeof detectHarnesses>
   }
   const packageJson = readJson(join(execDir, "package.json"))
   for (const line of versionLine(packageJson, enginePin).split("\n")) lines.push(`INFO ${line}`)
+  const launchSpec = launchSpecDoctorLines(join(execDir, "plugin"))
+  if (launchSpec.some((line) => line.startsWith("FAIL "))) failed = true
+  lines.push(...launchSpec)
   if (engine !== undefined) {
     lines.push(...daemonReportLines({ engine, pluginRoot: join(execDir, "plugin"), agentDir: canonicalAgentDir(), env: process.env, platform: process.platform }))
   }
