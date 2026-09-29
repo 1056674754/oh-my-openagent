@@ -66,6 +66,74 @@ describe("resolveKibitzerSidecarModel", () => {
   })
 })
 
+// A catalog that knows every model below, and an availability list naming only the connected ones:
+// `find` answers for an unconnected provider's model exactly like the live catalog does (#9216).
+const CATALOG = ["openai/gpt-5.6-luna-fast", "apitopia/gpt-5.6-luna-fast", "anthropic/claude-haiku-4-5", "deepseek/deepseek-flash", "omo-mock/unrelated-1"]
+
+function port(selector: string): SenpiModelPort {
+  const slash = selector.indexOf("/")
+  return { provider: selector.slice(0, slash), id: selector.slice(slash + 1) }
+}
+
+function connectedRegistry(connected: readonly string[]) {
+  return {
+    getAvailable: () => connected.map(port),
+    find: (provider: string, modelId: string) => (CATALOG.includes(`${provider}/${modelId}`) ? port(`${provider}/${modelId}`) : undefined),
+  }
+}
+
+const unconnectedPin: OmoConfig = { categories: { quick: { models: ["openai/gpt-5.6-luna-fast", "apitopia/gpt-5.6-luna-fast"] } } }
+
+describe("resolveKibitzerSidecarModel connected-first ordering (#9216)", () => {
+  test("#given an anthropic-only registry and a quick pin naming only unconnected providers #when resolved #then the connected builtin rung leads and the pins trail", () => {
+    const resolution = resolveKibitzerSidecarModel({ config: unconnectedPin, registry: connectedRegistry(["anthropic/claude-haiku-4-5"]) })
+
+    expect(resolution).toMatchObject({ kind: "resolved", category: "quick", model: "anthropic/claude-haiku-4-5", thinking: "off" })
+    if (resolution.kind !== "resolved") throw new Error("unreachable")
+    expect(resolution.chain.selectedModel).toBe("anthropic/claude-haiku-4-5")
+    expect(resolution.fallbacks.map((candidate) => candidate.model)).toEqual(["openai/gpt-5.6-luna-fast", "apitopia/gpt-5.6-luna-fast"])
+  })
+
+  test("#given a pin whose later entry is connected and an earlier builtin rung also connected #when resolved #then the connected pin wins over the builtin chain", () => {
+    const config: OmoConfig = { categories: { quick: { models: ["openai/gpt-5.6-luna-fast", "anthropic/claude-haiku-4-5"] } } }
+
+    const resolution = resolveKibitzerSidecarModel({ config, registry: connectedRegistry(["deepseek/deepseek-flash", "anthropic/claude-haiku-4-5"]) })
+
+    expect(resolution).toMatchObject({ kind: "resolved", model: "anthropic/claude-haiku-4-5" })
+    if (resolution.kind !== "resolved") throw new Error("unreachable")
+    const order = resolution.fallbacks.map((candidate) => candidate.model)
+    // Connected rungs lead; the unconnected pin may stay reachable but only behind them.
+    expect(order.indexOf("deepseek/deepseek-flash")).toBeLessThan(order.indexOf("openai/gpt-5.6-luna-fast"))
+  })
+
+  test("#given a known availability list with nothing the pin or the chain can use #when resolved #then the sidecar refuses as category_unavailable naming the providers to connect", () => {
+    const resolution = resolveKibitzerSidecarModel({ config: unconnectedPin, registry: connectedRegistry(["omo-mock/unrelated-1"]) })
+
+    expect(resolution).toMatchObject({ kind: "unavailable", category: "quick", cause: "category_unavailable" })
+    const missing = resolution.kind === "unavailable" ? resolution.missingProviders ?? [] : []
+    expect(missing.slice(0, 2)).toEqual(["openai", "apitopia"])
+    expect(missing).toContain("chatgpt-subscription")
+    expect(missing).toContain("anthropic")
+  })
+
+  test("#given the child starter on an anthropic-only registry with an unconnected pin #when a child starts #then its spec selects the connected rung", async () => {
+    const specs: ChildSpec[] = []
+    const start = createKibitzerSidecarChildStarter({
+      cwd: "/workspace",
+      sessionDir: "/state/recall/sidecars/cGFyZW50LTE",
+      agentDir: "/home/agent",
+      loadConfig: () => unconnectedPin,
+      modelRegistry: () => connectedRegistry(["anthropic/claude-haiku-4-5"]) as unknown as ChildModelRegistry,
+      loadPersona: () => "persona text",
+      createRunner: () => ({ start: async (spec) => (specs.push(spec), {} as ChildHandle) }),
+    })
+
+    await start({ sessionId: "parent-1", generation: 1, prompt: "<kibitzer-seed/>", tools: [nudgeTool()], maxItems: 2 })
+
+    expect(specs[0]?.selectedModel).toBe("anthropic/claude-haiku-4-5")
+  })
+})
+
 describe("buildKibitzerSidecarSpec", () => {
   test("#given the sidecar tools #when the spec is built #then exactly the five read-only names are visible, the seed is bare, and completion is per turn", () => {
     const tools = [nudgeTool()]
