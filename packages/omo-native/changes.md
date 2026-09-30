@@ -1,3 +1,14 @@
+## 2026-09-30 - The standalone binary reports and reaps its own stale engines (#9252 follow-up)
+
+`omo doctor --reap <pid>` on the standalone binary printed the regular report and reaped nothing, because the compiled
+doctor never read its arguments. The stale-engine report could not see a binary engine either: `ENGINE_MARKERS` in
+`bin/lib/doctor.js` match only the npm engine paths, and a binary engine runs as
+`~/.omo/binary-runtime/<version>/omo`. `isEngine` now also accepts that executable when it runs a session: a bare
+launch or engine flags. The same executable serving omo's own commands (`doctor`, `setup`, `daemon`, `host`, ...),
+its internal hosts (`--internal-*`) or a bundled script (the LSP daemon) is never an engine, and `--mode` keeps it
+managed. `runCompiledDoctor` takes the doctor arguments and routes `--reap` to `reapStaleEngines`, with the npm
+refusals unchanged, and prints `staleEngineReport`.
+
 ## 2026-09-30 - standalone binaries stage codemode's external runtime closure and smoke eval (#9248)
 
 ### What changed
