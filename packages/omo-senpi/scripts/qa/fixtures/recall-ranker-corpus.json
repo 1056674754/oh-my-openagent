@@ -1,5 +1,5 @@
 {
-  "description": "Synthetic, fictional recall benchmark corpus (English, Korean and code-switched queries). Contains no real user memory.",
+  "description": "Synthetic, fictional recall benchmark corpus (English, Korean, Japanese, Chinese and code-switched queries). Contains no real user memory.",
   "documents": [
     {
       "path": "reference/projects/lighthouse-deploy.md",
@@ -150,6 +150,36 @@
       "path": "reference/tools/monitoring.md",
       "description": "Monitoring stack",
       "body": "Uptime checks run every minute; alerts page the on-call phone. Dashboards live in the metrics UI under the ops folder."
+    },
+    {
+      "path": "reference/ja/経費精算.md",
+      "description": "経費精算のルール",
+      "body": "出張の経費は月末までに精算システムで申請する。領収書は写真で添付し、原本は三か月保管する。"
+    },
+    {
+      "path": "reference/ja/鍵管理.md",
+      "description": "サーバー鍵の管理",
+      "body": "本番サーバーの秘密鍵は保管庫にだけ置く。鍵の更新は半年ごとに行い、古い鍵はすぐに無効化する。"
+    },
+    {
+      "path": "reference/ja/会議室予約.md",
+      "description": "会議室の予約方法",
+      "body": "会議室は社内カレンダーから予約する。十名以上の会議は大会議室を使い、前日までに予約を確定する。"
+    },
+    {
+      "path": "reference/zh/发布流程.md",
+      "description": "移动应用发布流程",
+      "body": "移动应用每两周发布一次。发布前需要完成回归测试，并由产品负责人签字确认。版本号采用年份加周数。"
+    },
+    {
+      "path": "reference/zh/数据库备份.md",
+      "description": "数据库备份策略",
+      "body": "生产数据库每天凌晨三点全量备份，备份文件保留三十天。恢复演练每季度进行一次。"
+    },
+    {
+      "path": "reference/zh/值班规则.md",
+      "description": "值班安排规则",
+      "body": "值班每周轮换一次，交接在周一上午完成。紧急告警必须在十五分钟内响应。"
     }
   ],
   "queries": [
@@ -490,6 +520,102 @@
       "text": "UTC 기준 status update 규칙",
       "gold": [
         "people/dana/preferences.md"
+      ]
+    },
+    {
+      "id": "j01",
+      "lang": "ja",
+      "text": "経費はいつまでに精算すればいい?",
+      "gold": [
+        "reference/ja/経費精算.md"
+      ]
+    },
+    {
+      "id": "j02",
+      "lang": "ja",
+      "text": "領収書の原本は何か月保管しますか",
+      "gold": [
+        "reference/ja/経費精算.md"
+      ]
+    },
+    {
+      "id": "j03",
+      "lang": "ja",
+      "text": "秘密鍵はどこに保管していますか",
+      "gold": [
+        "reference/ja/鍵管理.md"
+      ]
+    },
+    {
+      "id": "j04",
+      "lang": "ja",
+      "text": "鍵を更新する頻度は?",
+      "gold": [
+        "reference/ja/鍵管理.md"
+      ]
+    },
+    {
+      "id": "j05",
+      "lang": "ja",
+      "text": "大会議室を予約したいです",
+      "gold": [
+        "reference/ja/会議室予約.md"
+      ]
+    },
+    {
+      "id": "j06",
+      "lang": "ja",
+      "text": "十名以上の会議はどの部屋を使う",
+      "gold": [
+        "reference/ja/会議室予約.md"
+      ]
+    },
+    {
+      "id": "z01",
+      "lang": "zh",
+      "text": "应用多久发布一次",
+      "gold": [
+        "reference/zh/发布流程.md"
+      ]
+    },
+    {
+      "id": "z02",
+      "lang": "zh",
+      "text": "发布前谁需要签字",
+      "gold": [
+        "reference/zh/发布流程.md"
+      ]
+    },
+    {
+      "id": "z03",
+      "lang": "zh",
+      "text": "数据库备份保留多少天",
+      "gold": [
+        "reference/zh/数据库备份.md"
+      ]
+    },
+    {
+      "id": "z04",
+      "lang": "zh",
+      "text": "恢复演练多久做一次",
+      "gold": [
+        "reference/zh/数据库备份.md"
+      ]
+    },
+    {
+      "id": "z05",
+      "lang": "zh",
+      "text": "值班什么时候交接",
+      "gold": [
+        "reference/zh/值班规则.md"
+      ]
+    },
+    {
+      "id": "z06",
+      "lang": "zh",
+      "text": "紧急告警要多快响应",
+      "gold": [
+        "reference/zh/值班规则.md"
       ]
     }
   ]
