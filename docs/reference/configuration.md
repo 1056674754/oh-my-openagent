@@ -632,7 +632,6 @@ relying on it, and expanding the entry shows that caveat.
 | `recall.sidecar_max_tokens` | `48000` | Sidecar context budget; the sidecar reseeds itself at 60% of it |
 | `recall.max_concurrent_wakes` | `2` | Machine-wide cap on wakes running at once |
 | `recall.tool_budget` | `8` | Read-only tool calls one wake may make before it is cut off |
-| `recall.ranker` | `substring` | How candidate memories are picked before the sidecar judges them: `substring` requires every query word verbatim and prefers the earliest match; `bm25` scores any shared word by rarity and splits Korean, Chinese and Japanese text into two-character pieces, so `퍼블리시할` still finds a note about `퍼블리시`. It picks the candidates offered to the sidecar; the sidecar's own `memory` search tool keeps substring matching |
 
 Like the other memory blocks, every recall option can be overridden per agent under
 `memory.agents.<name>.recall`; `event_caps` merges field by field.

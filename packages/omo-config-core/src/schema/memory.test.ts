@@ -40,7 +40,6 @@ const FULL_DEFAULTS: OmoMemorySettings = {
     sidecar_max_tokens: 48000,
     max_concurrent_wakes: 2,
     tool_budget: 8,
-    ranker: "substring",
   },
   compile_warn_tokens: 30000,
   agents: {},
@@ -94,7 +93,6 @@ describe("OmoMemorySettingsSchema defaults", () => {
         sidecar_max_tokens: 48000,
         max_concurrent_wakes: 2,
         tool_budget: 8,
-        ranker: "bm25",
       },
       compile_warn_tokens: 50000,
       agents: {
@@ -235,7 +233,6 @@ describe("OmoMemorySettingsSchema defaults", () => {
       sidecar_max_tokens: 48000,
       max_concurrent_wakes: 2,
       tool_budget: 8,
-      ranker: "substring",
     })
   })
 
@@ -251,7 +248,6 @@ describe("OmoMemorySettingsSchema defaults", () => {
     expect(parsed.recall.max_items).toBe(2)
     expect(parsed.recall.category).toBe("quick")
     expect(parsed.recall.event_caps).toEqual({ tool_args: 400, result_head: 600, assistant: 1500, prompt: 4000 })
-    expect(parsed.recall.ranker).toBe("substring")
   })
 
   test("#given an explicit recall override #when parsed #then the explicit values win", () => {
@@ -265,7 +261,6 @@ describe("OmoMemorySettingsSchema defaults", () => {
         sidecar_max_tokens: 48000,
         max_concurrent_wakes: 2,
         tool_budget: 8,
-        ranker: "bm25",
       },
     }
 
@@ -281,30 +276,7 @@ describe("OmoMemorySettingsSchema defaults", () => {
       sidecar_max_tokens: 48000,
       max_concurrent_wakes: 2,
       tool_budget: 8,
-      ranker: "bm25",
     })
-  })
-
-  test("#given an unknown recall ranker #when parsed #then validation fails", () => {
-    // given
-    const input = { recall: { ranker: "fuzzy" } }
-
-    // when
-    const result = OmoMemorySettingsSchema.safeParse(input)
-
-    // then
-    expect(result.success).toBe(false)
-  })
-
-  test("#given a layer that only sets the recall ranker #when parsed #then the layer keeps just that key", () => {
-    // given
-    const input = { recall: { ranker: "bm25" } }
-
-    // when
-    const parsed = OmoMemorySettingsLayerSchema.parse(input)
-
-    // then
-    expect(parsed.recall).toEqual({ ranker: "bm25" })
   })
 
   test("#given recall max_items outside 1..5 #when parsed #then validation fails", () => {

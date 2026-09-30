@@ -1,11 +1,14 @@
 // Recall candidate selection: scores recall documents against the planned
-// queries with the FTS-lite AND-semantics scorer and keeps the best hit per
+// queries with the strategy chooseRecallStrategy picks (strategy.ts). The
+// substring path is the FTS-lite AND-semantics scorer and keeps the best hit per
 // path. matchScore is reused over a description+body haystack (the SearchDocument
 // projection does not fit recall files, so the haystack is composed directly).
 
-import { matchScoreNormalized, normalizeText, parseQuery } from "../search"
+import { matchScoreNormalized, normalizeText, parseQuery, type ParsedQuery } from "../search"
 import { rankRecallDocumentsBm25, tokenizeRecallText } from "./bm25"
+import { normalizedHaystack } from "./haystack"
 import type { RecallDocument } from "./provider"
+import { chooseRecallStrategy, type RecallStrategy } from "./strategy"
 
 export interface RecallCandidate {
   readonly path: string
@@ -17,34 +20,18 @@ export interface RecallCandidate {
 /** Excerpt window length. Internal, deliberately not a config knob. */
 const EXCERPT_CHARS = 200
 
-/**
- * Normalized `description\nbody` per document object. RecallCorpusCache hands out the same document
- * objects for as long as HEAD has not moved, so this memo is naturally per corpus revision and a
- * moved HEAD (fresh objects) drops it. Composing and normalizing the haystack per document per
- * QUERY was ~20ms per query pass at a 4.2MB corpus (#8335); the scores it feeds are unchanged.
- */
-const NORMALIZED_HAYSTACKS = new WeakMap<RecallDocument, string>()
-
-function normalizedHaystack(document: RecallDocument): string {
-  const cached = NORMALIZED_HAYSTACKS.get(document)
-  if (cached !== undefined) return cached
-  const haystack = normalizeText(`${document.description}\n${document.body}`)
-  NORMALIZED_HAYSTACKS.set(document, haystack)
-  return haystack
-}
-
-/** `substring`: FTS-lite AND scorer (default). `bm25`: OR-scored BM25 with CJK bigrams (see bm25.ts). */
-export type RecallRanker = "substring" | "bm25"
-
 export interface SelectRecallOptions {
   readonly maxItems: number
   /** Paths already surfaced earlier in the session; they never repeat. */
   readonly surfaced: ReadonlySet<string>
   /** Additional paths to skip, such as memories already visible in the transcript. Empty when omitted. */
   readonly excludePaths?: ReadonlySet<string>
-  /** Candidate ranking; `substring` when omitted. */
-  readonly ranker?: RecallRanker
+  /** Internal override for tests and the benchmark; chosen by chooseRecallStrategy when omitted. */
+  readonly strategy?: RecallStrategy
 }
+
+/** Reciprocal rank fusion constant (Cormack et al.); 60 is the customary value. */
+const RRF_K = 60
 
 export function selectRecallCandidates(
   documents: readonly RecallDocument[],
@@ -54,12 +41,29 @@ export function selectRecallCandidates(
   const maxItems = Math.max(0, options.maxItems)
   const parsedQueries = queries.map(parseQuery).filter((query) => query.terms.length > 0 || query.phrases.length > 0)
   if (maxItems === 0 || parsedQueries.length === 0) return []
-  if (options.ranker === "bm25") return selectBm25Candidates(documents, queries, options, maxItems)
+  const strategy = options.strategy ?? chooseRecallStrategy(documents, queries)
+  if (strategy === "bm25") return rankBm25Candidates(documents, queries, options).slice(0, maxItems)
+  if (strategy === "hybrid") return fuseCandidates(
+    rankSubstringCandidates(documents, parsedQueries, options),
+    rankBm25Candidates(documents, queries, options),
+  ).slice(0, maxItems)
+  return rankSubstringCandidates(documents, parsedQueries, options).slice(0, maxItems)
+}
 
+function isExcluded(path: string, options: SelectRecallOptions): boolean {
+  return options.surfaced.has(path) || options.excludePaths?.has(path) === true
+}
+
+/** Every substring match after exclusions, best first; callers apply the cap. */
+function rankSubstringCandidates(
+  documents: readonly RecallDocument[],
+  parsedQueries: readonly ParsedQuery[],
+  options: SelectRecallOptions,
+): RecallCandidate[] {
   const queryTerms = collectQueryTerms(parsedQueries)
   const scored: RecallCandidate[] = []
   for (const document of documents) {
-    if (options.surfaced.has(document.path) || options.excludePaths?.has(document.path)) continue
+    if (isExcluded(document.path, options)) continue
 
     const haystack = normalizedHaystack(document)
     let best: number | null = null
@@ -78,41 +82,57 @@ export function selectRecallCandidates(
     })
   }
 
-  return scored
-    .sort((left, right) => left.score - right.score || left.path.localeCompare(right.path))
-    .slice(0, maxItems)
+  return scored.sort((left, right) => left.score - right.score || left.path.localeCompare(right.path))
 }
 
 /**
- * BM25 path. The score keeps the RecallCandidate contract (ascending, lower is better) as
- * 1 / (1 + bm25), and the excerpt centers on the first query token the body actually contains, so a
- * bigram hit inside a longer Korean word still anchors the window.
+ * BM25 path, every match after exclusions, best first. The score keeps the RecallCandidate contract
+ * (ascending, lower is better) as 1 / (1 + bm25), and the excerpt centers on the first query token the
+ * body actually contains, so a bigram hit inside a longer Korean word still anchors the window.
  */
-function selectBm25Candidates(
+function rankBm25Candidates(
   documents: readonly RecallDocument[],
   queries: readonly string[],
   options: SelectRecallOptions,
-  maxItems: number,
 ): RecallCandidate[] {
   // One-character tokens (a lone CJK syllable, a version digit) match almost anywhere and would drag the window.
   const queryTokens = [...new Set(queries.flatMap(tokenizeRecallText))].filter((token) => Array.from(token).length > 1)
   const candidates: RecallCandidate[] = []
   for (const { document, score } of rankRecallDocumentsBm25(documents, queries)) {
-    if (options.surfaced.has(document.path) || options.excludePaths?.has(document.path)) continue
+    if (isExcluded(document.path, options)) continue
     candidates.push({
       path: document.path,
       description: document.description,
       excerpt: buildExcerpt(document.body, queryTokens),
       score: 1 / (1 + score),
     })
-    if (candidates.length === maxItems) break
   }
   return candidates
 }
 
-function collectQueryTerms(
-  parsedQueries: readonly { terms: readonly string[]; phrases: readonly string[] }[],
-): string[] {
+/**
+ * Hybrid path: reciprocal rank fusion of the bm25 ranking with the substring matches, so a note either
+ * ranker finds stays in the pool and a note both find rises to the top. The substring order is the
+ * offset of the first match, not relevance, so every substring match votes as if ranked first instead
+ * of by its position; on the padded benchmark corpora rank-weighted substring votes pushed filler
+ * notes above the answer. A note keeps its substring excerpt when it has one. The score keeps the
+ * contract as 1 / (1 + fused).
+ */
+function fuseCandidates(substring: readonly RecallCandidate[], bm25: readonly RecallCandidate[]): RecallCandidate[] {
+  const fused = new Map<string, { candidate: RecallCandidate; weight: number }>()
+  const vote = (candidate: RecallCandidate, weight: number): void => {
+    const entry = fused.get(candidate.path)
+    if (entry === undefined) fused.set(candidate.path, { candidate, weight })
+    else entry.weight += weight
+  }
+  for (const candidate of substring) vote(candidate, 1 / (RRF_K + 1))
+  bm25.forEach((candidate, rank) => vote(candidate, 1 / (RRF_K + rank + 1)))
+  return [...fused.values()]
+    .sort((left, right) => right.weight - left.weight || left.candidate.path.localeCompare(right.candidate.path))
+    .map(({ candidate, weight }) => ({ ...candidate, score: 1 / (1 + weight) }))
+}
+
+function collectQueryTerms(parsedQueries: readonly ParsedQuery[]): string[] {
   const terms: string[] = []
   for (const parsed of parsedQueries) {
     terms.push(...parsed.terms)

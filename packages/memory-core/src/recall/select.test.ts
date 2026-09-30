@@ -284,10 +284,8 @@ describe("selectRecallCandidates", () => {
   })
 })
 
-describe("selectRecallCandidates with the bm25 ranker", () => {
-  const BM25_OPTS = { ...BASE_OPTS, ranker: "bm25" as const }
-
-  it("#given the ranker omitted #when candidates are selected #then results equal the explicit substring ranker", () => {
+describe("selectRecallCandidates automatic strategy", () => {
+  it("#given English queries over a small English corpus #when the strategy is omitted #then results equal the explicit substring strategy", () => {
     // given
     const documents = [
       doc("reference/a.md", "Deploy", "the kubernetes ingress gateway is flaky"),
@@ -296,13 +294,13 @@ describe("selectRecallCandidates with the bm25 ranker", () => {
 
     // when
     const omitted = selectRecallCandidates(documents, ["kubernetes"], BASE_OPTS)
-    const explicit = selectRecallCandidates(documents, ["kubernetes"], { ...BASE_OPTS, ranker: "substring" })
+    const explicit = selectRecallCandidates(documents, ["kubernetes"], { ...BASE_OPTS, strategy: "substring" })
 
     // then
-    expect(explicit).toEqual(omitted)
+    expect(omitted).toEqual(explicit)
   })
 
-  it("#given an inflected Korean planner term #when bm25 selects #then the stem note surfaces where substring finds nothing", () => {
+  it("#given an inflected Korean planner term #when the strategy is omitted #then the stem note surfaces where substring finds nothing", () => {
     // given
     const documents = [
       doc("reference/publish.md", "npm 퍼블리시 절차", "배포 토큰은 키체인에 저장한다"),
@@ -311,13 +309,98 @@ describe("selectRecallCandidates with the bm25 ranker", () => {
     const queries = ["퍼블리시할", "보관할"]
 
     // when
-    const substring = selectRecallCandidates(documents, queries, BASE_OPTS)
-    const bm25 = selectRecallCandidates(documents, queries, BM25_OPTS)
+    const substring = selectRecallCandidates(documents, queries, { ...BASE_OPTS, strategy: "substring" })
+    const automatic = selectRecallCandidates(documents, queries, BASE_OPTS)
 
     // then
     expect(paths(substring)).toEqual([])
-    expect(paths(bm25)).toEqual(["reference/publish.md"])
+    expect(paths(automatic)).toEqual(["reference/publish.md"])
   })
+})
+
+describe("selectRecallCandidates with the hybrid strategy", () => {
+  const HYBRID_OPTS = { ...BASE_OPTS, strategy: "hybrid" as const }
+  const documents = [
+    doc("a/deploy.md", "Deployment", "deployment runbook"),
+    doc("b/tmux.md", "tmux", "tmux targeting"),
+    doc("c/notes.md", "notes", "a long note that mentions tmux once among many other words"),
+  ]
+  const queries = ["deploy", "tmux", "targeting"]
+
+  it("#given documents only one ranker finds #when hybrid selects #then it returns the union of both rankers", () => {
+    // given
+    const substring = selectRecallCandidates(documents, queries, { ...BASE_OPTS, strategy: "substring" })
+    const bm25 = selectRecallCandidates(documents, queries, { ...BASE_OPTS, strategy: "bm25" })
+
+    // when
+    const hybrid = selectRecallCandidates(documents, queries, HYBRID_OPTS)
+
+    // then
+    expect(paths(substring)).toContain("a/deploy.md")
+    expect(paths(bm25)).not.toContain("a/deploy.md")
+    expect(new Set(paths(hybrid))).toEqual(new Set([...paths(substring), ...paths(bm25)]))
+  })
+
+  it("#given a document both rankers find #when hybrid selects #then it outranks documents only one ranker finds", () => {
+    // given
+    const options = { ...HYBRID_OPTS, maxItems: 1 }
+
+    // when
+    const hybrid = selectRecallCandidates(documents, queries, options)
+
+    // then
+    expect(paths(hybrid)).toEqual(["b/tmux.md"])
+  })
+
+  it("#given two substring matches in opposite bm25 order #when hybrid selects #then the substring offset does not decide the order", () => {
+    // given
+    const offsetFirst = doc("a/offset.md", "tmux", `${"unrelated filler words ".repeat(20)}end`)
+    const relevant = doc("z/relevant.md", "notes", "tmux tmux tmux")
+    const pair = [offsetFirst, relevant]
+    const bySubstring = selectRecallCandidates(pair, ["tmux"], { ...BASE_OPTS, strategy: "substring" })
+    const byBm25 = selectRecallCandidates(pair, ["tmux"], { ...BASE_OPTS, strategy: "bm25" })
+
+    // when
+    const hybrid = selectRecallCandidates(pair, ["tmux"], HYBRID_OPTS)
+
+    // then
+    expect(paths(bySubstring)).toEqual(["a/offset.md", "z/relevant.md"])
+    expect(paths(byBm25)).toEqual(["z/relevant.md", "a/offset.md"])
+    expect(paths(hybrid)).toEqual(["z/relevant.md", "a/offset.md"])
+  })
+
+  it("#given hybrid candidates #when scores are read #then they stay ascending and lower-is-better in (0, 1]", () => {
+    // when
+    const hybrid = selectRecallCandidates(documents, queries, HYBRID_OPTS)
+
+    // then
+    const scores = hybrid.map((candidate) => candidate.score)
+    expect(scores).toEqual([...scores].sort((left, right) => left - right))
+    for (const score of scores) {
+      expect(score).toBeGreaterThan(0)
+      expect(score).toBeLessThanOrEqual(1)
+    }
+  })
+
+  it("#given surfaced and excluded paths #when hybrid selects #then exclusions apply before the cap", () => {
+    // given
+    const options = {
+      ...HYBRID_OPTS,
+      maxItems: 1,
+      surfaced: new Set(["b/tmux.md"]),
+      excludePaths: new Set(["a/deploy.md"]),
+    }
+
+    // when
+    const hybrid = selectRecallCandidates(documents, queries, options)
+
+    // then
+    expect(paths(hybrid)).toEqual(["c/notes.md"])
+  })
+})
+
+describe("selectRecallCandidates with the bm25 strategy", () => {
+  const BM25_OPTS = { ...BASE_OPTS, strategy: "bm25" as const }
 
   it("#given a distinctive term and a common term #when bm25 selects #then the distinctive match ranks first", () => {
     // given: substring ranking prefers the earliest occurrence of any single term

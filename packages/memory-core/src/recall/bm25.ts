@@ -1,5 +1,5 @@
-// Recall BM25 ranking: an opt-in alternative to the FTS-lite substring scorer for recall candidate
-// selection (memory.recall.ranker = "bm25"). Okapi BM25 over `description\nbody`, with a tokenizer
+// Recall BM25 ranking: the alternative to the FTS-lite substring scorer that strategy.ts picks for
+// CJK queries or corpora, and one half of the hybrid strategy for large corpora. Okapi BM25 over `description\nbody`, with a tokenizer
 // that splits CJK runs (Hangul, Han, Kana) into character bigrams so an inflected Korean query word
 // still meets the stored stem it shares a prefix with, without a morphological analyzer. Terms are OR-scored
 // and idf-weighted, so a rare planner term outranks a common one instead of the earliest substring
@@ -14,7 +14,7 @@ const K1 = 1.5
 const B = 0.75
 
 // U+30FC (the Katakana-Hiragana prolonged sound mark) is Script=Common but belongs inside Kana runs.
-const CJK_CLASS = "\\p{Script=Hangul}\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\u30fc"
+export const CJK_CLASS = "\\p{Script=Hangul}\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\u30fc"
 const TOKEN_PATTERN = new RegExp(`[${CJK_CLASS}]+|(?:(?![${CJK_CLASS}])[\\p{L}\\p{M}\\p{N}])+`, "gu")
 const CJK_RUN = new RegExp(`^[${CJK_CLASS}]+$`, "u")
 

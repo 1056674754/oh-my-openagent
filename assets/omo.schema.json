@@ -1862,8 +1862,7 @@
             },
             "sidecar_max_tokens": 48000,
             "max_concurrent_wakes": 2,
-            "tool_budget": 8,
-            "ranker": "substring"
+            "tool_budget": 8
           },
           "type": "object",
           "properties": {
@@ -1941,14 +1940,6 @@
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
-            },
-            "ranker": {
-              "default": "substring",
-              "type": "string",
-              "enum": [
-                "substring",
-                "bm25"
-              ]
             }
           },
           "required": [
@@ -1958,8 +1949,7 @@
             "event_caps",
             "sidecar_max_tokens",
             "max_concurrent_wakes",
-            "tool_budget",
-            "ranker"
+            "tool_budget"
           ],
           "additionalProperties": false
         },
@@ -2206,13 +2196,6 @@
                     "type": "integer",
                     "exclusiveMinimum": 0,
                     "maximum": 9007199254740991
-                  },
-                  "ranker": {
-                    "type": "string",
-                    "enum": [
-                      "substring",
-                      "bm25"
-                    ]
                   }
                 },
                 "additionalProperties": false
@@ -13908,13 +13891,6 @@
                   "type": "integer",
                   "exclusiveMinimum": 0,
                   "maximum": 9007199254740991
-                },
-                "ranker": {
-                  "type": "string",
-                  "enum": [
-                    "substring",
-                    "bm25"
-                  ]
                 }
               },
               "additionalProperties": false
@@ -14160,13 +14136,6 @@
                         "type": "integer",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991
-                      },
-                      "ranker": {
-                        "type": "string",
-                        "enum": [
-                          "substring",
-                          "bm25"
-                        ]
                       }
                     },
                     "additionalProperties": false
@@ -15941,13 +15910,6 @@
                   "type": "integer",
                   "exclusiveMinimum": 0,
                   "maximum": 9007199254740991
-                },
-                "ranker": {
-                  "type": "string",
-                  "enum": [
-                    "substring",
-                    "bm25"
-                  ]
                 }
               },
               "additionalProperties": false
@@ -16193,13 +16155,6 @@
                         "type": "integer",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991
-                      },
-                      "ranker": {
-                        "type": "string",
-                        "enum": [
-                          "substring",
-                          "bm25"
-                        ]
                       }
                     },
                     "additionalProperties": false
@@ -17974,13 +17929,6 @@
                   "type": "integer",
                   "exclusiveMinimum": 0,
                   "maximum": 9007199254740991
-                },
-                "ranker": {
-                  "type": "string",
-                  "enum": [
-                    "substring",
-                    "bm25"
-                  ]
                 }
               },
               "additionalProperties": false
@@ -18226,13 +18174,6 @@
                         "type": "integer",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991
-                      },
-                      "ranker": {
-                        "type": "string",
-                        "enum": [
-                          "substring",
-                          "bm25"
-                        ]
                       }
                     },
                     "additionalProperties": false
@@ -20013,13 +19954,6 @@
                     "type": "integer",
                     "exclusiveMinimum": 0,
                     "maximum": 9007199254740991
-                  },
-                  "ranker": {
-                    "type": "string",
-                    "enum": [
-                      "substring",
-                      "bm25"
-                    ]
                   }
                 },
                 "additionalProperties": false
@@ -20265,13 +20199,6 @@
                           "type": "integer",
                           "exclusiveMinimum": 0,
                           "maximum": 9007199254740991
-                        },
-                        "ranker": {
-                          "type": "string",
-                          "enum": [
-                            "substring",
-                            "bm25"
-                          ]
                         }
                       },
                       "additionalProperties": false
@@ -31947,13 +31874,6 @@
                         "type": "integer",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991
-                      },
-                      "ranker": {
-                        "type": "string",
-                        "enum": [
-                          "substring",
-                          "bm25"
-                        ]
                       }
                     },
                     "additionalProperties": false
@@ -32199,13 +32119,6 @@
                               "type": "integer",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991
-                            },
-                            "ranker": {
-                              "type": "string",
-                              "enum": [
-                                "substring",
-                                "bm25"
-                              ]
                             }
                           },
                           "additionalProperties": false
@@ -33980,13 +33893,6 @@
                         "type": "integer",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991
-                      },
-                      "ranker": {
-                        "type": "string",
-                        "enum": [
-                          "substring",
-                          "bm25"
-                        ]
                       }
                     },
                     "additionalProperties": false
@@ -34232,13 +34138,6 @@
                               "type": "integer",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991
-                            },
-                            "ranker": {
-                              "type": "string",
-                              "enum": [
-                                "substring",
-                                "bm25"
-                              ]
                             }
                           },
                           "additionalProperties": false
@@ -36013,13 +35912,6 @@
                         "type": "integer",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991
-                      },
-                      "ranker": {
-                        "type": "string",
-                        "enum": [
-                          "substring",
-                          "bm25"
-                        ]
                       }
                     },
                     "additionalProperties": false
@@ -36265,13 +36157,6 @@
                               "type": "integer",
                               "exclusiveMinimum": 0,
                               "maximum": 9007199254740991
-                            },
-                            "ranker": {
-                              "type": "string",
-                              "enum": [
-                                "substring",
-                                "bm25"
-                              ]
                             }
                           },
                           "additionalProperties": false
