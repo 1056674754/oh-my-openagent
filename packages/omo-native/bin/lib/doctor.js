@@ -391,6 +391,7 @@ export function runDoctor(inventory, args = [], options = {}) {
   lines.push(`INFO Update: ${updateTarget().command}`)
   lines.push(...migrationReport(options, updateTarget().command))
   lines.push(...warningsForSettings())
+  lines.push(...(options.configDiagnostics ?? []))
   lines.push(...piConfigReport({ env: options.env, homeDir: options.homeDir }))
   lines.push(...staleEngineReport(options))
   lines.push(...retiredPayloadReport(options))

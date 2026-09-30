@@ -1,3 +1,17 @@
+## 2026-09-30 - The foreground task wait is bounded at 900 s (#8759 cluster, senpi#2323)
+
+- `tools/task/foreground-wait.ts` `waitForForegroundTask`: the wait before a foreground child is promoted to background
+  is now `min(prompt-cache safe-wait budget, MAX_FOREGROUND_WAIT_SECONDS)`, with `MAX_FOREGROUND_WAIT_SECONDS = 900`.
+  The cap applies to both budget sources (`ctx.getPromptCacheSafeWaitSeconds()` and `PI_PROMPT_CACHE_SAFE_WAIT_SECONDS`).
+  The budget is already TTL - 30 s, so a 5 min TTL still waits 270 s and a 1 h TTL waits 900 s instead of 3570 s.
+  Without the cap, senpi#2323 (1 h TTL on the Claude SDK lane) would block a parent turn for up to ~59.5 min.
+- `promoted.budgetSeconds` reports the effective (capped) wait. No separate raw-budget field: its only consumers,
+  `execute-single.ts` and `execute-batch.ts`, pass it to `backgroundConversionText`, which renders the seconds the parent
+  actually waited, and 900 s is still inside the cache-safe window.
+- No-op today: every current budget is 270 s.
+- `foreground-wait-cap.test.ts`: getter 3570 and env 3570 schedule the deadline at 900_000 ms and promote with 900,
+  getter 270 stays at 270_000 ms, and the task tool notice states 900 s. Removing the cap fails the three 3570 cases.
+
 ## 2026-09-30 - deep-low leads with GPT-6.1 Sol at medium (#9214)
 
 - `category/fallback-chains.ts` `deep-low`: `gpt-6.1-sol` (medium) on `chatgpt-subscription|openai`, then `gpt-6.1-sol-fast`
