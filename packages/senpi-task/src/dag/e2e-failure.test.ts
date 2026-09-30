@@ -751,6 +751,7 @@ for (let seq = 1; seq <= stopAt; seq += 1) {
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
+      env: { ...process.env },
     })
     const marker = JSON.parse(await readLine(child.stdout)) as { readonly armed: number }
     expect(marker.armed).toBe(stopAt)
