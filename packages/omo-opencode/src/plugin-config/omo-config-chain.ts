@@ -3,6 +3,7 @@ import {
   loadOmoConfig,
   mergeOmoConfigRecords,
   OmoConfigSchema,
+  pruneInvalidConfigPaths,
   type OmoConfigDiagnostic,
   type OmoConfigEnv,
   type OmoModelReferenceDiagnostic,
@@ -93,10 +94,22 @@ function modelView(view: Readonly<Record<string, unknown>>): {
   readonly config: Record<string, unknown>
   readonly diagnostics: readonly OmoModelReferenceDiagnostic[]
 } {
-  const parsed = OmoConfigSchema.safeParse(modelInput(view))
-  if (!parsed.success) return { config: {}, diagnostics: [] }
+  const input = modelInput(view)
+  const parsed = OmoConfigSchema.safeParse(input)
+  const modelConfig = parsed.success
+    ? parsed.data
+    : (() => {
+      const pruned = pruneInvalidConfigPaths(input, parsed.error.issues, (record) => {
+        const validation = OmoConfigSchema.safeParse(record)
+        return validation.success ? { success: true } : { success: false, issues: validation.error.issues }
+      })
+      if (!pruned.ok) return undefined
+      const validation = OmoConfigSchema.safeParse(pruned.config)
+      return validation.success ? validation.data : undefined
+    })()
+  if (modelConfig === undefined) return { config: {}, diagnostics: [] }
 
-  const resolved = resolveModelReferences(parsed.data)
+  const resolved = resolveModelReferences(modelConfig)
   return {
     config: {
       ...(resolved.view.agents === undefined ? {} : { agents: resolved.view.agents }),
