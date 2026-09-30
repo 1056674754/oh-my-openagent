@@ -1,8 +1,10 @@
 import { spawnSync } from "node:child_process";
-import { accessSync, constants, existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { createHash } from "node:crypto";
+import { accessSync, constants, existsSync, readFileSync, realpathSync } from "node:fs";
+import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { desktopEngineReleaseAssetName } from "./release-assets";
+import { parseDesktopEngineChecksums } from "./checksums";
+import { DESKTOP_ENGINE_CHECKSUMS_ASSET, desktopEngineReleaseAssetName } from "./release-assets";
 
 export const DESKTOP_ENGINE_BINARY = "senpi-desktop-engine";
 export const QUARANTINE_ATTRIBUTE = "com.apple.quarantine";
@@ -113,11 +115,13 @@ export function locateDesktopEngine(options: DesktopEngineLocatorOptions = {}): 
 	const platform = options.platform ?? process.platform;
 	const host = getDesktopEngineHost(platform, options.arch, options.libc);
 	const attemptedPaths = getDesktopEngineCandidatePaths(options);
+	const execDir = options.execDir ?? dirname(process.execPath);
+	const sidecarIndex = (options.runtimeDir ?? process.env.OMO_PACKAGE_DIR) ? 1 : 0;
 	const isQuarantined = options.isQuarantined ?? ((enginePath: string) => isQuarantinedFile(enginePath, platform));
 	const causes: string[] = [];
 	const quarantinedPaths: string[] = [];
 
-	for (const enginePath of attemptedPaths) {
+	for (const [index, enginePath] of attemptedPaths.entries()) {
 		if (!existsSync(enginePath)) {
 			causes.push(`${enginePath}: missing`);
 			continue;
@@ -125,9 +129,12 @@ export function locateDesktopEngine(options: DesktopEngineLocatorOptions = {}): 
 		// Spawning a quarantined, non-notarized binary hands control to Gatekeeper instead of
 		// returning an error. Report it; never clear the attribute on the user's behalf.
 		if (isQuarantined(enginePath)) {
-			quarantinedPaths.push(enginePath);
-			causes.push(`${enginePath}: blocked because ${QUARANTINE_ATTRIBUTE} is present (macOS Gatekeeper)`);
-			continue;
+			if (index !== sidecarIndex || !verifiedInstalledSidecar(enginePath, execDir, host)) {
+				quarantinedPaths.push(enginePath);
+				causes.push(`${enginePath}: blocked because ${QUARANTINE_ATTRIBUTE} is present (macOS Gatekeeper)`);
+				continue;
+			}
+			causes.push(`${enginePath}: quarantined; accepted: inside the launcher's install and matching native/prebuilds/senpi-desktop-engine-checksums.txt`);
 		}
 		if (!isExecutable(enginePath)) {
 			causes.push(`${enginePath}: not executable (chmod +x)`);
@@ -146,6 +153,28 @@ export function locateDesktopEngine(options: DesktopEngineLocatorOptions = {}): 
 				? `No senpi-desktop-engine is built for ${host}; computer use is unavailable on this host.`
 				: `No ${DESKTOP_ENGINE_BINARY} binary is available for ${host}.`;
 	return { path: null, diagnostic: { code, host, attemptedPaths, message, cause: causes.join("; "), ...(reason === undefined ? {} : { reason }) } };
+}
+
+/**
+ * The sidecar belongs to the installed artifact Gatekeeper evaluated when the launcher was approved.
+ * The omo release pipeline Developer-ID-signs and notarizes it (publish-platform.yml); the launcher's
+ * build writes these checksums for the engine bytes as shipped, including any packaging re-sign.
+ */
+function verifiedInstalledSidecar(enginePath: string, execDir: string, host: string): boolean {
+	try {
+		const prefix = `${join(realpathSync(execDir), "native", "prebuilds")}${sep}`;
+		if (!realpathSync(enginePath).startsWith(prefix)) return false;
+		const asset = desktopEngineReleaseAssetName(host);
+		if (asset === null) return false;
+		const parsed = parseDesktopEngineChecksums(readFileSync(join(execDir, "native", "prebuilds", DESKTOP_ENGINE_CHECKSUMS_ASSET), "utf8"));
+		if (parsed.error !== null) return false;
+		const expected = parsed.checksums.get(asset);
+		return expected !== undefined
+			&& createHash("sha256").update(readFileSync(enginePath)).digest("hex") === expected.toLowerCase();
+	} catch (error) {
+		if (error instanceof Error && "code" in error) return false;
+		throw error;
+	}
 }
 
 /**
