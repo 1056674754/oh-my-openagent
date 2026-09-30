@@ -47,6 +47,14 @@ retain immutable release generations.
 
 `/computer status` describes the located engine or verified release cache without starting it, or names the release asset that first use would download. Headless print mode emits the same status on stderr instead of losing the UI notification. Doctor now probes verified cached engines without fetching and reports their source and permission labels. Empty unsupported hosts report that no engine is built instead of suggesting a download. The cache scan retains its existing layout, digest, quarantine and executable checks. The computer tool and guide require current-session capabilities before an availability claim.
 
+## 2026-09-30 - macOS permission denials identify the app and preserve their cause (#9284)
+
+A failed Accessibility stop listener now stays a permission denial through the supervisor, session,
+engine RPC and computer tool, including the default-policy path where only the host relay is live.
+Input remains refused; suspension and heartbeat precedence and the relay-only opt-in are preserved.
+Denied macOS actions open each permission's Settings pane once per engine process and return the
+launching app, pane URL and relaunch requirement. Capture remains independent of Accessibility.
+
 ## 2026-09-30 - The standalone binary gate starts the binary from an empty download folder and runs a Windows leg (#7485)
 
 `native-binary-parity` (#9259) ran the binary where `build-omo-binary.ts` wrote it, and only on macOS, so the Windows

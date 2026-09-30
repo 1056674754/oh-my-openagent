@@ -19,10 +19,19 @@ export interface JsonRpcRequest<P = unknown> {
 export type MethodRejection = "unknown" | "hostOnly" | "testOnly";
 
 /** Error data carried by every `ErrorCode` failure. */
+export interface PermissionDeniedData {
+	readonly permission: "screen_recording" | "accessibility";
+	readonly settingsUrl: string;
+	readonly app: string;
+	readonly relaunchRequired: boolean;
+}
+
+/** Error data carried by every `ErrorCode` failure. */
 export interface EngineErrorData {
 	readonly code: ErrorCode;
 	/** Recovery hint for the model, e.g. `capture it again`. */
 	readonly hint?: string | null;
+	readonly permission?: PermissionDeniedData | null;
 }
 
 /** Error data carried by every `-32601` rejection. */
