@@ -1,3 +1,7 @@
+## 2026-09-30 - Localized Windows tar month tokens parse during archive entry validation (#9289)
+
+Windows `tar -tvf` output can localize the month column or emit replacement characters when decoded. The tar listing parser now accepts any non-whitespace month token instead of only ASCII word characters, while malformed lines still fail closed and entry path validation remains unchanged. Regression coverage includes ASCII, Cyrillic, replacement-character, and malformed month/listing cases. Thanks @willowite for the report, reproduction, fix, and cases.
+
 ## 2026-09-30 - The standalone binary gate starts the binary from an empty download folder and runs a Windows leg (#7485)
 
 `native-binary-parity` (#9259) ran the binary where `build-omo-binary.ts` wrote it, and only on macOS, so the Windows
