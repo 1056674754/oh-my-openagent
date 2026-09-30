@@ -8,10 +8,14 @@ import { MERGED_OMO_CONFIG_PATH, type OmoConfigDiagnostic } from "./types"
 export function displayOmoConfigPath(path: string, homeDir: string | undefined): string {
   if (path === MERGED_OMO_CONFIG_PATH) return "merged config"
   if (homeDir === undefined || homeDir.length === 0) return path
-  const home = homeDir.replace(/[\\/]+$/, "")
-  if (path === home) return "~"
-  const rest = path.slice(home.length)
-  return path.startsWith(home) && (rest.startsWith("/") || rest.startsWith("\\")) ? `~${rest.replaceAll("\\", "/")}` : path
+  // Compare with one separator: a Windows home can arrive in POSIX form (C:/Users/me) while the
+  // file path is native (C:\Users\me\...), and drive-letter paths compare case-insensitively.
+  const slashed = (value: string) => value.replaceAll("\\", "/")
+  const home = slashed(homeDir).replace(/\/+$/, "")
+  const file = slashed(path)
+  const fold = (value: string) => (/^[A-Za-z]:\//.test(home) ? value.toLowerCase() : value)
+  if (fold(file) === fold(home)) return "~"
+  return fold(file).startsWith(`${fold(home)}/`) ? `~${file.slice(home.length)}` : path
 }
 
 function notLoadedReason(diagnostic: OmoConfigDiagnostic): string {

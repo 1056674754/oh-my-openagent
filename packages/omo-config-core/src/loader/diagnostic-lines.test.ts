@@ -62,6 +62,9 @@ describe("omoConfigDiagnosticLines", () => {
     expect(displayOmoConfigPath("C:\\Users\\me\\.omo\\profiles\\work.jsonc", "C:\\Users\\me")).toBe("~/.omo/profiles/work.jsonc")
     expect(displayOmoConfigPath("C:\\Users\\me", "C:\\Users\\me")).toBe("~")
     expect(displayOmoConfigPath("D:\\work\\omo.jsonc", "C:\\Users\\me")).toBe("D:\\work\\omo.jsonc")
+    expect(displayOmoConfigPath("C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\h\\.omo\\omo.jsonc", "C:/Users/RUNNER~1/AppData/Local/Temp/h")).toBe("~/.omo/omo.jsonc")
+    expect(displayOmoConfigPath("c:\\users\\me\\.omo\\omo.jsonc", "C:/Users/me")).toBe("~/.omo/omo.jsonc")
+    expect(displayOmoConfigPath("C:\\Users\\meta\\.omo\\omo.jsonc", "C:/Users/me")).toBe("C:\\Users\\meta\\.omo\\omo.jsonc")
     expect(omoConfigDiagnosticLines(
       [{ kind: "invalid-value", path: "C:\\Users\\me\\.omo\\omo.jsonc", issuePaths: ["task.host_engine_policy"] }] as never,
       { homeDir: "C:\\Users\\me" },
