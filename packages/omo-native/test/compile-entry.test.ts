@@ -129,10 +129,20 @@ describe("compiled omo entry launcher parity", () => {
     expect(isProvisionedExecutable(runningExecutablePath(expected, `${expected} (deleted)`, "linux"), expected)).toBe(true)
   })
 
-  test("re-exec source contract uses signal-aware child execution", () => {
-    const source = readFileSync(new URL("../provisioned-handoff.ts", import.meta.url), "utf8")
-    expect(source).toContain('import { propagateResult, runChild } from "./bin/lib/child-process.js"')
-    expect(source).not.toContain("spawn(expected")
+  test("re-exec without an injected runner runs the provisioned child through the default runner", async () => {
+    // given: no run override and no execve, the path Windows always takes
+    const propagated: unknown[] = []
+
+    // when: the provisioned "runtime" is this bun binary told to exit with a distinctive code
+    await reexecProvisionedRuntime(process.execPath, {
+      argv: ["-e", "process.exit(7)"],
+      execve: null,
+      propagate: (result) => { propagated.push(result) },
+    })
+
+    // then: the real child ran and its exit status reached propagation
+    expect(propagated).toHaveLength(1)
+    expect(propagated[0]).toMatchObject({ status: 7, signal: null })
   })
 
   test("pins the engine package dir to the provisioned root", () => {
