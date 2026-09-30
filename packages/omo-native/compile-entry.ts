@@ -4,16 +4,14 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import {
   embeddedText,
-  isProvisionedExecutable,
   materializeProvisionedExecutable,
   provisionEmbeddedRuntime,
   runningExecutablePath,
   selectRuntimeManifest,
-  shouldReexecAfterProvisioning,
   type EmbeddedFile,
   type EmbeddedManifest,
 } from "./compile-runtime"
-import { propagateResult, runChild } from "./bin/lib/child-process.js"
+import { handOffToProvisionedRuntime, planProvisionedLaunch } from "./provisioned-handoff"
 import { buildLabel, parseBuildInfo, parseEngineBuildStamp, versionLines } from "./build-info"
 import { compiledUpdate, fetchGitHubReleases, releaseAssetName, RELEASES_URL } from "./compiled-update"
 import { migrateLegacyBunGlobalManifest } from "./bin/lib/legacy-bun-global-migration.js"
@@ -299,30 +297,7 @@ export async function runCompiledLauncher(args: string[], execDir: string, engin
   return false
 }
 
-export async function reexecProvisionedRuntime(expected: string, options: {
-  argv?: string[]
-  env?: NodeJS.ProcessEnv
-  platform?: NodeJS.Platform
-  execve?: ((file: string, argv: string[], env: NodeJS.ProcessEnv) => void) | null
-  run?: typeof runChild
-  propagate?: typeof propagateResult
-} = {}): Promise<void> {
-  const argv = options.argv ?? process.argv.slice(2)
-  const env = options.env ?? process.env
-  const run = options.run ?? runChild
-  const propagate = options.propagate ?? propagateResult
-  const execve = options.execve === undefined ? process.execve : options.execve
-  if ((options.platform ?? process.platform) !== "win32" && typeof execve === "function") {
-    try {
-      execve(expected, [expected, ...argv], env)
-      return
-    } catch {
-      // A provisioned binary that cannot replace this image still uses the async fallback.
-    }
-  }
-  const result = await run(expected, argv, { env })
-  propagate(result)
-}
+export { reexecProvisionedRuntime } from "./provisioned-handoff"
 
 async function main(): Promise<void> {
   const embedded = (globalThis as typeof globalThis & { Bun?: { embeddedFiles?: EmbeddedFile[] } }).Bun?.embeddedFiles as EmbeddedFile[] | undefined
@@ -340,14 +315,13 @@ async function main(): Promise<void> {
   const manifest = JSON.parse(await embeddedText(manifestFile)) as EmbeddedManifest
   const runningExecutable = runningExecutablePath()
   const expected = join(homedir(), ".omo", "binary-runtime", manifest.omoAiVersion, process.platform === "win32" ? "omo.exe" : "omo")
-  let execDir = dirname(runningExecutable)
+  const launch = planProvisionedLaunch(runningExecutable, expected)
   // Materialize the provisioned runtime BEFORE answering the informational fast-path.
   // First-run provisioning must happen even for `--version`/`-v`: the release smoke test
   // asserts the provisioned binary exists after `--version`, and provisioning used to be a
   // side effect of the (now-skipped) re-exec. Only the re-exec (relocate) is deferred here,
   // so an already-provisioned install keeps the fast-path's no-re-exec speed.
-  const needsProvisioning = !isProvisionedExecutable(runningExecutable, expected)
-  if (needsProvisioning) {
+  if (launch.provision) {
     await provisionEmbeddedRuntime(manifest, embedded, dirname(expected))
     materializeProvisionedExecutable(runningExecutable, expected)
   }
@@ -366,13 +340,11 @@ async function main(): Promise<void> {
     return
   }
   if (answerCompiledFastPath(process.argv.slice(2), manifest)) return
-  if (needsProvisioning) {
-    if (shouldReexecAfterProvisioning()) {
-      await reexecProvisionedRuntime(expected)
-      return
-    }
-    execDir = dirname(expected)
+  if (launch.handOff) {
+    await handOffToProvisionedRuntime(expected)
+    return
   }
+  const execDir = launch.execDir
   // Inspector and custom execArgv isolation is unsupported in compiled binaries; the provisioned
   // executable delegates to the engine in-process as required by the native startup contract.
   if (await runCompiledLauncher(process.argv.slice(2), execDir, manifest.enginePin, execDir)) return
