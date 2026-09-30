@@ -100,6 +100,28 @@ describe("sidecar parity set", () => {
     }
   })
 
+  test("#given the host declares but cannot resolve codemode's dependency #when resolved #then codemode's installed copy remains staged", () => {
+    // given
+    const root = join(tmpdir(), `omo-codemode-missing-host-${process.pid}-${crypto.randomUUID()}`)
+    const codemode = join(root, "codemode")
+    const host = join(root, "host")
+    try {
+      writePackage(codemode, { name: "codemode", version: "1.0.0", dependencies: { shared: "2.0.0" } })
+      writePackage(join(codemode, "node_modules", "shared"), { name: "shared", version: "2.0.0" })
+      writePackage(host, { name: "host", version: "1.0.0", dependencies: { shared: "2.0.0" } })
+
+      // when
+      const destinations = codemodeRuntimeDependencySources(codemode, host).map((source) => source.to)
+
+      // then
+      expect(destinations).toEqual([
+        "node_modules/@code-yeongyu/senpi-codemode/node_modules/shared",
+      ])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test("#given matching aliased host and codemode dependencies #when resolved #then the host copy is reused by package identity", () => {
     // given
     const root = join(tmpdir(), `omo-codemode-alias-${process.pid}-${crypto.randomUUID()}`)

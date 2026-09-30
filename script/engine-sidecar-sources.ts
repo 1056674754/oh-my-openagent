@@ -88,6 +88,18 @@ function readPackageIdentity(manifestPath: string): PackageIdentity {
   return { name, version }
 }
 
+function resolveDependencyIdentity(
+  packageDir: string,
+  dependencyName: string,
+): PackageIdentity | undefined {
+  try {
+    return readPackageIdentity(dependencyManifestPath(packageDir, dependencyName))
+  } catch (error) {
+    if (isUnresolvable(error)) return undefined
+    throw error
+  }
+}
+
 function packageDependencySources(
   packageDir: string,
   targetRoot: string,
@@ -120,8 +132,12 @@ export function codemodeRuntimeDependencySources(
   const externalDependencies = readPackageDependencies(codemodeDir)
     .filter((dependencyName) => {
       if (!hostDependencies.has(dependencyName)) return true
-      const codemodeIdentity = readPackageIdentity(dependencyManifestPath(codemodeDir, dependencyName))
-      const hostIdentity = readPackageIdentity(dependencyManifestPath(hostPackageDir, dependencyName))
+      const codemodeIdentity = resolveDependencyIdentity(codemodeDir, dependencyName)
+      if (codemodeIdentity === undefined) {
+        throw new Error(`codemode dependency is not installed: ${dependencyName}`)
+      }
+      const hostIdentity = resolveDependencyIdentity(hostPackageDir, dependencyName)
+      if (hostIdentity === undefined) return true
       return codemodeIdentity.name !== hostIdentity.name || codemodeIdentity.version !== hostIdentity.version
     })
   const targetRoot = "node_modules/@code-yeongyu/senpi-codemode"
