@@ -397,6 +397,24 @@ describe("selectRecallCandidates with the hybrid strategy", () => {
     expect(paths(hybrid)).toEqual(["z/relevant.md", "a/offset.md"])
   })
 
+  it("#given a bm25-only match tied with a substring-only match #when hybrid selects #then the bm25 rank breaks the tie before the path", () => {
+    // given: the inflected Korean term only bm25 finds, the English plural only substring finds
+    const pair = [
+      doc("a/tokens.md", "tokens", "tokens rotated weekly"),
+      doc("z/publish.md", "npm 퍼블리시 절차", "절차 문서"),
+    ]
+    const queries = ["퍼블리시할", "token"]
+
+    // when
+    const hybrid = selectRecallCandidates(pair, queries, HYBRID_OPTS)
+
+    // then
+    expect(paths(selectRecallCandidates(pair, queries, { ...BASE_OPTS, strategy: "substring" }))).toEqual(["a/tokens.md"])
+    expect(paths(selectRecallCandidates(pair, queries, { ...BASE_OPTS, strategy: "bm25" }))).toEqual(["z/publish.md"])
+    expect(paths(hybrid)).toEqual(["z/publish.md", "a/tokens.md"])
+    expect(hybrid[0]?.score).toBe(hybrid[1]?.score ?? Number.NaN)
+  })
+
   it("#given hybrid candidates #when scores are read #then they stay ascending and lower-is-better in (0, 1]", () => {
     // when
     const hybrid = selectRecallCandidates(documents, queries, HYBRID_OPTS)

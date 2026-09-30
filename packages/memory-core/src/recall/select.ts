@@ -116,20 +116,29 @@ function rankBm25Candidates(
  * ranker finds stays in the pool and a note both find rises to the top. The substring order is the
  * offset of the first match, not relevance, so every substring match votes as if ranked first instead
  * of by its position; on the padded benchmark corpora rank-weighted substring votes pushed filler
- * notes above the answer. A note keeps its substring excerpt when it has one. The score keeps the
- * contract as 1 / (1 + fused).
+ * notes above the answer. That flat vote equals the vote of bm25's first place, so fused ties break
+ * on the bm25 rank (a note bm25 does not rank sorts after one it does) and only then on the path. A
+ * note keeps its substring excerpt when it has one. The score keeps the contract as 1 / (1 + fused).
  */
 function fuseCandidates(substring: readonly RecallCandidate[], bm25: readonly RecallCandidate[]): RecallCandidate[] {
-  const fused = new Map<string, { candidate: RecallCandidate; weight: number }>()
-  const vote = (candidate: RecallCandidate, weight: number): void => {
+  const fused = new Map<string, { candidate: RecallCandidate; weight: number; bm25Rank: number }>()
+  const vote = (candidate: RecallCandidate, weight: number, bm25Rank: number): void => {
     const entry = fused.get(candidate.path)
-    if (entry === undefined) fused.set(candidate.path, { candidate, weight })
-    else entry.weight += weight
+    if (entry === undefined) fused.set(candidate.path, { candidate, weight, bm25Rank })
+    else {
+      entry.weight += weight
+      entry.bm25Rank = Math.min(entry.bm25Rank, bm25Rank)
+    }
   }
-  for (const candidate of substring) vote(candidate, 1 / (RRF_K + 1))
-  bm25.forEach((candidate, rank) => vote(candidate, 1 / (RRF_K + rank + 1)))
+  for (const candidate of substring) vote(candidate, 1 / (RRF_K + 1), Number.POSITIVE_INFINITY)
+  bm25.forEach((candidate, rank) => vote(candidate, 1 / (RRF_K + rank + 1), rank))
   return [...fused.values()]
-    .sort((left, right) => right.weight - left.weight || left.candidate.path.localeCompare(right.candidate.path))
+    .sort(
+      (left, right) =>
+        right.weight - left.weight ||
+        left.bm25Rank - right.bm25Rank ||
+        left.candidate.path.localeCompare(right.candidate.path),
+    )
     .map(({ candidate, weight }) => ({ ...candidate, score: 1 / (1 + weight) }))
 }
 
