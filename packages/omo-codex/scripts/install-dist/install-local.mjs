@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// omo-codex-install:71f615b84d38cf7a5f689c698f7418606bc26ce89d5191d04447ca777aa39f92:4052aca078e565e03a98e14ae3fb6ef8fb04bbd29516ff80e55b1f31819e5c96
+// omo-codex-install:3946ebe75677b0182b2bd330aef6e28d80b0a14b4f2bef7d2cf926cc141467f0:91bb802279b3e0a38644491e221a425a04ca6cf2aec0cb4dbf8c9be3ce4bf8f5
 var __esm = (fn, res, err) => () => {
   if (fn)
     try {
@@ -9984,7 +9984,7 @@ var package_default;
 var init_package = __esm(() => {
   package_default = {
     name: "@oh-my-opencode/omo-codex",
-    version: "5.1.2",
+    version: "5.1.4",
     type: "module",
     private: true,
     description: "Codex harness adapter for oh-my-openagent. Vendored Codex plugin namespace (omo) + TypeScript installer + telemetry.",
@@ -19423,8 +19423,7 @@ var OmoMemoryRecallSchema = object({
   event_caps: OmoMemoryRecallEventCapsSchema.default({ tool_args: 400, result_head: 600, assistant: 1500, prompt: 4000 }),
   sidecar_max_tokens: number2().int().positive().default(48000),
   max_concurrent_wakes: number2().int().positive().default(2),
-  tool_budget: number2().int().positive().default(8),
-  ranker: _enum(["substring", "bm25"]).default("substring")
+  tool_budget: number2().int().positive().default(8)
 }).strict();
 var OmoMemoryNudgeSchema = object({
   enabled: boolean2().default(true),
@@ -19485,8 +19484,7 @@ var OmoMemoryRecallLayerSchema = object({
   event_caps: OmoMemoryRecallEventCapsLayerSchema.optional(),
   sidecar_max_tokens: number2().int().positive().optional(),
   max_concurrent_wakes: number2().int().positive().optional(),
-  tool_budget: number2().int().positive().optional(),
-  ranker: _enum(["substring", "bm25"]).optional()
+  tool_budget: number2().int().positive().optional()
 }).strict();
 var OmoMemoryNudgeLayerSchema = object({
   enabled: boolean2().optional(),
@@ -19563,8 +19561,7 @@ var OmoMemorySettingsSchema = object({
     event_caps: { tool_args: 400, result_head: 600, assistant: 1500, prompt: 4000 },
     sidecar_max_tokens: 48000,
     max_concurrent_wakes: 2,
-    tool_budget: 8,
-    ranker: "substring"
+    tool_budget: 8
   }),
   compile_warn_tokens: number2().int().positive().default(30000),
   agents: record(string2(), OmoMemoryAgentOverridesSchema).default({})

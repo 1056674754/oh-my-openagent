@@ -21,8 +21,10 @@ import { adoptLegacyFlatState, canonicalAgentDir } from "./bin/lib/agent-dir.js"
 import { nearestNodeBin, readJson, releaseBanner } from "./bin/lib/package-paths.js"
 import { daemonReportLines, runDaemonCommand } from "./bin/lib/daemon.js"
 import { runDoctor } from "./bin/lib/doctor.js"
+import { isSelfUpdate, updateUsageAnswer } from "./bin/lib/update-args.js"
 import { migrationReport } from "./bin/lib/doctor-migration.js"
 import { piConfigReport } from "./bin/lib/doctor-pi-config.js"
+import { launchSpecDoctorLines } from "./bin/lib/launch-spec-mode.js"
 import { detectHarnesses, needsSetupSuggestion } from "./bin/lib/setup-detect.js"
 import { printSetupReport } from "./bin/lib/setup-report.js"
 import { isInternalSupervisorLaunch, runInternalSupervisor } from "./supervisor-fast-path"
@@ -48,8 +50,6 @@ import { pruneMissingStoreIndexEntriesSync } from "../senpi-task/src/runners/rpc
 // Probe receipts: .omo/evidence/20260825-bun-compile-release-binaries/
 
 const earlyCommands = new Set(["install", "remove", "list", "config", "auth", "app-server", "host"])
-const selfUpdateTargets = new Set(["self", "senpi", "omo"])
-const engineUpdateTargets = new Set(["--extensions", "--models"])
 const doctorArtifacts = [
   ["plugin manifest", "plugin/package.json"],
   ["extension", "plugin/extensions/omo.js"],
@@ -160,6 +160,9 @@ function runCompiledDoctor(inventory: Awaited<ReturnType<typeof detectHarnesses>
   }
   const packageJson = readJson(join(execDir, "package.json"))
   for (const line of versionLine(packageJson, enginePin).split("\n")) lines.push(`INFO ${line}`)
+  const launchSpec = launchSpecDoctorLines(join(execDir, "plugin"))
+  if (launchSpec.some((line) => line.startsWith("FAIL "))) failed = true
+  lines.push(...launchSpec)
   if (engine !== undefined) {
     lines.push(...daemonReportLines({ engine, pluginRoot: join(execDir, "plugin"), agentDir: canonicalAgentDir(), env: process.env, platform: process.platform }))
   }
@@ -170,12 +173,14 @@ function runCompiledDoctor(inventory: Awaited<ReturnType<typeof detectHarnesses>
   process.exitCode = failed ? 1 : 0
 }
 
-function isSelfUpdate(args: string[]): boolean {
-  if (args[0] !== "update") return false
-  const rest = args.slice(1)
-  if (rest.length === 0) return true
-  if (rest.some((arg) => engineUpdateTargets.has(arg))) return false
-  return rest.every((arg) => arg.startsWith("-") || selfUpdateTargets.has(arg))
+function answerUpdateHint(args: string[], rawBuildInfo: unknown): void {
+  const usage = updateUsageAnswer(args)
+  if (usage === undefined) {
+    console.log(updateHint(rawBuildInfo))
+    return
+  }
+  ;(usage.stream === "stderr" ? console.error : console.log)(usage.text)
+  process.exitCode = usage.exitCode
 }
 
 export function answerCompiledFastPath(
@@ -191,7 +196,7 @@ export function answerCompiledFastPath(
     return true
   }
   if (isSelfUpdate(args)) {
-    console.log(updateHint(manifest.buildInfo))
+    answerUpdateHint(args, manifest.buildInfo)
     return true
   }
   return false
@@ -299,7 +304,7 @@ export async function runCompiledLauncher(args: string[], execDir: string, engin
   }
   if (command === "setup") { printSetupReport(await detectHarnesses()); process.exitCode = 0; return true }
   if ((command === "--version" || command === "-v") && args.length === 1) { console.log(versionLine(packageJson, enginePin ?? "unknown")); return true }
-  if (isSelfUpdate(args)) { console.log(updateHint(packageJson.omoBuild)); return true }
+  if (isSelfUpdate(args)) { answerUpdateHint(args, packageJson.omoBuild); return true }
   return false
 }
 
@@ -363,8 +368,9 @@ async function main(): Promise<void> {
       platform: process.platform,
       arch: process.arch,
       fetchReleases: fetchGitHubReleases,
+      args: process.argv.slice(2),
     })
-    console.log(result.output)
+    ;(result.stream === "stderr" ? console.error : console.log)(result.output)
     process.exitCode = result.exitCode
     return
   }

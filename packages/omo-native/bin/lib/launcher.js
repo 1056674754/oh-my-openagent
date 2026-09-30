@@ -6,29 +6,17 @@ import { doctorCoverageLines } from "./category-coverage.js"
 import { doctorComputerUseLines } from "./computer-use-doctor.js"
 import { runDaemonCommand } from "./daemon.js"
 import { runDoctor } from "./doctor.js"
-import { ensureEnginePrepared } from "./engine-prepare.js"
+import { ensureEnginePrepared, preparePluginLaunchSpec } from "./engine-prepare.js"
 import { migrateLegacyBunGlobalManifest } from "./legacy-bun-global-migration.js"
 import { adoptLegacyFlatState, canonicalAgentDir } from "./agent-dir.js"
 import { nearestNodeBin, packageManifest, packageRoot, readJson, releaseBanner, releaseChannel, resolveSenpi, updateTarget } from "./package-paths.js"
 import { runSelfUpdate } from "./self-update.js"
+import { isSelfUpdate } from "./update-args.js"
 import { detectHarnesses } from "./setup-detect.js"
 import { readSetupSuggestionCache, spawnSetupSuggestionRefresh } from "./setup-detect-cache.js"
 import { printSetupReport } from "./setup-report.js"
 
 const earlyCommands = new Set(["install", "remove", "list", "config", "auth", "app-server", "host"])
-const selfUpdateTargets = new Set(["self", "senpi", "omo"])
-// Updating extensions or model catalogs is the engine's job; everything else under `update`
-// would try to replace the pinned engine, so the launcher answers it instead.
-const engineUpdateTargets = new Set(["--extensions", "--models"])
-
-function isSelfUpdate(args) {
-  if (args[0] !== "update") return false
-  const rest = args.slice(1)
-  if (rest.length === 0) return true
-  if (rest.some((arg) => engineUpdateTargets.has(arg))) return false
-  return rest.every((arg) => arg.startsWith("-") || selfUpdateTargets.has(arg))
-}
-
 // Identity the engine adopts for this install: what the user sees, where state lives, which
 // environment prefix is read first, what goes on the wire, and which channel to check for
 // updates. The engine consumes this once and scrubs it, so nested engine processes are
@@ -136,6 +124,7 @@ function senpiEnvironment(senpiRoot) {
 }
 
 function preparedSenpi() {
+  preparePluginLaunchSpec({ pluginRoot: join(packageRoot, "plugin") })
   const senpi = resolveSenpi()
   ensureEnginePrepared({
     senpiRoot: senpi.packageRoot,
@@ -267,6 +256,8 @@ export async function runLauncher(args = process.argv.slice(2)) {
     return
   }
   if (command === "doctor") {
+    // Doctor is a launch too: it reports only what the launch-time preparation could not fix.
+    preparePluginLaunchSpec({ pluginRoot: join(packageRoot, "plugin") })
     const [categoryCoverage, computerUse] = args[1] === "--reap"
       ? [[], []]
       : await Promise.all([

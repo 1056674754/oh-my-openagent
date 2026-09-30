@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { isAbsolute, join, relative, resolve, sep } from "node:path"
 
 import {
   findTaskByName,
@@ -154,7 +154,9 @@ describe("agent-side wait commands", () => {
     expect(command).toContain('"lruone"')
     expect(command).toContain('"completed"')
     const tasksDir = join(taskStateDir(sandbox), "tasks")
-    expect(tasksDir.startsWith(join("/tmp/agent", "projects"))).toBe(true)
+    // The engine resolves the agent dir, so on Windows `/tmp/agent` becomes `<drive>:\tmp\agent`: compare resolved paths.
+    const insideProjects = relative(resolve("/tmp/agent", "projects"), tasksDir)
+    expect(isAbsolute(insideProjects) || insideProjects.split(sep)[0] === "..").toBe(false)
     expect(command).toContain(JSON.stringify(tasksDir))
   })
 })
