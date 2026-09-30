@@ -51,6 +51,10 @@ Explicit overrides, sidecars, development engines, unsigned builds and quarantin
 existing behavior; unsigned files never replace the permission-bearing release engine. Other platforms
 retain immutable release generations.
 
+## 2026-09-30 - Computer-use status and doctor report installed sources and unsupported hosts (#9286)
+
+`/computer status` describes the located engine or verified release cache without starting it, or names the release asset that first use would download. Headless print mode emits the same status on stderr instead of losing the UI notification. Doctor now probes verified cached engines without fetching and reports the same source location as status, with a separate launched-executable field when signed launch uses a stable path. Empty unsupported hosts report that no engine is built instead of suggesting a download. The cache scan retains its existing layout, digest, quarantine and executable checks, including attempted paths when a cache read fails. The computer tool and guide require current-session capabilities before an availability claim.
+
 ## 2026-09-30 - macOS permission denials identify the app and preserve their cause (#9284)
 
 A failed Accessibility stop listener now stays a permission denial through the supervisor, session,
