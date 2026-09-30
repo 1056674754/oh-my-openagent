@@ -161,6 +161,7 @@ export type {
   CreateChildSession,
   DepthPolicy,
   InProcessRunnerOptions,
+  QueuedInputDisposition,
   RunnerFailure,
   RunnerOutcome,
   SharedToolFilterOptions,

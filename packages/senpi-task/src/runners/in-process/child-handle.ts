@@ -1,4 +1,12 @@
+import type { AgentSession } from "@code-yeongyu/senpi"
+
 import type { TaskStartFailureKind, TaskStartFailureReason } from "../../state/start-failure"
+
+/** How the engine settled a steer/follow-up: delivered to the running turn, or queued behind it. */
+export type QueuedInputDisposition = Awaited<ReturnType<AgentSession["steer"]>>
+
+// ChildHandle.steer settles with no value: the manager does not consume the engine disposition.
+const ignoreQueuedInputDisposition = (_disposition: QueuedInputDisposition): void => undefined
 
 export type ChildSessionEvent = {
   readonly type: string
@@ -12,8 +20,8 @@ export type ChildSessionListener = (event: ChildSessionEvent) => void
 export type ChildSession = {
   readonly sessionId: string
   prompt(text: string): Promise<void>
-  steer(text: string): Promise<void>
-  followUp(text: string): Promise<void>
+  steer(text: string): Promise<QueuedInputDisposition>
+  followUp(text: string): Promise<QueuedInputDisposition>
   abort(): Promise<void>
   subscribe(listener: ChildSessionListener): () => void
   getLastAssistantText(): string | undefined
@@ -256,7 +264,7 @@ function createTrackedChildHandle(
   const handle: ChildHandle = {
     task_id: taskId,
     sessionId: session.sessionId,
-    steer: (text) => session.steer(text),
+    steer: (text) => session.steer(text).then(ignoreQueuedInputDisposition),
     followUp: async (text) => {
       // While a turn is running, a follow-up is queued and delivered when the agent settles. Once
       // the child is idle/resident, a follow-up REVIVES it: drive a fresh turn and re-arm tracking.
