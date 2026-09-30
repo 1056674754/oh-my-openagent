@@ -414,7 +414,7 @@ describe("selectRecallCandidates with the hybrid strategy", () => {
     // given
     const options = {
       ...HYBRID_OPTS,
-      maxItems: 1,
+      maxItems: 3,
       surfaced: new Set(["b/tmux.md"]),
       excludePaths: new Set(["a/deploy.md"]),
     }
