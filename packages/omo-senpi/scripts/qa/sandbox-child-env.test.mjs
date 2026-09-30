@@ -32,7 +32,8 @@ describe("isolatedChildEnv", () => {
 			OMO_CODING_AGENT_DIR: "/tmp/sbx/agent",
 			SENPI_CODING_AGENT_DIR: "/tmp/sbx/agent",
 			PI_CODING_AGENT_DIR: "/tmp/sbx/agent",
-			OMO_MEMORY_HOME: "/tmp/sbx/memory",
+			// Beside the agent dir, joined with the platform separator (`\tmp\sbx\memory` on Windows).
+			OMO_MEMORY_HOME: join(dirname("/tmp/sbx/agent"), "memory"),
 		});
 		expect(caller.OMO_CODING_AGENT_DIR).toBe("/home/u/.omo/agent");
 	});
