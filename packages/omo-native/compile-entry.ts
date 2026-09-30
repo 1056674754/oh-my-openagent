@@ -281,6 +281,7 @@ export async function runCompiledLauncher(args: string[], execDir: string, engin
         versionText: versionLine(stamped, enginePin),
         updateCommand: compiledUpdateCommand(stamped.omoBuild),
         engine,
+        args: args.slice(1),
         options: migration,
       })
     } else runDoctor(inventory, [], { daemonEngine: engine })
