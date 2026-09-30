@@ -56,6 +56,16 @@ afterEach(() => {
 });
 
 describe("locateDesktopEngine", () => {
+	it.each(["linux", "win32"])("reports no release asset on an empty %s-arm64 installation", (platform) => {
+		const result = locateDesktopEngine({
+			platform, arch: "arm64", execDir: layout.execDir, packageDir: layout.packageDir,
+			repoRoot: layout.repoRoot, runtimeDir: "", isQuarantined: () => false,
+		});
+		expect(result.diagnostic).toMatchObject({
+			code: "native-unavailable", host: `${platform}-arm64`, reason: "no-release-asset",
+		});
+	});
+
 	it("accepts a quarantined sidecar with matching installed checksums", () => {
 		placeEngine(layout.sidecar);
 		const digest = createHash("sha256").update("engine").digest("hex");

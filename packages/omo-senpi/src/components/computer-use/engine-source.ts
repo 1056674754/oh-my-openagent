@@ -1,9 +1,15 @@
 import { accessSync, constants, existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
+import { homedir } from "node:os"
 import {
+  desktopEngineReleaseAssetName,
+  findCachedDesktopEngine,
+  getDesktopEngineCandidatePaths,
   getDesktopEngineHost,
   isQuarantinedFile,
+  locateDesktopEngine,
   type DesktopEngineLocateDiagnostic,
+  type DesktopEngineLocatorOptions,
 } from "@oh-my-opencode/senpi-desktop-engine"
 import {
   acquiringEngineChildFactory,
@@ -48,12 +54,46 @@ export function omoReleaseVersion(env: Env): string | undefined {
  * `computer.engine_path` wins; an omo launch acquires the engine for its own release (local install
  * first, then the verified GitHub release download); anything else uses the synchronous locator.
  */
-export function defaultEngineChild(env: Env = process.env): (enginePath: string | undefined) => ChildFactory {
+export function defaultEngineChild(env: Env = process.env, locatorOptions?: DesktopEngineLocatorOptions): (enginePath: string | undefined) => ChildFactory {
   return (enginePath) => {
     if (enginePath !== undefined) return explicitEngineChild(enginePath)
     const version = omoReleaseVersion(env)
-    return version === undefined ? engineChildFactory() : acquiringEngineChildFactory({ version })
+    if (version !== undefined) return acquiringEngineChildFactory({ version })
+    if (locatorOptions === undefined) return engineChildFactory()
+    return () => {
+      const located = locateDesktopEngine(locatorOptions)
+      if (located.path === null) throw new DesktopEngineUnavailableError(located.diagnostic)
+      return engineChildFactory(located.path)()
+    }
   }
+}
+
+/** Describes installation state only; neither acquisition nor an engine process is started. */
+export function describeEngineSource(
+  enginePath: string | undefined,
+  env: Env,
+  locatorOptions: DesktopEngineLocatorOptions = {},
+): string {
+  if (enginePath !== undefined) return `found ${enginePath} (explicit)`
+  const options = { ...locatorOptions, runtimeDir: locatorOptions.runtimeDir ?? env.OMO_PACKAGE_DIR ?? "" }
+  const located = locateDesktopEngine(options)
+  if (located.path !== null) {
+    const candidates = getDesktopEngineCandidatePaths(options)
+    const sources = options.runtimeDir ? ["runtime-dir", "sidecar", "package-prebuild", "dev-build"] : ["sidecar", "package-prebuild", "dev-build"]
+    return `found ${located.path} (${sources[candidates.indexOf(located.path)]})`
+  }
+  const { host, reason, cause, code } = located.diagnostic
+  if (reason === "no-release-asset") return `No senpi-desktop-engine is built for ${host}`
+  const version = omoReleaseVersion(env)
+  if (version !== undefined && code !== "quarantined") {
+    const cached = findCachedDesktopEngine({
+      host, version, cacheDir: join(env.HOME ?? homedir(), ".omo", "cache", "senpi-desktop-engine"),
+    })
+    if (cached.path !== null) return `found ${cached.path} (cache, omo v${version})`
+    const asset = desktopEngineReleaseAssetName(host)
+    if (asset !== null) return `would download ${asset} from omo v${version} on first use`
+  }
+  return `native-unavailable for ${host}: ${cause}`
 }
 
 function explicitEngineChild(enginePath: string): ChildFactory {
