@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**Computer use on macOS says what it needs and where its engine comes from.** A downloaded install trusts the engine shipped inside its own app, a missing Screen Recording or Accessibility grant opens the right System Settings pane, and `/computer status` and `omo doctor` show which engine you have before it starts. This release runs on the senpi 2026.9.30 engine, like 5.1.6.
+
+### Added
+
+`/computer status` and `omo doctor` report where the computer-use engine is and where it came from (the app bundle, the cache or a path you set) without starting it, name hosts it does not support, and give the same answer. `omo doctor` never downloads the engine. ([#9286](https://github.com/code-yeongyu/oh-my-openagent/issues/9286), [#9311](https://github.com/code-yeongyu/oh-my-openagent/pull/9311))
+
+### Changed
+
+Test cleanups from an internal audit, with no change to behavior. ([#9302](https://github.com/code-yeongyu/oh-my-openagent/pull/9302), [#9304](https://github.com/code-yeongyu/oh-my-openagent/pull/9304), [#9310](https://github.com/code-yeongyu/oh-my-openagent/pull/9310), [#9312](https://github.com/code-yeongyu/oh-my-openagent/pull/9312), [#9314](https://github.com/code-yeongyu/oh-my-openagent/pull/9314), [#9315](https://github.com/code-yeongyu/oh-my-openagent/pull/9315), [#9316](https://github.com/code-yeongyu/oh-my-openagent/pull/9316), [#9317](https://github.com/code-yeongyu/oh-my-openagent/pull/9317), [#9318](https://github.com/code-yeongyu/oh-my-openagent/pull/9318), [#9319](https://github.com/code-yeongyu/oh-my-openagent/pull/9319), [#9321](https://github.com/code-yeongyu/oh-my-openagent/pull/9321))
+
+### Fixed
+
+On macOS, an install downloaded from the web trusts the computer-use engine shipped inside its own app when the engine sits inside the install and matches the checksums shipped beside it. Before, the download quarantine made that engine look untrusted. Any other quarantined engine is still refused. ([#9283](https://github.com/code-yeongyu/oh-my-openagent/issues/9283), [#9301](https://github.com/code-yeongyu/oh-my-openagent/pull/9301))
+
+When computer use is missing the Screen Recording or Accessibility grant, it opens that System Settings pane once, names the app to enable, and tells you to quit and relaunch it. A denied Accessibility listener now reads as a permission problem instead of "supervisor not live". ([#9284](https://github.com/code-yeongyu/oh-my-openagent/issues/9284), [#9309](https://github.com/code-yeongyu/oh-my-openagent/pull/9309))
+
+On Windows set to a language other than English, unpacking a download no longer fails when `tar` lists month names outside ASCII. Thanks to @willowite for the report, the reproduction and the fix. ([#9289](https://github.com/code-yeongyu/oh-my-openagent/issues/9289), [#9303](https://github.com/code-yeongyu/oh-my-openagent/pull/9303))
+
+Editing a file with no extension, such as a shebang script or a `Makefile`, no longer returns "LSP errors detected ... please fix" when no language server covers it. Thanks to @MoerAI for the fix and @floweredao for the report. ([#9292](https://github.com/code-yeongyu/oh-my-openagent/issues/9292), [#9296](https://github.com/code-yeongyu/oh-my-openagent/pull/9296))
+
+Your home folder no longer counts as a project by itself, so a dotfiles `.git` or a stray `~/package.json` stops the language-server install prompt from firing for every file in it. A project with its own marker inside your home folder still counts. Thanks to @MoerAI. ([#9227](https://github.com/code-yeongyu/oh-my-openagent/issues/9227), [#9297](https://github.com/code-yeongyu/oh-my-openagent/pull/9297))
+
+On OpenCode, picking a non-GPT model for Hephaestus fails with an error saying Hephaestus needs a GPT model, instead of an opaque `UnknownError`. Thanks to @RaviTharuma. ([#7704](https://github.com/code-yeongyu/oh-my-openagent/issues/7704), [#7707](https://github.com/code-yeongyu/oh-my-openagent/pull/7707))
+
+On OpenCode, `opencode run --agent sisyphus` and the other original config keys pick that agent again after display names are applied. A category or an unknown name passed to `--agent` fails with a clear error instead of quietly running the default agent. Thanks to @RaviTharuma. ([#7701](https://github.com/code-yeongyu/oh-my-openagent/issues/7701), [#7703](https://github.com/code-yeongyu/oh-my-openagent/issues/7703), [#7708](https://github.com/code-yeongyu/oh-my-openagent/pull/7708))
+
+On OpenCode, ordinary chat no longer turns into a goal, and a message containing pause, resume or clear leaves your goal alone. A prompt longer than 2,000 characters no longer fails with `InvalidObjectiveError`. Goals change only through an explicit `/goal` command, or from your first message when `default_mode.goal` is on. Thanks to @RaviTharuma for the fix and @Cle2ment for the report. ([#6391](https://github.com/code-yeongyu/oh-my-openagent/issues/6391), [#7979](https://github.com/code-yeongyu/oh-my-openagent/pull/7979))
+
+On Codex, updating removes the retired `features.child_agents_md` setting that Codex 0.156 rejects at startup, and the bundled rules no longer mention it. Thanks to @LilMGenius. ([#8693](https://github.com/code-yeongyu/oh-my-openagent/pull/8693))
+
+On Codex, the spawn examples in the bundled Hephaestus rule name their `agent_type`, so a session that follows them spawns its subagents instead of being blocked by the spawn guard. Thanks to @LilMGenius. ([#8298](https://github.com/code-yeongyu/oh-my-openagent/pull/8298))
+
 ## [5.1.6] - 2026-09-30
 
 **Hotfix: reopening a session with an unanswerable question no longer crashes the TUI.** ([#9268](https://github.com/code-yeongyu/oh-my-openagent/issues/9268)) When a session was resumed with a pending question whose saved arguments no longer formed a valid question set, the question widget showed "0 unanswered" and crashed with `Cannot read properties of undefined (reading 'question')` as soon as you expanded it. The call now settles as lost in a restart, so the model learns the question is gone and can ask again, and clicking a widget whose questions all have answers submits them. Thanks to @copycatcode for the report. This release runs on the senpi 2026.9.30 engine.
