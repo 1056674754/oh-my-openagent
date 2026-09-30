@@ -1,3 +1,16 @@
+## 2026-09-30 - The standalone binary gate starts the binary from an empty download folder and runs a Windows leg (#7485)
+
+`native-binary-parity` (#9259) ran the binary where `build-omo-binary.ts` wrote it, and only on macOS, so the Windows
+release exe dying in its download folder (#7485, fixed by #9255) could not fail it. `script/qa/omo-native-parity-smoke.mjs`
+now copies the binary alone into an empty `download/` folder inside its sandbox before every binary run, on every leg.
+`--npm-omo` became optional: without it the script runs the binary session twice in the same sandbox (the first run
+provisions `~/.omo/binary-runtime/<version>/`, the second reuses it) and fails unless the `eval-js` and `pty-bash` steps
+succeed with no extension load failure (`binaryOnlyFailures` in `omo-native-parity-compare.mjs`). The job is now a
+matrix: `macos-15` keeps the binary/npm comparison, `windows-latest` builds the `x86_64-pc-windows-msvc` desktop
+engine and the windows-x64 binary and runs the binary-only pair. Windows has no `ps e`, so the sandbox reaper there
+lists processes whose executable or command line sits under the sandbox through `Win32_Process`. This replaces the
+standalone `windows-standalone-binary.yml` from #9260, so there is one binary gate, not two.
+
 ## 2026-09-30 - CI compares the standalone binary with the npm launcher (#9248 class)
 
 Every packaging check the binary build runs is self-referential. `build-omo-binary.ts` compares Bun's embedded files

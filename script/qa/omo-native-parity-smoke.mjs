@@ -3,11 +3,11 @@
 // scripted session, omo doctor and omo setup --dry-run in isolated sandboxes, then fails on any
 // difference that is not an expected distribution line.
 import { spawn, spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
-import { compareRuns, normalizeText, PARITY_STEPS } from "./omo-native-parity-compare.mjs"
+import { basename, join, resolve } from "node:path"
+import { binaryOnlyFailures, compareRuns, normalizeText, PARITY_STEPS } from "./omo-native-parity-compare.mjs"
 import { parityProviderSource } from "./omo-native-parity-provider.mjs"
 
 const PNG_1X1 = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGP4z8DAwMDAxMDAAAAR8QIDrWHbdwAAAABJRU5ErkJggg=="
@@ -24,8 +24,8 @@ function parseArgs(argv) {
     else if (flag === "--evidence-dir") options.evidence = resolve(value)
     else throw new Error(`unknown flag ${flag}`)
   }
-  if (!options.binary || !options.npm) {
-    throw new Error("usage: bun script/qa/omo-native-parity-smoke.mjs --binary <omo binary> --npm-omo <omo launcher command> [--evidence-dir <dir>]")
+  if (!options.binary) {
+    throw new Error("usage: bun script/qa/omo-native-parity-smoke.mjs --binary <omo binary> [--npm-omo <omo launcher command>] [--evidence-dir <dir>]")
   }
   return options
 }
@@ -93,8 +93,18 @@ function resultText(message) {
   return message.content.map((part) => (part?.type === "text" ? part.text : `<${part?.type}>`)).join("\n")
 }
 
-async function collect(label, launcher, root, pageUrl) {
-  const dirs = sandbox(root, label)
+// A user runs a release binary from wherever it was downloaded, next to nothing it could read
+// beside itself (#7485), so the binary is copied alone into an empty folder before it runs.
+function downloadedCopy(binary, dirs) {
+  const download = join(dirs.base, "download")
+  mkdirSync(download, { recursive: true })
+  const copy = join(download, basename(binary))
+  copyFileSync(binary, copy)
+  return copy
+}
+
+async function collect(label, launcher, root, pageUrl, dirs = sandbox(root, label)) {
+  mkdirSync(dirs.sessions, { recursive: true })
   const log = join(dirs.base, "provider.jsonl")
   const stepsFile = join(dirs.base, "steps.json")
   writeFileSync(log, "")
@@ -128,6 +138,7 @@ async function collect(label, launcher, root, pageUrl) {
 // Hosts, LSP daemons and language servers a session starts detach from the launcher, so they are
 // found by the sandbox HOME in their environment (ps -E / ps e) and stopped before the sandbox goes.
 function reapSandbox(root) {
+  if (process.platform === "win32") return reapWindowsSandbox(root)
   const args = process.platform === "darwin" ? ["-A", "-E", "-ww", "-o", "pid=,command="] : ["-A", "-ww", "e", "-o", "pid=,command="]
   const roots = [root, realpathSync(root)]
   const listed = spawnSync("ps", args, { encoding: "utf8" }).stdout ?? ""
@@ -137,6 +148,20 @@ function reapSandbox(root) {
     .map((match) => Number(match[1]))
   for (const pid of pids) {
     try { process.kill(pid, "SIGKILL") } catch { /* already exited */ }
+  }
+  return pids.length
+}
+
+// Windows has no `ps e`: a process belongs to the sandbox when its executable (the binary's
+// provisioned runtime lives under the sandbox HOME) or its command line names the sandbox.
+function reapWindowsSandbox(root) {
+  const roots = [...new Set([root, realpathSync(root), realpathSync.native(root)])]
+  const filter = roots.map((path) => `$_.ExecutablePath -like '${path.replaceAll("'", "''")}*' -or $_.CommandLine -like '*${path.replaceAll("'", "''")}*'`).join(" -or ")
+  const script = `Get-CimInstance Win32_Process | Where-Object { ${filter} } | ForEach-Object { $_.ProcessId }`
+  const listed = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true }).stdout ?? ""
+  const pids = listed.split(/\r?\n/).map((line) => Number(line.trim())).filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid)
+  for (const pid of pids) {
+    try { process.kill(pid) } catch { /* already exited */ }
   }
   return pids.length
 }
@@ -155,7 +180,25 @@ async function main() {
   const server = await servePage()
   try {
     const pageUrl = `http://127.0.0.1:${server.address().port}/page`
-    const binary = await collect("binary", options.binary, root, pageUrl)
+    const binaryDirs = sandbox(root, "binary")
+    const downloaded = downloadedCopy(options.binary, binaryDirs)
+    const binary = await collect("binary", downloaded, root, pageUrl, binaryDirs)
+    if (options.npm === undefined) {
+      // The second run starts the same download against the runtime the first run provisioned.
+      const again = await collect("binary-again", downloaded, root, pageUrl, { ...binaryDirs, sessions: join(binaryDirs.base, "sessions-again") })
+      const failures = [...binaryOnlyFailures("first run", binary), ...binaryOnlyFailures("second run", again)]
+      if (options.evidence) {
+        mkdirSync(options.evidence, { recursive: true })
+        writeFileSync(join(options.evidence, "binary-runs.json"), JSON.stringify({ binary, again, failures }, null, 2))
+      }
+      if (failures.length > 0) {
+        process.stderr.write(`FAIL binary from a download folder: ${failures.length} failure(s)\n${failures.map((line) => `  - ${line}`).join("\n")}\n`)
+        process.exitCode = 1
+        return
+      }
+      process.stdout.write(`PASS binary from a download folder: first and second run, ${binary.tools.length} tools, eval and pty steps ok\n`)
+      return
+    }
     const npm = await collect("npm", options.npm, root, pageUrl)
     const differences = compareRuns(binary, npm)
     if (options.evidence) {
