@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, openSync, closeSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -48,23 +48,23 @@ describe("stable release engine launch", () => {
 			.toEqual({ version: "5.1.5", sha256: hash(secondBytes) });
 	});
 
-	it("replaces the executable atomically without changing the old open inode", async () => {
-		// Given a published file and a reader that already opened it.
+	it("replaces the executable atomically without changing the previous inode", async () => {
+		// Given a published file and a second name retaining its original inode.
 		const first = await launchDesktopEngine(options("5.1.4", Buffer.from("old")), (path) => path);
 		if (first.path === null) throw new Error("first launch failed");
-		const fd = openSync(first.path, "r");
+		const previous = join(root, "previous-engine");
+		linkSync(first.path, previous);
 		const inode = statSync(first.path).ino;
-		try {
-			// When another release is installed.
-			const second = await launchDesktopEngine(options("5.1.5", Buffer.from("new")), (path) => path);
 
-			// Then existing readers see the old complete file, new readers see the new one.
-			expect(second.path).toBe(first.path);
-			expect(readFileSync(fd, "utf8")).toBe("old");
-			expect(readFileSync(first.path, "utf8")).toBe("new");
-			expect(statSync(first.path).ino).not.toBe(inode);
-			expect(readdirSync(join(root, "installed", host)).filter((name) => name.startsWith(".engine-"))).toEqual([]);
-		} finally { closeSync(fd); }
+		// When another release is installed.
+		const second = await launchDesktopEngine(options("5.1.5", Buffer.from("new")), (path) => path);
+
+		// Then the previous inode stays intact; an in-place write would change both names.
+		expect(second.path).toBe(first.path);
+		expect(readFileSync(previous, "utf8")).toBe("old");
+		expect(readFileSync(first.path, "utf8")).toBe("new");
+		expect(statSync(first.path).ino).not.toBe(inode);
+		expect(readdirSync(join(root, "installed", host)).filter((name) => name.startsWith(".engine-"))).toEqual([]);
 	});
 
 	it("never promotes an ad-hoc release over the stable signed file", async () => {
@@ -123,11 +123,12 @@ describe("stable release engine launch", () => {
 		const directory = join(root, "stable");
 		const original = join(root, "original");
 		const replacement = join(root, "replacement");
-		writeFileSync(original, readFileSync("/usr/bin/true"), { mode: 0o755 });
-		writeFileSync(replacement, readFileSync("/usr/bin/false"), { mode: 0o755 });
-		// System platform signatures do not belong on relocated test executables.
-		for (const path of [original, replacement]) {
-			expect(spawnSync("/usr/bin/codesign", ["--force", "--sign", "-", path]).status).toBe(0);
+		for (const [status, path] of [original, replacement].entries()) {
+			const compiled = spawnSync("/usr/bin/cc", ["-x", "c", `-DEXIT_CODE=${status}`, "-o", path, "-"], {
+				input: "int main(void) { return EXIT_CODE; }\n",
+				encoding: "utf8",
+			});
+			expect(compiled.status, compiled.stderr).toBe(0);
 		}
 		const first = { path: original, sha256: engineSha256(original), version: "5.1.4", directory };
 		const competitor = `
@@ -147,7 +148,7 @@ describe("stable release engine launch", () => {
 			return { competitor: raced.stdout.trim(), executed: spawnSync(path) };
 		}, () => true);
 
-		// Then the first executes true, and a replacement after spawn can execute false.
+		// Then each native image returns its own compiled exit code.
 		expect(launched.value.executed).toMatchObject({ status: 0, signal: null });
 		expect(launched.value.competitor).toBe("locked");
 		const second = launchStableEngine({
