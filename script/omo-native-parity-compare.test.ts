@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { compareRuns, normalizeText, PARITY_STEPS } from "./qa/omo-native-parity-compare.mjs"
+import { binaryOnlyFailures, compareRuns, normalizeText, PARITY_STEPS } from "./qa/omo-native-parity-compare.mjs"
 
 function run(overrides: Partial<Parameters<typeof compareRuns>[0]> = {}) {
   const results = Object.fromEntries(PARITY_STEPS.map((step) => [step.id, { isError: false, text: `${step.id} ok` }]))
@@ -9,6 +9,7 @@ function run(overrides: Partial<Parameters<typeof compareRuns>[0]> = {}) {
     doctor: ["PASS extension: plugin/extensions/omo.js", "INFO Update: omo update", "WARN task categories: 0 of 10 usable"],
     setup: ["No OpenCode setup found", "  categories    0 of 10 usable with these providers"],
     extensionFailures: [],
+    exitCodes: { session: 0, doctor: 0, setup: 0 },
     ...overrides,
   }
 }
@@ -40,6 +41,16 @@ describe("binary/npm parity comparison", () => {
   test("#given an extension load failure on one side #when compared #then it is reported", () => {
     const binary = run({ extensionFailures: ["Warning: Failed to load extension codemode"] })
     expect(compareRuns(binary, run())).toEqual(["binary: Warning: Failed to load extension codemode"])
+  })
+
+  test("#given a binary-only run whose pty step fails and session exits non-zero #when checked #then both are failures", () => {
+    const broken = run({ exitCodes: { session: 1, doctor: 0, setup: 0 } })
+    broken.results["pty-bash"] = { isError: true, text: "@earendil-works/pi-pty package.json is missing a string version" }
+    expect(binaryOnlyFailures("first run", run())).toEqual([])
+    expect(binaryOnlyFailures("first run", broken)).toEqual([
+      "first run: session exited 1",
+      'first run: pty-bash failed "@earendil-works/pi-pty package.json is missing a string version"',
+    ])
   })
 
   test("#given sandbox paths and timings #when normalized #then they collapse to stable tokens", () => {

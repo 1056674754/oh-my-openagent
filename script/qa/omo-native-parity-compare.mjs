@@ -71,6 +71,23 @@ export function compareLines(label, binaryLines, npmLines) {
   return differences
 }
 
+// A leg with no npm launcher to compare against (the Windows runner) still has to prove that the
+// binary, started from an empty download folder, runs the engine: its eval and pty steps succeed and
+// no extension fails to load (#7485).
+export const BINARY_ONLY_REQUIRED_STEPS = ["eval-js", "pty-bash"]
+
+export function binaryOnlyFailures(label, run) {
+  const failures = []
+  if (run.exitCodes.session !== 0) failures.push(`${label}: session exited ${run.exitCodes.session}`)
+  for (const id of BINARY_ONLY_REQUIRED_STEPS) {
+    const result = run.results[id]
+    if (result === undefined) failures.push(`${label}: ${id} returned no result`)
+    else if (result.isError) failures.push(`${label}: ${id} failed "${result.text.slice(0, 200)}"`)
+  }
+  for (const warning of run.extensionFailures) failures.push(`${label}: ${warning}`)
+  return failures
+}
+
 export function compareRuns(binary, npm) {
   const differences = []
   const binaryTools = new Set(binary.tools)
