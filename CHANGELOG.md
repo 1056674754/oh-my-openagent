@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.6] - 2026-09-30
+
 **Hotfix: reopening a session with an unanswerable question no longer crashes the TUI.** ([#9268](https://github.com/code-yeongyu/oh-my-openagent/issues/9268)) When a session was resumed with a pending question whose saved arguments no longer formed a valid question set, the question widget showed "0 unanswered" and crashed with `Cannot read properties of undefined (reading 'question')` as soon as you expanded it. The call now settles as lost in a restart, so the model learns the question is gone and can ask again, and clicking a widget whose questions all have answers submits them. Thanks to @copycatcode for the report. This release runs on the senpi 2026.9.30 engine.
 
 ### Added
