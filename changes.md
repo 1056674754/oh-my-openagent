@@ -19,6 +19,15 @@ wording returns. Generated copies (`generated-directive.ts`, `directive-content.
 
 Windows `tar -tvf` output can localize the month column or emit replacement characters when decoded. The tar listing parser now accepts any non-whitespace month token instead of only ASCII word characters, while malformed lines still fail closed and entry path validation remains unchanged. Regression coverage includes ASCII, Cyrillic, replacement-character, and malformed month/listing cases. Thanks @willowite for the report, reproduction, fix, and cases.
 
+## 2026-09-30 - Verify quarantined desktop-engine sidecars inside the launcher install (#9283)
+
+The locator accepts a quarantined executable sidecar only when its canonical path stays inside the
+launcher's native/prebuilds directory and its SHA-256 matches the as-shipped checksum file there.
+Missing, invalid or duplicate checksum entries, digest mismatches and escaping symlinks retain the
+quarantine refusal. Other candidate sources and explicit engine paths remain refused. Release
+acquisition and installed-sidecar verification share the existing checksum grammar; cache paths are
+unchanged.
+
 ## 2026-09-30 - Adopt senpi 2026.9.30
 
 Every `@code-yeongyu/senpi` pin moves from 2026.9.29-5 to 2026.9.30: the root devDependency, `omo-native`, the `omo-senpi`
