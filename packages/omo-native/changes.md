@@ -1,3 +1,18 @@
+## 2026-09-30 - The standalone binary downloads Claude Code on the first anthropic-subscription turn (#9262)
+
+A release binary embeds no Claude Code executable, because the platform package's `claude` alone (226 MB on
+darwin-arm64) exceeds the 150 MB binary budget. With no `claude` on PATH, every anthropic-subscription turn failed with
+`Claude Code executable not found`, while an npm install gets it from the SDK's optional platform package. The build now
+stages `claude-code-pin.json` (`script/claude-code-pin.ts`): the platform package the engine's claude-agent-sdk pins,
+and its sha512 integrity from `bun.lock`. The new omo-senpi `claude-code` component reads that pin beside the
+provisioned runtime. On the first turn whose model is anthropic-subscription, it downloads that exact tarball
+(`acquire.ts`), checks the integrity, extracts only the executable into
+`<runtime>/claude-code/<package>/<version>/` with an atomic rename, and hands it to the engine through
+`CLAUDE_CODE_EXECUTABLE` before the turn starts. A notice is shown while it downloads. With no network, the error names
+the alternatives. An explicit `CLAUDE_CODE_EXECUTABLE` or `claude` on PATH wins and nothing is downloaded. An npm
+install has no pin, so the component does nothing there. `omo doctor` on the binary reports the executable
+(`claude-code-doctor.ts`): present, on PATH, overridden, or not downloaded yet.
+
 ## 2026-09-30 - The standalone binary reports and reaps its own stale engines (#9252 follow-up)
 
 `omo doctor --reap <pid>` on the standalone binary printed the regular report and reaped nothing, because the compiled
