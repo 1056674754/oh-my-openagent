@@ -349,7 +349,7 @@ describe("selectRecallCandidates automatic strategy", () => {
 describe("selectRecallCandidates with the hybrid strategy", () => {
   const HYBRID_OPTS = { ...BASE_OPTS, strategy: "hybrid" as const }
   const documents = [
-    doc("a/deploy.md", "Deployment", "deployment runbook"),
+    doc("a/deploy.md", "Redeploy", "redeploy runbook"),
     doc("b/tmux.md", "tmux", "tmux targeting"),
     doc("c/notes.md", "notes", "a long note that mentions tmux once among many other words"),
   ]
@@ -398,9 +398,9 @@ describe("selectRecallCandidates with the hybrid strategy", () => {
   })
 
   it("#given a bm25-only match tied with a substring-only match #when hybrid selects #then the bm25 rank breaks the tie before the path", () => {
-    // given: the inflected Korean term only bm25 finds, the English plural only substring finds
+    // given: the inflected Korean term only bm25 finds, the English in-word match only substring finds
     const pair = [
-      doc("a/tokens.md", "tokens", "tokens rotated weekly"),
+      doc("a/tokens.md", "subtokens", "subtokens rotated weekly"),
       doc("z/publish.md", "npm 퍼블리시 절차", "절차 문서"),
     ]
     const queries = ["퍼블리시할", "token"]

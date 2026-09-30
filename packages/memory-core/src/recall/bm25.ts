@@ -8,6 +8,7 @@
 // Approach adapted from birkin-mnemosyne (https://github.com/ashmoonori-afk/birkin-mnemosyne),
 // a zero-dependency BM25 memory store with Korean-aware bigram tokenization.
 
+import { stemEnglishToken } from "./english-stem"
 import type { RecallDocument } from "./provider"
 
 const K1 = 1.5
@@ -52,6 +53,11 @@ export function tokenizeRecallText(text: string): string[] {
   return tokens
 }
 
+/** Index and query terms: the tokens with English suffixes folded, so both sides meet on one form. */
+export function recallTerms(text: string): string[] {
+  return tokenizeRecallText(text).map(stemEnglishToken)
+}
+
 /**
  * One index per document array. RecallCorpusCache hands out the same array for as long as HEAD has
  * not moved, so the index is built once per corpus revision and a moved HEAD (a fresh array) drops it.
@@ -68,7 +74,7 @@ function indexFor(documents: readonly RecallDocument[]): RecallBm25Index {
   const documentFrequency = new Map<string, number>()
   for (const document of documents) {
     const frequencies = new Map<string, number>()
-    const tokens = tokenizeRecallText(`${document.description}\n${document.body}`)
+    const tokens = recallTerms(`${document.description}\n${document.body}`)
     for (const token of tokens) frequencies.set(token, (frequencies.get(token) ?? 0) + 1)
     for (const token of frequencies.keys()) documentFrequency.set(token, (documentFrequency.get(token) ?? 0) + 1)
     termFrequencies.push(frequencies)
@@ -93,7 +99,7 @@ export function rankRecallDocumentsBm25(
   documents: readonly RecallDocument[],
   queries: readonly string[],
 ): RankedRecallDocument[] {
-  const queryTerms = [...new Set(queries.flatMap(tokenizeRecallText))]
+  const queryTerms = [...new Set(queries.flatMap(recallTerms))]
   if (queryTerms.length === 0 || documents.length === 0) return []
 
   const index = indexFor(documents)
