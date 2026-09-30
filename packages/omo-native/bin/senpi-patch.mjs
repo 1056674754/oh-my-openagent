@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { createRequire } from "node:module"
 import { fileURLToPath } from "node:url"
-import { prepareInstalledEngine, writeEnginePreparedStamp } from "./lib/engine-prepare.js"
+import { prepareInstalledEngine, preparePluginLaunchSpec, writeEnginePreparedStamp } from "./lib/engine-prepare.js"
 
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const require = createRequire(join(packageRoot, "package.json"))
@@ -23,5 +23,6 @@ try {
   throw new Error("omo-ai: unable to resolve the installed @code-yeongyu/senpi package", { cause: error })
 }
 
+preparePluginLaunchSpec({ pluginRoot: join(packageRoot, "plugin") })
 prepareInstalledEngine(senpiRoot)
 writeEnginePreparedStamp(senpiRoot, JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")).version)
