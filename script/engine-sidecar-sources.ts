@@ -65,16 +65,38 @@ function readPackageDependencies(packageDir: string): readonly string[] {
   return Object.keys(dependencies).sort()
 }
 
+interface PackageIdentity {
+  readonly name: string
+  readonly version: string
+}
+
+function dependencyManifestPath(packageDir: string, dependencyName: string): string {
+  const packageRequire = createRequire(join(realpathSync(packageDir), "package.json"))
+  return packageRequire.resolve(`${dependencyName}/package.json`)
+}
+
+function readPackageIdentity(manifestPath: string): PackageIdentity {
+  const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"))
+  if (typeof manifest !== "object" || manifest === null) {
+    throw new Error(`package manifest is not an object: ${manifestPath}`)
+  }
+  const name = Reflect.get(manifest, "name")
+  const version = Reflect.get(manifest, "version")
+  if (typeof name !== "string" || typeof version !== "string") {
+    throw new Error(`package manifest has no string name and version: ${manifestPath}`)
+  }
+  return { name, version }
+}
+
 function packageDependencySources(
   packageDir: string,
   targetRoot: string,
   dependencyNames: readonly string[],
   ancestors: ReadonlySet<string>,
 ): SidecarSource[] {
-  const packageRequire = createRequire(join(realpathSync(packageDir), "package.json"))
   const sources: SidecarSource[] = []
   for (const dependencyName of dependencyNames) {
-    const dependencyManifest = packageRequire.resolve(`${dependencyName}/package.json`)
+    const dependencyManifest = dependencyManifestPath(packageDir, dependencyName)
     const dependencyDir = dirname(dependencyManifest)
     const realDependencyDir = realpathSync(dependencyDir)
     if (ancestors.has(realDependencyDir)) continue
@@ -90,10 +112,18 @@ function packageDependencySources(
   return sources
 }
 
-export function codemodeRuntimeDependencySources(codemodeDir: string): SidecarSource[] {
-  const hostDependencies = new Set(readPackageDependencies(senpiPackageDir))
+export function codemodeRuntimeDependencySources(
+  codemodeDir: string,
+  hostPackageDir = senpiPackageDir,
+): SidecarSource[] {
+  const hostDependencies = new Set(readPackageDependencies(hostPackageDir))
   const externalDependencies = readPackageDependencies(codemodeDir)
-    .filter((dependencyName) => !hostDependencies.has(dependencyName))
+    .filter((dependencyName) => {
+      if (!hostDependencies.has(dependencyName)) return true
+      const codemodeIdentity = readPackageIdentity(dependencyManifestPath(codemodeDir, dependencyName))
+      const hostIdentity = readPackageIdentity(dependencyManifestPath(hostPackageDir, dependencyName))
+      return codemodeIdentity.name !== hostIdentity.name || codemodeIdentity.version !== hostIdentity.version
+    })
   const targetRoot = "node_modules/@code-yeongyu/senpi-codemode"
   return packageDependencySources(
     codemodeDir,

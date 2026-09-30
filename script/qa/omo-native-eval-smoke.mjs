@@ -80,7 +80,10 @@ async function drive(binary, sandbox) {
       if (stdout.includes('"type":"agent_settled"')) child.stdin.end()
     })
     child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8") })
-    child.once("error", rejectRun)
+    child.once("error", (error) => {
+      clearTimeout(watchdog)
+      rejectRun(error)
+    })
     child.once("close", (code, signal) => {
       clearTimeout(watchdog)
       resolveRun({ code, signal })
