@@ -5,7 +5,7 @@
 
 import { createRequire } from "node:module"
 import { dirname, join, resolve } from "node:path"
-import { existsSync, realpathSync } from "node:fs"
+import { existsSync, readFileSync, realpathSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
@@ -52,6 +52,57 @@ export function resolvePackageDir(packageName: string): string | undefined {
   return packageJsonPath === undefined ? undefined : dirname(packageJsonPath)
 }
 
+function readPackageDependencies(packageDir: string): readonly string[] {
+  const manifest: unknown = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8"))
+  if (typeof manifest !== "object" || manifest === null) {
+    throw new Error(`package manifest is not an object: ${join(packageDir, "package.json")}`)
+  }
+  const dependencies = Reflect.get(manifest, "dependencies")
+  if (dependencies === undefined) return []
+  if (typeof dependencies !== "object" || dependencies === null || Array.isArray(dependencies)) {
+    throw new Error(`package manifest dependencies are not an object: ${join(packageDir, "package.json")}`)
+  }
+  return Object.keys(dependencies).sort()
+}
+
+function packageDependencySources(
+  packageDir: string,
+  targetRoot: string,
+  dependencyNames: readonly string[],
+  ancestors: ReadonlySet<string>,
+): SidecarSource[] {
+  const packageRequire = createRequire(join(realpathSync(packageDir), "package.json"))
+  const sources: SidecarSource[] = []
+  for (const dependencyName of dependencyNames) {
+    const dependencyManifest = packageRequire.resolve(`${dependencyName}/package.json`)
+    const dependencyDir = dirname(dependencyManifest)
+    const realDependencyDir = realpathSync(dependencyDir)
+    if (ancestors.has(realDependencyDir)) continue
+    const dependencyTarget = `${targetRoot}/node_modules/${dependencyName}`
+    sources.push({ from: dependencyDir, to: dependencyTarget, required: true })
+    sources.push(...packageDependencySources(
+      dependencyDir,
+      dependencyTarget,
+      readPackageDependencies(dependencyDir),
+      new Set([...ancestors, realDependencyDir]),
+    ))
+  }
+  return sources
+}
+
+export function codemodeRuntimeDependencySources(codemodeDir: string): SidecarSource[] {
+  const hostDependencies = new Set(readPackageDependencies(senpiPackageDir))
+  const externalDependencies = readPackageDependencies(codemodeDir)
+    .filter((dependencyName) => !hostDependencies.has(dependencyName))
+  const targetRoot = "node_modules/@code-yeongyu/senpi-codemode"
+  return packageDependencySources(
+    codemodeDir,
+    targetRoot,
+    externalDependencies,
+    new Set([realpathSync(codemodeDir)]),
+  )
+}
+
 /**
  * The jsdom-era engine (senpi <= 2026.9.13) pulls css-tree in through jsdom; a
  * linkedom-era engine (senpi#1666) ships none of the trio. The sidecar set follows
@@ -91,6 +142,7 @@ export function engineSidecarSources(): SidecarSource[] {
     to: "node_modules/@code-yeongyu/senpi-codemode",
     required: true,
   })
+  sources.push(...codemodeRuntimeDependencySources(codemodeDir))
   const photonDir = resolvePackageDir("@silvia-odwyer/photon-node")
   if (photonDir === undefined) {
     throw new Error("@silvia-odwyer/photon-node is not installed under the senpi package")

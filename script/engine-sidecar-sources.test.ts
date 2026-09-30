@@ -4,7 +4,7 @@ import { createRequire } from "node:module"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { RELEASE_BINARY_TARGETS, resolveExpectedSidecarRelPaths } from "./build-omo-binary"
-import { engineSidecarSources } from "./engine-sidecar-sources"
+import { codemodeRuntimeDependencySources, engineSidecarSources } from "./engine-sidecar-sources"
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, "..")
@@ -42,6 +42,52 @@ describe("sidecar parity set", () => {
       const installed = engineResolves(packageName)
       expect(sources.some((source) => source.to === `node_modules/${packageName}`)).toBe(installed)
       expect(relPaths.includes(`node_modules/${packageName}/package.json`)).toBe(installed)
+    }
+  })
+
+  test("#given codemode's manifest #when runtime dependencies are resolved #then only dependencies absent from the engine host are nested transitively", () => {
+    // given
+    const codemode = installedSenpiRequire.resolve("@code-yeongyu/senpi-codemode/package.json")
+
+    // when
+    const destinations = codemodeRuntimeDependencySources(dirname(codemode))
+      .map((source) => source.to)
+
+    // then
+    const parser = "node_modules/@code-yeongyu/senpi-codemode/node_modules/@babel/parser"
+    const types = `${parser}/node_modules/@babel/types`
+    expect(destinations).toContain(parser)
+    expect(destinations).toContain(types)
+    expect(destinations).toContain(`${types}/node_modules/@babel/helper-string-parser`)
+    expect(destinations).toContain(`${types}/node_modules/@babel/helper-validator-identifier`)
+    expect(destinations.some((path) => path.includes("@earendil-works/pi-ai"))).toBe(false)
+    expect(destinations.some((path) => path.endsWith("/typebox"))).toBe(false)
+  })
+
+  test("#given every release target #when its sidecar manifest is resolved #then each OS carries codemode's full external runtime closure", () => {
+    // given
+    const required = [
+      "node_modules/@code-yeongyu/senpi-codemode/node_modules/@babel/parser/lib/index.js",
+      "node_modules/@code-yeongyu/senpi-codemode/node_modules/@babel/parser/node_modules/@babel/types/package.json",
+      "node_modules/@code-yeongyu/senpi-codemode/node_modules/@babel/parser/node_modules/@babel/types/node_modules/@babel/helper-string-parser/package.json",
+      "node_modules/@code-yeongyu/senpi-codemode/node_modules/@babel/parser/node_modules/@babel/types/node_modules/@babel/helper-validator-identifier/package.json",
+    ]
+
+    // when
+    const manifests = RELEASE_BINARY_TARGETS.map((target) => ({
+      os: target.os,
+      target: target.target,
+      files: new Set(resolveExpectedSidecarRelPaths(target)),
+    }))
+
+    // then
+    expect(new Set(manifests.map((manifest) => manifest.os))).toEqual(
+      new Set(["darwin", "linux", "windows"]),
+    )
+    for (const manifest of manifests) {
+      for (const path of required) {
+        expect(manifest.files.has(path), `${manifest.target} is missing ${path}`).toBe(true)
+      }
     }
   })
 })
