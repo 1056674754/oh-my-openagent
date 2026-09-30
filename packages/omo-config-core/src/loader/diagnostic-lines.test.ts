@@ -54,6 +54,17 @@ describe("omoConfigDiagnosticLines", () => {
   test("#given paths inside and outside the home directory #when displaying them #then only the ones under home become ~-relative", () => {
     expect(displayOmoConfigPath("/home/user/.omo/omo.jsonc", "/home/user/")).toBe("~/.omo/omo.jsonc")
     expect(displayOmoConfigPath("/home/username/.omo/omo.jsonc", "/home/user")).toBe("/home/username/.omo/omo.jsonc")
-    expect(displayOmoConfigPath("C:\\Users\\me\\.omo\\omo.jsonc", "C:\\Users\\me")).toBe("~\\.omo\\omo.jsonc")
+    expect(displayOmoConfigPath("C:\\Users\\me\\.omo\\omo.jsonc", "C:\\Users\\me")).toBe("~/.omo/omo.jsonc")
+  })
+
+  test("#given a Windows home with backslashes #when displaying a path under it #then the part after ~ uses forward slashes, like on POSIX", () => {
+    expect(displayOmoConfigPath("C:\\Users\\me\\.omo\\omo.jsonc", "C:\\Users\\me\\")).toBe("~/.omo/omo.jsonc")
+    expect(displayOmoConfigPath("C:\\Users\\me\\.omo\\profiles\\work.jsonc", "C:\\Users\\me")).toBe("~/.omo/profiles/work.jsonc")
+    expect(displayOmoConfigPath("C:\\Users\\me", "C:\\Users\\me")).toBe("~")
+    expect(displayOmoConfigPath("D:\\work\\omo.jsonc", "C:\\Users\\me")).toBe("D:\\work\\omo.jsonc")
+    expect(omoConfigDiagnosticLines(
+      [{ kind: "invalid-value", path: "C:\\Users\\me\\.omo\\omo.jsonc", issuePaths: ["task.host_engine_policy"] }] as never,
+      { homeDir: "C:\\Users\\me" },
+    )).toEqual(["config: ~/.omo/omo.jsonc: task.host_engine_policy ignored (invalid value)"])
   })
 })

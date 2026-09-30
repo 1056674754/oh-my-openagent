@@ -1,13 +1,17 @@
 import { MERGED_OMO_CONFIG_PATH, type OmoConfigDiagnostic } from "./types"
 
-/** A config path as a doctor shows it: home-relative (`~/.omo/omo.jsonc`) when it lives under `homeDir`. */
+/**
+ * A config path as a doctor shows it: home-relative (`~/.omo/omo.jsonc`) when it lives under `homeDir`.
+ * The part after `~` always uses forward slashes, so a warning reads the same on every platform.
+ * A path outside the home directory keeps its native form.
+ */
 export function displayOmoConfigPath(path: string, homeDir: string | undefined): string {
   if (path === MERGED_OMO_CONFIG_PATH) return "merged config"
   if (homeDir === undefined || homeDir.length === 0) return path
   const home = homeDir.replace(/[\\/]+$/, "")
   if (path === home) return "~"
   const rest = path.slice(home.length)
-  return path.startsWith(home) && (rest.startsWith("/") || rest.startsWith("\\")) ? `~${rest}` : path
+  return path.startsWith(home) && (rest.startsWith("/") || rest.startsWith("\\")) ? `~${rest.replaceAll("\\", "/")}` : path
 }
 
 function notLoadedReason(diagnostic: OmoConfigDiagnostic): string {
