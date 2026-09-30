@@ -35,7 +35,7 @@ describe("tool capture registry", () => {
     expect(pi.tools).toHaveLength(4)
   })
 
-  it("#given captured tools #when filtered for a child #then lsp tools remain but the task/team family is excluded", () => {
+  it("#given captured tools #when filtered for a child #then lsp and process-child task tools remain", () => {
     const pi = new FakeExtensionAPI()
     const registry = installToolCaptureRegistry(pi)
     pi.registerTool(fakeTool("lsp_diagnostics"))
@@ -45,7 +45,7 @@ describe("tool capture registry", () => {
 
     const shared = filterSharedParentTools(registry.getCapturedTools())
 
-    expect(shared.map((tool) => tool.name)).toEqual(["lsp_diagnostics"])
+    expect(shared.map((tool) => tool.name)).toEqual(["lsp_diagnostics", "task", "task_output", "task_send"])
     expect(shared.every((tool) => typeof tool.execute === "function")).toBe(true)
   })
 

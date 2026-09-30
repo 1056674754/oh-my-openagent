@@ -69,7 +69,7 @@ describe("InProcessRunner", () => {
     expect(handle.lastAssistantText()).toBe("final answer")
   })
 
-  test("#given shared and member-scoped tools #when a child is started #then only member-scoped tools cross the family exclusion", async () => {
+  test("#given shared and member-scoped task tools #when a child is started #then both match the process-child surface", async () => {
     let captured: CreateAgentSessionOptions | undefined
     const fake = createFakeSession()
     const runner = new InProcessRunner({
@@ -86,7 +86,7 @@ describe("InProcessRunner", () => {
     await handle.waitForIdle()
 
     const names = (captured?.customTools ?? []).map((tool) => tool.name)
-    expect(names).toEqual(["grep", "task_send"])
+    expect(names).toEqual(["grep", "task_create", "task_send"])
     for (const tool of captured?.customTools ?? []) {
       expect(typeof tool.execute).toBe("function")
     }
