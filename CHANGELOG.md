@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.5] - 2026-09-30
+
 **Big thanks to [@ashmoonori-afk](https://github.com/ashmoonori-afk), whose [#9209](https://github.com/code-yeongyu/oh-my-openagent/pull/9209) teaches memory recall to find Korean, Japanese and Chinese notes and to pick the right note out of a big memory.**
 
 **Hotfix: `eval` works again in the standalone `omo` binary.** ([#9248](https://github.com/code-yeongyu/oh-my-openagent/issues/9248), [#9250](https://github.com/code-yeongyu/oh-my-openagent/pull/9250)) The 5.1.3 and 5.1.4 binaries from GitHub Releases and get.omo.dev left out `@babel/parser`, which the `eval` tool loads, so JavaScript and Python `eval` were missing on every OS; npm and bun installs were fine. Each release now refuses a binary in which `eval` does not register and run.
