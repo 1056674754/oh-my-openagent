@@ -55,6 +55,16 @@ afterEach(() => {
 });
 
 describe("locateDesktopEngine", () => {
+	it.each(["linux", "win32"])("reports no release asset on an empty %s-arm64 installation", (platform) => {
+		const result = locateDesktopEngine({
+			platform, arch: "arm64", execDir: layout.execDir, packageDir: layout.packageDir,
+			repoRoot: layout.repoRoot, runtimeDir: "", isQuarantined: () => false,
+		});
+		expect(result.diagnostic).toMatchObject({
+			code: "native-unavailable", host: `${platform}-arm64`, reason: "no-release-asset",
+		});
+	});
+
 	it("uses OMO_PACKAGE_DIR before a compiled sidecar without an explicit runtime directory", () => {
 		vi.stubEnv("OMO_PACKAGE_DIR", layout.runtimeDir);
 		placeEngine(layout.extracted);

@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { desktopEngineReleaseAssetName } from "./release-assets";
 
 export const DESKTOP_ENGINE_BINARY = "senpi-desktop-engine";
 export const QUARANTINE_ATTRIBUTE = "com.apple.quarantine";
@@ -15,6 +16,7 @@ export interface DesktopEngineLocateDiagnostic {
 	readonly attemptedPaths: readonly string[];
 	readonly message: string;
 	readonly cause: string;
+	readonly reason?: "no-release-asset";
 }
 
 export type DesktopEngineLocation =
@@ -135,11 +137,15 @@ export function locateDesktopEngine(options: DesktopEngineLocatorOptions = {}): 
 	}
 
 	const code = quarantinedPaths.length > 0 ? "quarantined" : "native-unavailable";
+	const reason = causes.every((cause) => cause.endsWith(": missing")) && desktopEngineReleaseAssetName(host) === null
+		? "no-release-asset" : undefined;
 	const message =
 		code === "quarantined"
 			? `The ${DESKTOP_ENGINE_BINARY} binary for ${host} is quarantined by macOS Gatekeeper: ${quarantinedPaths.join(", ")}.`
-			: `No ${DESKTOP_ENGINE_BINARY} binary is available for ${host}.`;
-	return { path: null, diagnostic: { code, host, attemptedPaths, message, cause: causes.join("; ") } };
+			: reason === "no-release-asset"
+				? `No senpi-desktop-engine is built for ${host}; computer use is unavailable on this host.`
+				: `No ${DESKTOP_ENGINE_BINARY} binary is available for ${host}.`;
+	return { path: null, diagnostic: { code, host, attemptedPaths, message, cause: causes.join("; "), ...(reason === undefined ? {} : { reason }) } };
 }
 
 /**

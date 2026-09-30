@@ -36,6 +36,7 @@ export const COMPUTER_USE_COMPONENT_NAME = "computer-use"
 export const COMPUTER_UNAVAILABLE = "Computer use is unavailable in this session."
 
 interface CommandContext extends ComputerHostContext {
+  readonly hasUI: boolean
   readonly ui: { notify(message: string, level: "info" | "warning" | "error"): void }
 }
 
@@ -72,16 +73,6 @@ function hostApi(pi: SenpiExtensionAPI): ComputerHostApi | undefined {
 
 function defaultLoadSettings(cwd: string, platform: string): ComputerSettings {
   return resolveOmoComputerSettings(loadSenpiOmoConfig({ cwd }).config.computer, platform)
-}
-
-function skillStatusLine(skill: ContributedSkill | undefined): string {
-  if (skill?.kind !== "yielded") return ""
-  const where = skill.ownerPath === undefined ? "" : ` (${skill.ownerPath})`
-  return `\nskill: your own ${COMPUTER_SKILL_NAME} skill is active in place of the built-in guide${where}`
-}
-
-function isStatus(args: string): boolean {
-  return (args.trim().toLowerCase() || "status") === "status"
 }
 
 function toolActivatedNames(payload: unknown): readonly string[] {
@@ -195,15 +186,15 @@ export function createComputerUseComponent(options: ComputerUseComponentOptions 
                 backend: state.backend,
               })
             }
-            if (!isStatus(args)) {
+            if (command !== "status") {
               commandCtx.ui.notify(text, text === COMPUTER_COMMAND_USAGE ? "warning" : "info")
               return
             }
             const prelude = available.host.getActiveTools().includes(COMPUTER_TOOL_NAME) ? "active" : "inactive"
-            commandCtx.ui.notify(
-              `${text}\nengine: ${service.engineState}\nprelude: ${prelude}${skillStatusLine(state.skill)}`,
-              "info",
-            )
+            const { describeEngineSource, skillStatusLine } = await import("./engine-source")
+            const status = `${text}\nengine: ${service.engineState}${service.engineState === "not started" ? ` (${describeEngineSource(available.settings.enginePath, options.env ?? process.env, { platform })})` : ""}\nprelude: ${prelude}${skillStatusLine(state.skill)}`
+            commandCtx.ui.notify(status, "info")
+            if (commandCtx.hasUI === false) process.stderr.write(`${status}\n`)
           } catch (error) {
             if (!(error instanceof Error)) throw error
             commandCtx.ui.notify(`/computer ${args.trim()}: ${error.message}`, "error")

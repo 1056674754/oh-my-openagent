@@ -34,6 +34,38 @@ export type AcquiredDesktopEngine =
 	| { readonly path: string; readonly sha256?: string }
 	| { readonly path: null; readonly diagnostic: DesktopEngineLocateDiagnostic };
 
+/** Finds a verified, executable release-cache generation without acquiring or starting an engine. */
+export function findCachedDesktopEngine(
+	options: Pick<AcquireDesktopEngineOptions, "version" | "host" | "cacheDir">,
+): { readonly path: string; readonly sha256: string } | { readonly path: null; readonly attemptedPaths: readonly string[] } {
+	const { host, version } = options;
+	const asset = desktopEngineReleaseAssetName(host);
+	let attemptedPaths: readonly string[] = [];
+	if (asset === null) return { path: null, attemptedPaths };
+	const platform = host.slice(0, host.indexOf("-"));
+	const cacheRoot = options.cacheDir ?? join(homedir(), ".omo", "cache", "senpi-desktop-engine");
+	const hostDir = join(cacheRoot, version, host);
+	if (existsSync(hostDir)) {
+		for (const entry of readdirSync(hostDir)) {
+			const match = /^([0-9a-f]{64})-[0-9a-f-]{36}$/.exec(entry);
+			if (match === null) continue;
+			const cached = join(hostDir, entry, asset);
+			attemptedPaths = [...attemptedPaths, cached];
+			if (existsSync(cached)
+				&& createHash("sha256").update(readFileSync(cached)).digest("hex") === match[1]
+				&& !isQuarantinedFile(cached, platform)) {
+				try {
+					accessSync(cached, constants.X_OK);
+					return { path: cached, sha256: match[1] };
+				} catch (error) {
+					if (!(error instanceof Error && "code" in error)) throw error;
+				}
+			}
+		}
+	}
+	return { path: null, attemptedPaths };
+}
+
 /** Async release acquisition leaves the synchronous locator and enginePath override untouched. */
 export async function acquireDesktopEngine(options: AcquireDesktopEngineOptions): Promise<AcquiredDesktopEngine> {
 	const { host, version } = options;
@@ -76,30 +108,19 @@ export async function acquireDesktopEngine(options: AcquireDesktopEngineOptions)
 		if (located.diagnostic.code === "quarantined") return unavailable(located.diagnostic.cause);
 
 		const asset = desktopEngineReleaseAssetName(host);
-		if (asset === null) return unavailable(`No desktop engine release asset exists for ${host}.`);
+		if (asset === null) return { path: null, diagnostic: {
+			...located.diagnostic,
+			reason: "no-release-asset",
+			message: `No senpi-desktop-engine is built for ${host}; computer use is unavailable on this host.`,
+		} };
 		if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
 			return unavailable(`Invalid omo release version: ${version}`);
 		}
 		const cacheRoot = options.cacheDir ?? join(homedir(), ".omo", "cache", "senpi-desktop-engine");
 		const hostDir = join(cacheRoot, version, host);
-		if (existsSync(hostDir)) {
-			for (const entry of readdirSync(hostDir)) {
-				const match = /^([0-9a-f]{64})-[0-9a-f-]{36}$/.exec(entry);
-				if (match === null) continue;
-				const cached = join(hostDir, entry, asset);
-				attemptedPaths = [...attemptedPaths, cached];
-				if (existsSync(cached)
-					&& createHash("sha256").update(readFileSync(cached)).digest("hex") === match[1]
-					&& !isQuarantinedFile(cached, platform)) {
-					try {
-						accessSync(cached, constants.X_OK);
-						return { path: cached, sha256: match[1] };
-					} catch (error) {
-						if (!(error instanceof Error && "code" in error)) throw error;
-					}
-				}
-			}
-		}
+		const cached = findCachedDesktopEngine(options);
+		if (cached.path !== null) return cached;
+		attemptedPaths = [...attemptedPaths, ...cached.attemptedPaths];
 
 		if (options.allowDownload === false) return unavailable("No installed release engine");
 		const fetchRelease = options.fetch ?? globalThis.fetch;

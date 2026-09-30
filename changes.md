@@ -34,6 +34,10 @@ Explicit overrides, sidecars, development engines, unsigned builds and quarantin
 existing behavior; unsigned files never replace the permission-bearing release engine. Other platforms
 retain immutable release generations.
 
+## 2026-09-30 - Computer-use status and doctor report installed sources and unsupported hosts (#9286)
+
+`/computer status` describes the located engine or verified release cache without starting it, or names the release asset that first use would download. Headless print mode emits the same status on stderr instead of losing the UI notification. Doctor now probes verified cached engines without fetching and reports their source and permission labels. Empty unsupported hosts report that no engine is built instead of suggesting a download. The cache scan retains its existing layout, digest, quarantine and executable checks. The computer tool and guide require current-session capabilities before an availability claim.
+
 ## 2026-09-30 - The standalone binary gate starts the binary from an empty download folder and runs a Windows leg (#7485)
 
 `native-binary-parity` (#9259) ran the binary where `build-omo-binary.ts` wrote it, and only on macOS, so the Windows
