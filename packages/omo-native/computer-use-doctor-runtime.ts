@@ -1,9 +1,11 @@
 import { accessSync, constants, existsSync } from "node:fs"
-import { dirname, resolve } from "node:path"
+import { homedir } from "node:os"
+import { dirname, join, resolve } from "node:path"
 import { loadOmoConfig, type OmoConfigEnv } from "@oh-my-opencode/omo-config-core"
 import {
   getDesktopEngineHost,
   isQuarantinedFile,
+  launchDesktopEngine,
   locateDesktopEngine,
   type DesktopEngineLocateDiagnostic,
 } from "@oh-my-opencode/senpi-desktop-engine"
@@ -161,21 +163,43 @@ export async function computerUseDoctorReport(input: ComputerUseDoctorInput): Pr
   if (!settings.enabled) return { ...base, kind: "skipped", reason: "disabled" }
 
   const resolved = resolveEnginePath(input, settings.enginePath)
-  if ("notInstalled" in resolved) return { ...base, kind: "not-installed", attemptedPaths: resolved.notInstalled }
   if ("diagnostic" in resolved) return unavailable(base, resolved.diagnostic)
-  const probed = await probeComputerUseEngine(
-    resolved.path,
+  const probe = (path: string) => ({ probe: probeComputerUseEngine(
+    path,
     input.env,
     input.timeoutMs ?? COMPUTER_USE_DOCTOR_TIMEOUT_MS,
     input.launchEngine,
-  )
+  ) })
+  const home = input.env.HOME ?? homedir()
+  const launched = settings.enginePath !== undefined && "path" in resolved
+    ? { path: resolved.path, value: probe(resolved.path) }
+    : await launchDesktopEngine({
+      version: input.version,
+      host,
+      allowDownload: false,
+      cacheDir: join(home, ".omo", "cache", "senpi-desktop-engine"),
+      installDir: join(home, ".omo", "engines", "senpi-desktop-engine"),
+      locatorOptions: {
+        platform, arch,
+        runtimeDir: input.env.OMO_PACKAGE_DIR ?? "",
+        execDir: dirname(process.execPath),
+        packageDir: resolve(input.packageRoot, "..", "senpi-desktop-engine"),
+        repoRoot: resolve(input.packageRoot, "..", ".."),
+      },
+    }, probe)
+  if (launched.path === null) {
+    return "notInstalled" in resolved
+      ? { ...base, kind: "not-installed", attemptedPaths: resolved.notInstalled }
+      : unavailable(base, launched.diagnostic)
+  }
+  const probed = await launched.value.probe
   if (!probed.ok) {
-    return { ...base, kind: "failed", enginePath: resolved.path, code: probed.code, message: probed.message }
+    return { ...base, kind: "failed", enginePath: launched.path, code: probed.code, message: probed.message }
   }
   return {
     ...base,
     kind: "ready",
-    enginePath: resolved.path,
+    enginePath: launched.path,
     hello: probed.value.hello,
     capabilities: probed.value.capabilities,
   }
