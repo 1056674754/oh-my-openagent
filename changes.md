@@ -15,6 +15,10 @@ wording returns. Generated copies (`generated-directive.ts`, `directive-content.
 `plugin/extensions/omo.js`) regenerated; `embed-directive.mjs --check` went RED on the edit and GREEN after regen, and
 `ultrawork-arming.test.ts` (packaged extension injects the directive) is the seam that fails on a stale bundle.
 
+## 2026-09-30 - Localized Windows tar month tokens parse during archive entry validation (#9289)
+
+Windows `tar -tvf` output can localize the month column or emit replacement characters when decoded. The tar listing parser now accepts any non-whitespace month token instead of only ASCII word characters, while malformed lines still fail closed and entry path validation remains unchanged. Regression coverage includes ASCII, Cyrillic, replacement-character, and malformed month/listing cases. Thanks @willowite for the report, reproduction, fix, and cases.
+
 ## 2026-09-30 - Verify quarantined desktop-engine sidecars inside the launcher install (#9283)
 
 The locator accepts a quarantined executable sidecar only when its canonical path stays inside the
