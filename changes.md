@@ -1,3 +1,28 @@
+## 2026-10-01 - ultrawork reuses evidence per target, spawns a new reviewer per round, and scopes defects to the blast radius (#9294)
+
+The directive's Constraints bullet ("own every defect met mid-run ... never deferred as a follow-up", from #7674)
+contradicted the engine's base prompt (a pre-existing bug is a follow-up) and the project's delivery rule (only defects
+inside the blast radius belong to this run), and the Codex variant still said "No drive-by refactors"; gate step 4 sent
+fixes back to the SAME reviewer while `review-work` and `ulw-execute` require a fresh one; "re-run the scenarios that
+increment could have affected" had no definition; and the rerun rule was stated three times. `SKILL.md`, `codex.md`,
+`default.md` (gate step only), the `ulw-loop` `add_subgoal` row and the `ulw-execute` discovered-work sentence now
+carry one scope rule (blast radius: request not delivered, regression this change introduces, invalid proof, failing test
+or stale doc of touched code; anything else becomes a tracked issue named in the final message), one rerun rule (evidence
+valid per target with commit and coverage recorded; rerun touched-file tests plus importers, their scenarios, and moved
+dependencies; one full pass before the final message) and a NEW reviewer per re-review (delta diff, cited blockers, at
+most twice). The memory line asks for every regression a check caught and each QA scenario with its invocation. No TDD
+wording returns. Generated copies (`generated-directive.ts`, `directive-content.ts`, `ulw-loop/directive.md`,
+`plugin/extensions/omo.js`) regenerated; `embed-directive.mjs --check` went RED on the edit and GREEN after regen, and
+`ultrawork-arming.test.ts` (packaged extension injects the directive) is the seam that fails on a stale bundle.
+
+## 2026-09-30 - Adopt senpi 2026.9.30
+
+Every `@code-yeongyu/senpi` pin moves from 2026.9.29-5 to 2026.9.30: the root devDependency, `omo-native`, the `omo-senpi`
+and `senpi-task` peer and dev pins (with their `@earendil-works/pi-tui` -> `@code-yeongyu/senpi-tui` aliases), the pin
+tests, the version comment in `provider-map.json` and the engine named in `senpi-task`'s category coverage test. The
+engine brings the ask-user resume crash fix (#9268), the `accept-edits` permission preset (senpi#2430), the chat prompt
+surface (senpi#2398) and the terminal control-endpoint answer fix the session gateway needs (senpi#2407).
+
 ## 2026-09-30 - Keep signed macOS computer-use engines at one path across updates (#9282)
 
 Signed release engines now launch from `~/.omo/engines/senpi-desktop-engine/<host>/senpi-desktop-engine`,
