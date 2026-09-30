@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Recommended prefers GPT-6.1 Sol over GPT-6 Sol.** ([senpi#2394](https://github.com/code-yeongyu/senpi/pull/2394)) With no `model_profile`, the GPT part of the Recommended ladder is now GPT-6 Astra (xhigh), then `gpt-6.1-sol` (medium) from your ChatGPT subscription or the OpenAI API, then `gpt-6-sol` (medium). GitHub Copilot and OpenCode Zen do not serve GPT-6.1 Sol, so on those providers Recommended still lands on GPT-6 Sol at medium as before. The Claude, Kimi and GLM rungs, the effort levels and the four lanes are unchanged.
 
+### Fixed
+
+**One bad config value no longer breaks neighboring model settings.** (Refs [#7676](https://github.com/code-yeongyu/oh-my-openagent/pull/7676)) Unsafe object keys such as `constructor`, `prototype` and `__proto__` are ignored and reported without crashing config validation or dropping valid siblings. A malformed OpenCode model field no longer stops other model aliases from resolving, and a wrong-typed legacy `maxTokens` value drops only that value instead of the category and its valid model.
+
 ## [5.1.4] - 2026-09-29
 
 ### Changed

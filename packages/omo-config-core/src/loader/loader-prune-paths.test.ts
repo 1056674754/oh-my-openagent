@@ -80,6 +80,22 @@ describe("loadOmoConfig prunes only the invalid path in every section", () => {
     expect(droppedKeys(result)).toEqual(["agents.oracle.temperature"])
   })
 
+  test("#given canonical max_tokens beside an invalid legacy maxTokens value #when loading #then keeps the category and reports the invalid legacy leaf", () => {
+    // given
+    const fixture = makeFixture()
+    writeUserConfig(fixture, {
+      categories: { quick: { model: "provider/quick", max_tokens: 4096, maxTokens: "bad" } },
+    })
+
+    // when
+    const result = load(fixture)
+
+    // then
+    expect(result.config.categories?.quick?.model).toBe("provider/quick")
+    expect(result.config.categories?.quick?.max_tokens).toBe(4096)
+    expect(droppedKeys(result)).toEqual(["categories.quick.maxTokens"])
+  })
+
   test("#given an invalid field inside an array element (teams.alpha.members[0].color) #when loading #then only that field is dropped and the element survives", () => {
     // given
     const fixture = makeFixture()

@@ -41,31 +41,40 @@ function unrecognizedKeyIssues(issues: readonly z.core.$ZodIssue[]): readonly Un
   )
 }
 
-/**
- * A layer carrying `__proto__`, `prototype`, or `constructor` is hostile input, not a stale key, so it
- * stays fail-closed (whole layer rejected) instead of being stripped and partially loaded, at ANY
- * depth: nesting hostile input under `agents.*`/`categories.*` leaves no unrecognized-key issue at
- * all, so pruning must never run before the tamper check.
- *
- * `prototype` and `constructor` arrive as own properties and surface here as unrecognized keys. A
- * JSON `"__proto__"` member does not: it is written THROUGH the prototype, so the schema sees only the
- * injected payload's inner keys, or nothing at all when a sub-schema rebuilds the object first. That
- * case is caught by `hasTamperedPrototype`, which runs on every layer before validation.
- */
-function hasUnsafeUnrecognizedKey(issues: readonly UnrecognizedKeyIssue[]): boolean {
-  return issues.some((issue) => issue.keys.some((key) => isUnsafeObjectKey(key)))
-}
-
-function hasTamperedPrototype(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some((entry) => hasTamperedPrototype(entry))
-  if (!isRecord(value)) return false
-  const prototype = Object.getPrototypeOf(value)
-  if (prototype !== Object.prototype && prototype !== null) return true
-  return Object.values(value).some((entry) => hasTamperedPrototype(entry))
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function sanitizeUnsafeKeys(
+  value: unknown,
+  path: readonly string[] = [],
+): { readonly issues: readonly UnrecognizedKeyIssue[]; readonly value: unknown } {
+  if (Array.isArray(value)) {
+    const issues: UnrecognizedKeyIssue[] = []
+    const sanitized = value.map((entry, index) => {
+      const nested = sanitizeUnsafeKeys(entry, [...path, String(index)])
+      issues.push(...nested.issues)
+      return nested.value
+    })
+    return { issues, value: sanitized }
+  }
+  if (!isRecord(value)) return { issues: [], value }
+
+  const issues: UnrecognizedKeyIssue[] = []
+  if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) {
+    issues.push({ keys: ["__proto__"], path })
+  }
+  const sanitized: Record<string, unknown> = {}
+  for (const [key, entry] of Object.entries(value)) {
+    if (isUnsafeObjectKey(key)) {
+      issues.push({ keys: [key], path })
+      continue
+    }
+    const nested = sanitizeUnsafeKeys(entry, [...path, key])
+    issues.push(...nested.issues)
+    sanitized[key] = nested.value
+  }
+  return { issues, value: sanitized }
 }
 
 /** The object an unrecognized-keys issue points at, walking through array elements (`teams.alpha.members.0`). */
@@ -118,27 +127,22 @@ const validateLayerRecord: PruneValidator = (record) => {
 }
 
 /**
- * Validate one parsed config file. Gate order on the failure path: (1) the prototype-pollution
- * guard stays fail-closed and is never pruned past; (2) unknown keys are stripped with one
- * `unknown-keys` diagnostic; (3) every remaining invalid value is pruned with its own
+ * Validate one parsed config file. Gate order: (1) unsafe own keys and prototype-tampered objects
+ * are rebuilt from safe own entries and reported like other unknown keys; (2) schema-unknown keys
+ * are stripped with the same `unknown-keys` diagnostic; (3) every remaining invalid value is pruned with its own
  * `invalid-value` diagnostic. A root that is not an object, an issue on the root, an exhausted
  * prune bound, or a file with nothing valid left rejects the file with its validation diagnostic.
  */
 export function validateConfigLayer(path: string, data: unknown): OmoConfigLayerValidation {
-  // The guard reads `data` directly: `toRecord` rebuilds only the root from its own enumerable
-  // properties, nested objects keep their prototype, and a valid layer (nothing for zod to report)
-  // would otherwise hand a tampered sub-object to every consumer of it.
-  if (hasTamperedPrototype(data)) {
-    return {
-      loaded: false,
-      diagnostics: [{ kind: "validation", message: `Invalid omo config at ${path}: "__proto__" member is not allowed`, path }],
-    }
-  }
-
-  const record = toRecord(data)
-  const validation = OmoConfigLayerSchema.safeParse(data)
+  const sanitized = sanitizeUnsafeKeys(data)
+  const record = toRecord(sanitized.value)
+  const unsafeIssuePaths = sanitized.issues.flatMap((issue) => issue.keys.map((key) => [...issue.path, key].join(".")))
+  const unsafeDiagnostics: OmoConfigDiagnostic[] = unsafeIssuePaths.length === 0
+    ? []
+    : [{ kind: "unknown-keys", message: `Ignored unknown keys in ${path}: ${unsafeIssuePaths.join(", ")}`, path, issuePaths: unsafeIssuePaths }]
+  const validation = OmoConfigLayerSchema.safeParse(sanitized.value)
   if (validation.success) {
-    if (record !== null) return { loaded: true, diagnostics: [], value: record }
+    if (record !== null) return { loaded: true, diagnostics: unsafeDiagnostics, value: record }
     return {
       loaded: false,
       diagnostics: [{ kind: "validation", message: `Invalid omo config at ${path}: root must be an object`, path }],
@@ -147,11 +151,11 @@ export function validateConfigLayer(path: string, data: unknown): OmoConfigLayer
 
   const rejected = { loaded: false, diagnostics: [validationDiagnostic(path, validation.error.issues)] } as const
   const unknownIssues = unrecognizedKeyIssues(validation.error.issues)
-  if (hasUnsafeUnrecognizedKey(unknownIssues) || record === null) return rejected
+  if (record === null) return rejected
 
   let candidate = record
   let issues: readonly z.core.$ZodIssue[] = validation.error.issues
-  const diagnostics: OmoConfigDiagnostic[] = []
+  const diagnostics: OmoConfigDiagnostic[] = [...unsafeDiagnostics]
   if (unknownIssues.length > 0) {
     const { issuePaths, stripped } = stripUnrecognizedKeys(record, unknownIssues)
     if (issuePaths.length > 0) {
