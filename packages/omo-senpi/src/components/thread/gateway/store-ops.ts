@@ -70,7 +70,7 @@ export type StoreContext = {
 const DELIVERY_COLUMNS = [
   "delivery_id", "target_durable_id", "seq", "sender", "sender_turn", "envelope", "body", "bytes", "mode_requested",
   "mode_effective", "expected_turn_id", "state", "reason", "admitted_by", "claimed_at", "attempt", "admission_kind",
-  "turn_epoch", "root_id", "hop", "created_at", "updated_at", "expires_at", "binding_id", "binding_revision",
+  "turn_epoch", "root_id", "hop", "created_at", "updated_at", "expires_at", "binding_id", "binding_revision", "actor_user_id",
 ] as const
 
 export const OPEN_STATES = "('queued', 'admitting', 'admitted')"
@@ -108,6 +108,7 @@ function rowFrom(record: SqlRow): DeliveryRow {
     expires_at: Number(record.expires_at),
     binding_id: record.binding_id === null ? null : String(record.binding_id),
     binding_revision: nullableNumber(record.binding_revision),
+    actor_user_id: record.actor_user_id === null ? null : String(record.actor_user_id),
   }
 }
 
@@ -232,7 +233,7 @@ function insertDelivery(ctx: StoreContext, row: DeliveryRow): void {
       row.delivery_id, row.target_durable_id, row.seq, row.sender, row.sender_turn, JSON.stringify(row.envelope), row.body, row.bytes,
       row.mode_requested, row.mode_effective, row.expected_turn_id, row.state, row.reason,
       row.admitted_by === null ? null : JSON.stringify(row.admitted_by), row.claimed_at, row.attempt, row.admission_kind,
-      row.turn_epoch, row.root_id, row.hop, row.created_at, row.updated_at, row.expires_at, row.binding_id, row.binding_revision,
+      row.turn_epoch, row.root_id, row.hop, row.created_at, row.updated_at, row.expires_at, row.binding_id, row.binding_revision, row.actor_user_id,
     ],
   )
 }
@@ -490,6 +491,7 @@ export async function enqueue(ctx: StoreContext, request: EnqueueRequest): Promi
       expires_at: Math.min(request.now + QUEUED_TTL_MS, binding.expires_at ?? Number.POSITIVE_INFINITY),
       binding_id: request.binding?.binding_id ?? null,
       binding_revision: request.binding?.revision ?? null,
+      actor_user_id: "external" in request.origin ? request.origin.external.author?.user_id ?? null : null,
     }
     insertDelivery(ctx, row)
     write(ctx, "INSERT INTO receipts (principal, operation, idempotency_key, args_hash, status, delivery_id, owner_instance, created_at, updated_at, expires_at) VALUES (?, 'deliver', ?, ?, 'prepared', ?, ?, ?, ?, ?)", [
@@ -844,6 +846,7 @@ export async function migrateLegacyMailboxes(ctx: StoreContext, now: number): Pr
           expires_at: now + QUEUED_TTL_MS,
           binding_id: null,
           binding_revision: null,
+          actor_user_id: null,
         })
         createMarker(ctx, item.target, deliveryId, true)
         count++
