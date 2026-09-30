@@ -1,3 +1,11 @@
+## 2026-09-30 - Adopt senpi 2026.9.30
+
+Every `@code-yeongyu/senpi` pin moves from 2026.9.29-5 to 2026.9.30: the root devDependency, `omo-native`, the `omo-senpi`
+and `senpi-task` peer and dev pins (with their `@earendil-works/pi-tui` -> `@code-yeongyu/senpi-tui` aliases), the pin
+tests, the version comment in `provider-map.json` and the engine named in `senpi-task`'s category coverage test. The
+engine brings the ask-user resume crash fix (#9268), the `accept-edits` permission preset (senpi#2430), the chat prompt
+surface (senpi#2398) and the terminal control-endpoint answer fix the session gateway needs (senpi#2407).
+
 ## 2026-09-30 - Keep signed macOS computer-use engines at one path across updates (#9282)
 
 Signed release engines now launch from `~/.omo/engines/senpi-desktop-engine/<host>/senpi-desktop-engine`,

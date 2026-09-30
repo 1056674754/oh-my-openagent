@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**Hotfix: reopening a session with an unanswerable question no longer crashes the TUI.** ([#9268](https://github.com/code-yeongyu/oh-my-openagent/issues/9268)) When a session was resumed with a pending question whose saved arguments no longer formed a valid question set, the question widget showed "0 unanswered" and crashed with `Cannot read properties of undefined (reading 'question')` as soon as you expanded it. The call now settles as lost in a restart, so the model learns the question is gone and can ask again, and clicking a widget whose questions all have answers submits them. Thanks to @copycatcode for the report. This release runs on the senpi 2026.9.30 engine.
+
+### Added
+
+A new `accept-edits` permission preset lets the agent read and edit files in the project without asking, while shell commands, paths outside the project and other tools still wait for your approval. ([senpi#2430](https://github.com/code-yeongyu/senpi/issues/2430))
+
+Chat bridges can ask the engine for a chat prompt surface, which drops the routing line, the handoff block and todo lines from replies meant for people in a conversation. Terminal and app prompts stay as they are. ([senpi#2398](https://github.com/code-yeongyu/senpi/issues/2398))
+
+### Changed
+
+The engine's recommended OpenAI model is GPT-6.1 Sol at medium, one slot below GPT-6 Astra. Models you listed yourself in `recommendedModels` stay as you set them. ([senpi#2390](https://github.com/code-yeongyu/senpi/issues/2390))
+
+### Fixed
+
+On a Claude subscription, a `write` or `edit` to a file outside the working directory runs once and returns one result. Before, Claude Code's own read check refused the call while the change still went through, so a retry could apply an edit twice. Thanks to @haamsuk-collab. ([senpi#2401](https://github.com/code-yeongyu/senpi/issues/2401))
+
+A running session keeps working through an update that changes how the engine's dependencies are laid out. Bash, monitor and `eval` used to fail with `ENOENT` until you restarted. The first launch after an update takes 2 to 3 seconds longer once while the engine copies its dependencies. ([senpi#2408](https://github.com/code-yeongyu/senpi/issues/2408), [senpi#2409](https://github.com/code-yeongyu/senpi/issues/2409))
+
+An answer sent to a terminal session's question through its control endpoint reaches the model with its text, and answering such a question no longer triggers the first-turn todo reminder. ([senpi#2407](https://github.com/code-yeongyu/senpi/issues/2407), [senpi#2419](https://github.com/code-yeongyu/senpi/issues/2419))
+
+The prompt-cache keep-alive pings in real sessions again, with the same tool list as the turn it keeps warm. Thanks to @MoerAI. ([senpi#2389](https://github.com/code-yeongyu/senpi/issues/2389))
+
+An `eval` cell's return value reaches the model whole up to the normal output budget instead of stopping after 768 bytes, and any output that is still cut says so. ([senpi#2402](https://github.com/code-yeongyu/senpi/issues/2402))
+
+On macOS, computer use keeps its Accessibility and Screen Recording permissions across updates, because the signed desktop engine now always runs from the same path. ([#9282](https://github.com/code-yeongyu/oh-my-openagent/issues/9282), [#9288](https://github.com/code-yeongyu/oh-my-openagent/pull/9288))
+
+On Windows, killing a running background task marks it as killed instead of reporting a crash. Thanks to @Dante-dan. ([#9228](https://github.com/code-yeongyu/oh-my-openagent/issues/9228), [#9233](https://github.com/code-yeongyu/oh-my-openagent/pull/9233))
+
 ## [5.1.5] - 2026-09-30
 
 **Big thanks to [@ashmoonori-afk](https://github.com/ashmoonori-afk), whose [#9209](https://github.com/code-yeongyu/oh-my-openagent/pull/9209) teaches memory recall to find Korean, Japanese and Chinese notes and to pick the right note out of a big memory.**
