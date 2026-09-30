@@ -1,3 +1,18 @@
+## 2026-09-30 - model-profile: Recommended leads its GPT-6 Sol slot with gpt-6.1-sol medium, gpt-6-sol behind it (senpi#2394)
+
+- `src/components/model-profile/builtin-profiles.ts`: `recommended` replaces its `gpt-6-sol` (medium) rung with
+  `gpt-6.1-sol` (medium) on `GPT_6_1_PROVIDERS` (`chatgpt-subscription|openai`), immediately followed by `gpt-6-sol`
+  (medium) on the shared `GPT_PROVIDERS` ranking, so Copilot and OpenCode Zen, which do not serve 6.1 Sol, still resolve
+  GPT-6 Sol. senpi#2394 makes the same switch in `RECOMMENDED_DEFAULT_MODELS`; OmO keeps the extra `gpt-6-sol` rung, and
+  the header comment says so. The lanes are unchanged. Telemetry already carries `gpt-6.1-sol` (#9214).
+- Tests: `builtin-profiles.test.ts` pins the seven-rung chain and the providers of both Sol rungs; `resolve.test.ts`
+  resolves `chatgpt-subscription/gpt-6.1-sol` medium when the subscription serves it next to `gpt-6-sol`, and
+  `github-copilot/gpt-6-sol` medium on a Copilot-only registry; `index.test.ts` applies both at session start.
+  `scripts/qa/model-profile-e2e-scenarios.mjs` adds `unset-gpt-6-1-sol` and `unset-copilot-gpt-6-sol`.
+- Docs: the Recommended ladder in `docs/guide/agent-model-matching.md`, `docs/guide/overview.md`,
+  `docs/guide/installation.md` and `docs/reference/omo-json.md`.
+- `plugin/extensions/` bundles regenerated on linux/amd64 (node 24, bun 1.4.2) for the chain change.
+
 ## 2026-09-30 - lsp: post-edit install nudges stay inside projects and appear once per server (#9223)
 
 - `components/lsp/post-edit-outcome.ts` (moved out of `index.ts`) turns a daemon `not_installed` availability into the structured post-edit outcome, carrying `serverId`, `installDecisionTool` and a recorded decision.
