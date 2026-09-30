@@ -25,6 +25,8 @@ ultrawork reuses QA and review evidence per target instead of rerunning everythi
 
 ### Fixed
 
+Piping the recommended installer to `sh` or `dash` now hands the script to Bash instead of failing on Bash syntax. If Bash is unavailable, the installer prints the exact `curl ... | bash` command to use and exits cleanly. ([#9325](https://github.com/code-yeongyu/oh-my-openagent/issues/9325))
+
 On a Claude subscription, a `write` or `edit` to a file outside the working directory runs once and returns one result. Before, Claude Code's own read check refused the call while the change still went through, so a retry could apply an edit twice. Thanks to @haamsuk-collab. ([senpi#2401](https://github.com/code-yeongyu/senpi/issues/2401))
 
 A running session keeps working through an update that changes how the engine's dependencies are laid out. Bash, monitor and `eval` used to fail with `ENOENT` until you restarted. The first launch after an update takes 2 to 3 seconds longer once while the engine copies its dependencies. ([senpi#2408](https://github.com/code-yeongyu/senpi/issues/2408), [senpi#2409](https://github.com/code-yeongyu/senpi/issues/2409))

@@ -1,3 +1,13 @@
+#!/bin/sh
+# Keep this wrapper POSIX-sh parseable: the Bash program is data until Bash reads the temp file.
+omo_bash="$(command -v bash 2>/dev/null || true)"
+if [ -z "$omo_bash" ]; then
+  printf '%s\n' 'omo installer: bash is required; run with: curl -fsSL https://get.omo.dev/install.sh | bash' >&2
+  exit 1
+fi
+omo_bash_script="$(mktemp "${TMPDIR:-/tmp}/omo-install-bash.XXXXXX")" || exit 1
+trap 'rm -f "$omo_bash_script"' EXIT HUP INT TERM
+cat >"$omo_bash_script" <<'OMO_INSTALL_BASH'
 #!/usr/bin/env bash
 # OmO native installer: curl -fsSL https://get.omo.dev/install.sh | bash [-s -- latest|beta|X.Y.Z]
 #   OMO_INSTALL_DIR        launcher directory (default ~/.local/bin)
@@ -198,3 +208,9 @@ main() {
 }
 
 main "$@"
+OMO_INSTALL_BASH
+"$omo_bash" "$omo_bash_script" "$@"
+omo_bash_status=$?
+rm -f "$omo_bash_script"
+trap - EXIT HUP INT TERM
+exit "$omo_bash_status"

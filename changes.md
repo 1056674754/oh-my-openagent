@@ -1,3 +1,7 @@
+## 2026-09-30 - The curl installer hands pipes from sh to Bash (#9325)
+
+`install.sh` keeps its Bash implementation, but its first block now parses as POSIX sh. When a user pipes the script to `sh` or `dash`, that block copies the unread body with the shell's own `read` builtin and runs it with Bash, preserving arguments. If Bash is unavailable, it exits before any Bash syntax is parsed and prints the single command that uses Bash explicitly. Direct `| bash` installs are unchanged. Tests run the preamble through `sh` and `dash`, prove the complete buffered body and arguments reach Bash, and retain a direct Bash syntax check.
+
 ## 2026-10-01 - ultrawork reuses evidence per target, spawns a new reviewer per round, and scopes defects to the blast radius (#9294)
 
 The directive's Constraints bullet ("own every defect met mid-run ... never deferred as a follow-up", from #7674)
