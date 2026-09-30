@@ -12,6 +12,8 @@
 //   geeky-normal-api-sol / geeky-normal-copilot-sol  the gpt-5.6-sol medium fallback through the openai / github-copilot ids.
 //   unset            empty omo.json applies the recommended ladder (kimi-k3 on kimi-coding here).
 //   unset-skips-gateway  recommended never takes opengateway's vendor-prefixed Opus; kimi-k3 wins.
+//   unset-gpt-6-1-sol / unset-copilot-gpt-6-sol  recommended's GPT rungs: gpt-6.1-sol medium on the
+//                    subscription next to gpt-6-sol, and the gpt-6-sol medium fallback on Copilot.
 //   empty-registry   Daily · Normal against only mock-1: unavailable, session keeps mock-1.
 //   literal-pin      model_profile "anthropic/claude-opus-5": that model id is applied.
 //   unknown-profile / capable-removed / deep-work-removed / simple-work-removed

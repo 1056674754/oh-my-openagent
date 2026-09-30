@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+**Memory recall finds Korean, Chinese and Japanese memories, and scales to large memory repositories, with nothing to configure.** Recall now picks how it ranks the memories it offers the Kibitzer. English conversations over an English memory of fewer than 200 notes keep today's verbatim matching, so their candidates are unchanged. When the terms recall plans from the conversation (including terms taken from tool arguments) contain Korean, Chinese or Japanese text, or at least a tenth of the letters in your notes are, candidates are scored by word rarity with the text split into two-character pieces, so a question like `퍼블리시할 때 토큰 어디 있어` finds a note about `퍼블리시` that verbatim matching misses. From 200 notes on, both rankings are combined so a memory either one finds can still reach the sidecar, which keeps deciding what is worth a nudge, and the note that matches an English phrase from the conversation word for word keeps the first place it holds today. Word-rarity scoring treats common English endings as one word, so `rollback` still finds a note that says `rollbacks`. `bun packages/omo-senpi/scripts/qa/recall-ranker-bench.mjs` measures each choice on a bundled synthetic corpus. The approach comes from [birkin-mnemosyne](https://github.com/ashmoonori-afk/birkin-mnemosyne).
+
+### Changed
+
+**Recommended prefers GPT-6.1 Sol over GPT-6 Sol.** ([senpi#2394](https://github.com/code-yeongyu/senpi/pull/2394)) With no `model_profile`, the GPT part of the Recommended ladder is now GPT-6 Astra (xhigh), then `gpt-6.1-sol` (medium) from your ChatGPT subscription or the OpenAI API, then `gpt-6-sol` (medium). GitHub Copilot and OpenCode Zen do not serve GPT-6.1 Sol, so on those providers Recommended still lands on GPT-6 Sol at medium as before. The Claude, Kimi and GLM rungs, the effort levels and the four lanes are unchanged.
+
 ## [5.1.4] - 2026-09-29
 
 ### Changed

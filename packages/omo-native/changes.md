@@ -48,6 +48,18 @@ of `omo doctor` and the engine's update hint keep the unpinned channel spec.
 
 `bin/lib/launcher.js` writes the interactive version banner, the `sibling credentials detected` hint and the `carried forward settings from the legacy ~/.omo layout` notice with `process.stderr.write` instead of `console.error`, and `compile-entry.ts` does the same for `compiledBannerLines`. Under Bun, `console.error` wraps every line in ANSI red on a color terminal, so a healthy start looked like a failure. The lines stay on stderr with the same text; real error lines (`could not adopt legacy state`, the `ulw-loop` refusal) keep `console.error`. Measured on a PTY with `FORCE_COLOR=1` and the pinned engine: dev printed `\e[0m\e[31momo (omo-ai 5.1.2)\e[0m`, this change prints `omo (omo-ai 5.1.2)`, and the color-stripped `omo --help` output is byte-identical (228 lines, exit 0). `test/launcher-banner-color.test.ts` fails on dev and passes here. Contributed by @cynkai.
 
+## 2026-09-29 - `omo daemon` reads its settings through the omo config loader (#9192)
+
+`bin/lib/daemon-config.js` resolves `task.host_engine_policy` and `task.host_idle_exit_ms` (the only two keys `omo daemon`
+reads) through omo-config-core's `loadOmoConfig` (JSONC, `~/.omo/omo.jsonc` or `~/.omo/omo.json` plus project `.omo`
+layers, the same view and precedence the extension's task runner reads), reached from the plain-JS launcher through the new
+staged `plugin/runtime/task-config/index.js` bundle (`task-config-entry.ts`, built by `script/build-omo-native.ts` and
+required by the payload gate). A value set in the documented file is no longer ignored. `<agentDir>/omo.json` is the
+deprecated fallback per key: it supplies a key only when no config layer sets it, and then `omo doctor` prints one
+`WARN task.<key>: read from deprecated <path>; ...` line. The advice never changes behavior when followed: a legacy
+`"never"` policy is told to pass `--no-upgrade` (the config key accepts only `upgrade|fallback`), every other value to move
+to `~/.omo/omo.jsonc`. `--no-upgrade` still wins. A payload without the runtime reads only the legacy file, as before.
+
 ## 2026-09-29 - `omo doctor` names the active config dir and flags edits left in ~/.pi/agent (#9173)
 
 `bin/lib/doctor-pi-config.js` adds two kinds of lines to both doctor paths (`bin/lib/doctor.js` and the compiled

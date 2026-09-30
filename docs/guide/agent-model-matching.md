@@ -17,7 +17,7 @@ The main agent thinks with your session model. The easiest way to choose it is a
 | Geeky · Normal | `geeky-normal` | Works on one task and thinks it through. | `chatgpt-subscription\|openai/gpt-6.1-sol (medium)` -> `chatgpt-subscription\|openai\|github-copilot\|opencode/gpt-5.6-sol (medium)` |
 | Geeky · Heavy | `geeky-heavy` | Works on one task and thinks it over from every side. | `chatgpt-subscription\|openai\|github-copilot\|opencode/gpt-6-astra (xhigh)` |
 
-With no `model_profile` at all, a fresh desktop or headless session runs **Recommended** (`recommended`), which is not a lane: `claude-opus-5-5` (medium) -> `claude-fable-5-1` (xhigh) -> `kimi-k3` (max) -> `gpt-6-astra` (xhigh) -> `gpt-6-sol` (medium) -> `glm-5.3` (max), each rung served only by its ranked providers (Claude subscription, then the Anthropic API, Copilot, OpenCode; Kimi Code, then Moonshot and OpenCode Go; ChatGPT subscription, then the OpenAI API, Copilot, OpenCode; Z.ai Coding Plan, then OpenCode Go). Gateway aggregators such as OpenGateway and OpenRouter are never picked for it. It is the same order Senpi's recommended-model auto-switch uses in the terminal.
+With no `model_profile` at all, a fresh desktop or headless session runs **Recommended** (`recommended`), which is not a lane: `claude-opus-5-5` (medium) -> `claude-fable-5-1` (xhigh) -> `kimi-k3` (max) -> `gpt-6-astra` (xhigh) -> `gpt-6.1-sol` (medium) -> `gpt-6-sol` (medium) -> `glm-5.3` (max), each rung served only by its ranked providers (Claude subscription, then the Anthropic API, Copilot, OpenCode; Kimi Code, then Moonshot and OpenCode Go; ChatGPT subscription, then the OpenAI API, Copilot, OpenCode, except GPT-6.1 Sol, which only the ChatGPT subscription and the OpenAI API serve; Z.ai Coding Plan, then OpenCode Go). Gateway aggregators such as OpenGateway and OpenRouter are never picked for it. It is the order Senpi's recommended-model auto-switch uses in the terminal, plus the GPT-6 Sol rung behind GPT-6.1 Sol so Copilot and OpenCode Zen still reach a GPT-6 Sol.
 
 Activate a lane with a single key in `omo.json`:
 
@@ -39,10 +39,10 @@ You can still pick with `/model` and switch mid-session; the main agent switches
 
 ### The recommended models
 
-We tune the orchestration prompt against the models on the Recommended ladder: Claude Opus 5.5, Claude Fable 5.1, Kimi K3, GPT-6 Astra, GPT-6 Sol and GLM 5.3. Their order is our order of preference. The Daily lanes and Geeky · Heavy are slices of it; Geeky · Normal runs GPT-6.1 Sol at medium, falling back to GPT-5.6 Sol where 6.1 Sol isn't served.
+We tune the orchestration prompt against the models on the Recommended ladder: Claude Opus 5.5, Claude Fable 5.1, Kimi K3, GPT-6 Astra, GPT-6.1 Sol, GPT-6 Sol and GLM 5.3. Their order is our order of preference. The Daily lanes and Geeky · Heavy are slices of it; Geeky · Normal runs GPT-6.1 Sol at medium, falling back to GPT-5.6 Sol where 6.1 Sol isn't served.
 
 - **Claude Opus 5.5 and Claude Fable 5.1** are the reference configuration for the orchestration prompt: long nested todos, delegation tables, many tool calls in a row.
-- **GPT-6 Astra and GPT-6 Sol** get the GPT-native `gpt-6-astra` preset, built for autonomous, principle-driven work. Over-orchestration on small bounded tasks is a known risk on GPT; give it a goal, not a recipe.
+- **GPT-6 Astra, GPT-6.1 Sol and GPT-6 Sol** get the GPT-native `gpt-6-astra` preset, built for autonomous, principle-driven work. Over-orchestration on small bounded tasks is a known risk on GPT; give it a goal, not a recipe.
 - **Kimi K3 and GLM 5.3** follow instructions much like Claude and sit lower on the ladder. Kimi K3 spends more thinking tokens. GLM has had less maintainer validation on the nested todo, delegation, and long-context paths.
 
 A model outside the ladder isn't supported as the main agent. It may look fine for a few turns and then fall apart three tool calls later. Nobody is regression-checking the orchestration prompt against it, so a prompt change that helps Claude or GPT can silently break it with zero warning. Don't file that as a bug; it was never working on purpose. In the terminal, Senpi prints a warning when a session runs on a model outside the ladder and none of the ladder is connected.

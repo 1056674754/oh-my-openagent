@@ -2,7 +2,7 @@
 
 `omo.json` (or `omo.jsonc`) is the single harness-spanning configuration surface owned by [`@oh-my-opencode/omo-config-core`](../../packages/omo-config-core/AGENTS.md). It is the only config file read by the OpenCode plugin, by the Senpi adapter (task, config-watch), and by Codex. The legacy OpenCode-family files (`oh-my-openagent.json[c]` / `oh-my-opencode.json[c]`) and `~/.omo/config.jsonc` are read by nothing but the migration engine (see [Migration from legacy files](#migration-from-legacy-files)).
 
-Files may be JSONC: `//` comments and trailing commas are allowed. Strict typed blocks reject malformed values and report a diagnostic rather than silently accepting them; unknown keys are ignored with an `unknown-keys` diagnostic (see [Safety and failure handling](#file-locations-and-precedence)) so a retired or mistyped key never costs you the rest of the layer. The `[opencode]` block is intentionally a freeform record so it can carry the full plugin configuration.
+Files may be JSONC: `//` comments and trailing commas are allowed. Strict typed blocks never silently accept a malformed value: the value is ignored and reported, and every valid key beside it keeps working. Unknown keys are ignored the same way with an `unknown-keys` diagnostic (see [Safety and failure handling](#file-locations-and-precedence)), so neither a retired or mistyped key nor one wrong value costs you the rest of the file. The `[opencode]` block is intentionally a freeform record so it can carry the full plugin configuration.
 
 ## File locations and precedence
 
@@ -20,9 +20,11 @@ Merge rules (`loader/merge.ts`):
 Safety and failure handling:
 
 - A symlinked project `.omo` directory or a symlinked project config file is skipped as a load source (`loader/paths.ts`).
-- A missing, unreadable, or invalid layer becomes an entry in the result's `diagnostics` and is skipped; loading continues.
-- Unrecognized keys anywhere in a layer are ignored and reported through an `unknown-keys` diagnostic that names each dotted key path (for example `profiles.opus.retired_key`), while malformed values still reject that layer.
-- If the merged config fails final validation, the loader returns the all-default config plus one `validation` diagnostic instead of throwing (`loader/loader.ts`).
+- A missing or unreadable file, a file that is not valid JSONC, or a file whose root is not an object becomes an entry in the result's `diagnostics` and is skipped; loading continues.
+- Unrecognized keys anywhere in a layer are ignored and reported through an `unknown-keys` diagnostic that names each dotted key path (for example `profiles.opus.retired_key`).
+- A malformed value in any section (the shared top level, `task`, `agents`, `categories`, `teams`, the `[native]` / `[senpi]` / `[codex]` blocks, `profiles`) is dropped on its own: the loader removes only the smallest failing subtree (the wrong value itself, or the object that lacks a required key), keeps every valid sibling at every depth, and reports each dropped key as its own `invalid-value` diagnostic (for example `task.host_engine_policy` or `teams.alpha.members.0.color`). `omo doctor` prints one line per dropped key, for example `WARN config: ~/.omo/omo.jsonc: task.host_engine_policy ignored (invalid value)`; the OpenCode edition's doctor lists the same line as a warning. The OpenCode plugin applies the same rule to the `[opencode]` block against its own schema.
+- A file with nothing valid left after pruning contributes nothing and keeps its `validation` diagnostic, as does a file carrying a `__proto__`, `prototype`, or `constructor` key at any depth (checked before anything is pruned).
+- If the merged config fails final validation (a partial team spec that no layer completes, for example), the failing merged values are dropped the same way with an `invalid-value` diagnostic whose path is `(merged omo config)`; only when that cannot settle does the loader return the all-default config plus one `validation` diagnostic instead of throwing (`loader/loader.ts`).
 
 ## `$schema`
 
@@ -215,7 +217,7 @@ Four builtin lanes ship (`packages/omo-senpi/src/components/model-profile/builti
 
 | Id | Display name | Chain |
 |----|--------------|-------|
-| `recommended` | Recommended (the unset default, not a lane) | `claude-opus-5-5` (medium) -> `claude-fable-5-1` (xhigh) -> `kimi-k3` (max) -> `gpt-6-astra` (xhigh) -> `gpt-6-sol` (medium) -> `glm-5.3` (max); ranked providers only, never a gateway aggregator |
+| `recommended` | Recommended (the unset default, not a lane) | `claude-opus-5-5` (medium) -> `claude-fable-5-1` (xhigh) -> `kimi-k3` (max) -> `gpt-6-astra` (xhigh) -> `gpt-6.1-sol` (medium, ChatGPT subscription/API) -> `gpt-6-sol` (medium) -> `glm-5.3` (max); ranked providers only, never a gateway aggregator |
 | `daily-normal` | Daily · Normal | `claude-opus-5-5` (medium) -> `kimi-k3` (max) -> `glm-5.3` (max) |
 | `daily-heavy` | Daily · Heavy | `claude-fable-5-1` (xhigh) |
 | `geeky-normal` | Geeky · Normal | `gpt-6.1-sol` (medium, ChatGPT subscription/API), then `gpt-5.6-sol` (medium, ChatGPT subscription/API/Copilot/OpenCode) |

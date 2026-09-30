@@ -31,7 +31,7 @@ function withProjectConfig<T>(name: string, config: unknown, run: (project: stri
 }
 
 describe("validatePluginConfig pipeline", () => {
-  it("#given a partially invalid omo opencode view #when validating #then retains valid sections", () => {
+  it("#given a partially invalid omo opencode view #when validating #then retains valid sections and warns about the ignored value", () => {
     withProjectConfig("partial", {
       "[opencode]": {
         agents: { sisyphus: { model: 123 } },
@@ -40,9 +40,38 @@ describe("validatePluginConfig pipeline", () => {
     }, (project) => {
       const result = validatePluginConfig(project)
 
-      expect(result.valid).toBe(false)
+      expect(result.valid).toBe(true)
+      expect(result.messages).toEqual([])
       expect(result.config.tui?.sidebar.enabled).toBe(false)
-      expect(result.messages.some((message) => message.includes("agents.sisyphus.model"))).toBe(true)
+      expect(result.warnings).toEqual(["config: ~/project/.omo/omo.jsonc: [opencode].agents.sisyphus.model ignored (invalid value)"])
+    })
+  })
+
+  it("#given one invalid agent field beside a valid sibling agent in the opencode block #when validating #then only that field is dropped and the sibling agent still applies", () => {
+    withProjectConfig("sibling-agent", {
+      "[opencode]": {
+        agents: { sisyphus: { model: 123, prompt_append: "keep me" }, oracle: { model: "openai/gpt-6" } },
+      },
+    }, (project) => {
+      const result = validatePluginConfig(project)
+
+      expect(result.config.agents?.oracle?.model).toBe("openai/gpt-6")
+      expect(result.config.agents?.sisyphus?.prompt_append).toBe("keep me")
+      expect(result.config.agents?.sisyphus?.model).toBeUndefined()
+      expect(result.warnings).toEqual(["config: ~/project/.omo/omo.jsonc: [opencode].agents.sisyphus.model ignored (invalid value)"])
+    })
+  })
+
+  it("#given an invalid shared task value beside a valid one #when validating #then the loader's ignored key is reported as a warning, not a failure", () => {
+    withProjectConfig("shared-task", {
+      task: { host_engine_policy: "sometimes", default_concurrency: 3 },
+      "[opencode]": { tui: { sidebar: { enabled: false } } },
+    }, (project) => {
+      const result = validatePluginConfig(project)
+
+      expect(result.valid).toBe(true)
+      expect(result.config.tui?.sidebar.enabled).toBe(false)
+      expect(result.warnings).toEqual(["config: ~/project/.omo/omo.jsonc: task.host_engine_policy ignored (invalid value)"])
     })
   })
 
