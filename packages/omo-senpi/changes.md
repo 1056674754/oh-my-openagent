@@ -1,3 +1,16 @@
+## 2026-09-30 - model-profile e2e: lane-beats-recommended-models proves a real recommended-models switch (#9238)
+
+- `scripts/qa/model-profile-e2e-scenarios.mjs`: `lane-beats-recommended-models` serves `mock-1`, `glm-5.3` and
+  `gpt-6-astra` on `chatgpt-subscription` + `opencode-go`, so no provider serves its engine provider default
+  (`gpt-6.1-sol`, `kimi-k3`). The session starts first-available on off-ladder `mock-1`, senpi's recommended-models
+  builtin switches to `chatgpt-subscription/gpt-6-astra`, and Daily · Normal still wins with `opencode-go/glm-5.3` max.
+  The old fixture's
+  only `gpt-6-sol` entry was the engine's initial provider-default record, which senpi#2393 moved to `gpt-6.1-sol`;
+  the builtin never switched there. `gpt-6-astra` keeps its ladder rung across senpi#2394's Sol-slot move.
+- `scripts/qa/model-profile-e2e.mjs`: that scenario's checks skip the initial-model record. `started_off_recommended_ladder`
+  requires the first `model_change` to be `mock-1`, and `recommended_models_switched_first` requires the builtin's
+  `chatgpt-subscription/gpt-6-astra` change to come after it and before the lane's `opencode-go/glm-5.3`.
+
 ## 2026-09-30 - model-profile: Recommended leads its GPT-6 Sol slot with gpt-6.1-sol medium, gpt-6-sol behind it (senpi#2394)
 
 - `src/components/model-profile/builtin-profiles.ts`: `recommended` replaces its `gpt-6-sol` (medium) rung with

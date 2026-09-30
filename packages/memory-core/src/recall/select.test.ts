@@ -283,3 +283,232 @@ describe("selectRecallCandidates", () => {
     expect(candidates).toEqual([])
   })
 })
+
+describe("selectRecallCandidates automatic strategy", () => {
+  it("#given English queries over a small English corpus #when the strategy is omitted #then results equal the explicit substring strategy", () => {
+    // given
+    const documents = [
+      doc("reference/a.md", "Deploy", "the kubernetes ingress gateway is flaky"),
+      doc("notes/b.md", "Kubernetes notes", "kubernetes kubernetes everywhere"),
+    ]
+
+    // when
+    const omitted = selectRecallCandidates(documents, ["kubernetes"], BASE_OPTS)
+    const explicit = selectRecallCandidates(documents, ["kubernetes"], { ...BASE_OPTS, strategy: "substring" })
+
+    // then
+    expect(omitted).toEqual(explicit)
+  })
+
+  it("#given an inflected Korean planner term #when the strategy is omitted #then the stem note surfaces where substring finds nothing", () => {
+    // given
+    const documents = [
+      doc("reference/publish.md", "npm 퍼블리시 절차", "배포 토큰은 키체인에 저장한다"),
+      doc("reference/travel.md", "여행 계획", "다음 달 제주도"),
+    ]
+    const queries = ["퍼블리시할", "보관할"]
+
+    // when
+    const substring = selectRecallCandidates(documents, queries, { ...BASE_OPTS, strategy: "substring" })
+    const automatic = selectRecallCandidates(documents, queries, BASE_OPTS)
+
+    // then
+    expect(paths(substring)).toEqual([])
+    expect(paths(automatic)).toEqual(["reference/publish.md"])
+  })
+
+  it("#given an NFD-stored Hangul note #when a composed Korean query selects #then the note surfaces", () => {
+    // given: text pasted from macOS file names is often NFD
+    const documents = [
+      doc("reference/publish.md", "npm 퍼블리시 절차".normalize("NFD"), "토큰은 키체인에 있다".normalize("NFD")),
+      doc("reference/travel.md", "여행 계획", "다음 달 제주도"),
+    ]
+
+    // when
+    const candidates = selectRecallCandidates(documents, ["퍼블리시할"], BASE_OPTS)
+
+    // then
+    expect(paths(candidates)).toEqual(["reference/publish.md"])
+  })
+
+  it("#given a full-width Latin query #when it selects over a half-width note #then the note surfaces", () => {
+    // given
+    const documents = [
+      doc("reference/npm.md", "npm token", "the npm token lives in the keychain"),
+      doc("reference/travel.md", "여행 계획", "다음 달 제주도"),
+    ]
+
+    // when
+    const candidates = selectRecallCandidates(documents, ["ＮＰＭ", "토큰"], BASE_OPTS)
+
+    // then
+    expect(paths(candidates)).toEqual(["reference/npm.md"])
+  })
+})
+
+describe("selectRecallCandidates with the hybrid strategy", () => {
+  const HYBRID_OPTS = { ...BASE_OPTS, strategy: "hybrid" as const }
+  const documents = [
+    doc("a/deploy.md", "Redeploy", "redeploy runbook"),
+    doc("b/tmux.md", "tmux", "tmux targeting"),
+    doc("c/notes.md", "notes", "a long note that mentions tmux once among many other words"),
+  ]
+  const queries = ["deploy", "tmux", "targeting"]
+
+  it("#given documents only one ranker finds #when hybrid selects #then it returns the union of both rankers", () => {
+    // given
+    const substring = selectRecallCandidates(documents, queries, { ...BASE_OPTS, strategy: "substring" })
+    const bm25 = selectRecallCandidates(documents, queries, { ...BASE_OPTS, strategy: "bm25" })
+
+    // when
+    const hybrid = selectRecallCandidates(documents, queries, HYBRID_OPTS)
+
+    // then
+    expect(paths(substring)).toContain("a/deploy.md")
+    expect(paths(bm25)).not.toContain("a/deploy.md")
+    expect(new Set(paths(hybrid))).toEqual(new Set([...paths(substring), ...paths(bm25)]))
+  })
+
+  it("#given a document both rankers find #when hybrid selects #then it outranks documents only one ranker finds", () => {
+    // given
+    const options = { ...HYBRID_OPTS, maxItems: 1 }
+
+    // when
+    const hybrid = selectRecallCandidates(documents, queries, options)
+
+    // then
+    expect(paths(hybrid)).toEqual(["b/tmux.md"])
+  })
+
+  it("#given two substring matches in opposite bm25 order #when hybrid selects #then the substring offset does not decide the order", () => {
+    // given
+    const offsetFirst = doc("a/offset.md", "tmux", `${"unrelated filler words ".repeat(20)}end`)
+    const relevant = doc("z/relevant.md", "notes", "tmux tmux tmux")
+    const pair = [offsetFirst, relevant]
+    const bySubstring = selectRecallCandidates(pair, ["tmux"], { ...BASE_OPTS, strategy: "substring" })
+    const byBm25 = selectRecallCandidates(pair, ["tmux"], { ...BASE_OPTS, strategy: "bm25" })
+
+    // when
+    const hybrid = selectRecallCandidates(pair, ["tmux"], HYBRID_OPTS)
+
+    // then
+    expect(paths(bySubstring)).toEqual(["a/offset.md", "z/relevant.md"])
+    expect(paths(byBm25)).toEqual(["z/relevant.md", "a/offset.md"])
+    expect(paths(hybrid)).toEqual(["z/relevant.md", "a/offset.md"])
+  })
+
+  it("#given a bm25-only match tied with a substring-only match #when hybrid selects #then the bm25 rank breaks the tie before the path", () => {
+    // given: the inflected Korean term only bm25 finds, the English in-word match only substring finds
+    const pair = [
+      doc("a/tokens.md", "subtokens", "subtokens rotated weekly"),
+      doc("z/publish.md", "npm 퍼블리시 절차", "절차 문서"),
+    ]
+    const queries = ["퍼블리시할", "token"]
+
+    // when
+    const hybrid = selectRecallCandidates(pair, queries, HYBRID_OPTS)
+
+    // then
+    expect(paths(selectRecallCandidates(pair, queries, { ...BASE_OPTS, strategy: "substring" }))).toEqual(["a/tokens.md"])
+    expect(paths(selectRecallCandidates(pair, queries, { ...BASE_OPTS, strategy: "bm25" }))).toEqual(["z/publish.md"])
+    expect(paths(hybrid)).toEqual(["z/publish.md", "a/tokens.md"])
+    expect(hybrid[0]?.score).toBe(hybrid[1]?.score ?? Number.NaN)
+  })
+
+  it("#given hybrid candidates #when scores are read #then they stay ascending and lower-is-better in (0, 1]", () => {
+    // when
+    const hybrid = selectRecallCandidates(documents, queries, HYBRID_OPTS)
+
+    // then
+    const scores = hybrid.map((candidate) => candidate.score)
+    expect(scores).toEqual([...scores].sort((left, right) => left - right))
+    for (const score of scores) {
+      expect(score).toBeGreaterThan(0)
+      expect(score).toBeLessThanOrEqual(1)
+    }
+  })
+
+  it("#given surfaced and excluded paths #when hybrid selects #then exclusions apply before the cap", () => {
+    // given
+    const options = {
+      ...HYBRID_OPTS,
+      maxItems: 3,
+      surfaced: new Set(["b/tmux.md"]),
+      excludePaths: new Set(["a/deploy.md"]),
+    }
+
+    // when
+    const hybrid = selectRecallCandidates(documents, queries, options)
+
+    // then
+    expect(paths(hybrid)).toEqual(["c/notes.md"])
+  })
+})
+
+describe("selectRecallCandidates with the bm25 strategy", () => {
+  const BM25_OPTS = { ...BASE_OPTS, strategy: "bm25" as const }
+
+  it("#given a distinctive term and a common term #when bm25 selects #then the distinctive match ranks first", () => {
+    // given: substring ranking prefers the earliest occurrence of any single term
+    const documents = [
+      doc("notes/journal.md", "Session journal", "session notes and more session notes"),
+      doc("reference/tmux.md", "Targeting rules", "kill a session with tmux using an exact target"),
+    ]
+
+    // when
+    const candidates = selectRecallCandidates(documents, ["session", "tmux"], BM25_OPTS)
+
+    // then
+    expect(paths(candidates)[0]).toBe("reference/tmux.md")
+  })
+
+  it("#given bm25 candidates #when scores are read #then they stay ascending and lower-is-better in (0, 1]", () => {
+    // given
+    const documents = [
+      doc("reference/tmux.md", "tmux", "tmux exact targeting"),
+      doc("notes/other.md", "notes", "tmux mentioned once among many other unrelated words here"),
+    ]
+
+    // when
+    const candidates = selectRecallCandidates(documents, ["tmux", "targeting"], BM25_OPTS)
+
+    // then
+    const scores = candidates.map((candidate) => candidate.score)
+    expect(scores).toEqual([...scores].sort((left, right) => left - right))
+    for (const score of scores) {
+      expect(score).toBeGreaterThan(0)
+      expect(score).toBeLessThanOrEqual(1)
+    }
+  })
+
+  it("#given surfaced, excluded paths and a cap #when bm25 selects #then exclusions apply before the cap", () => {
+    // given
+    const documents = ["a", "b", "c", "d"].map((name) => doc(`reference/${name}.md`, "tmux", "tmux rules"))
+    const options = {
+      ...BM25_OPTS,
+      maxItems: 1,
+      surfaced: new Set(["reference/a.md"]),
+      excludePaths: new Set(["reference/b.md"]),
+    }
+
+    // when
+    const candidates = selectRecallCandidates(documents, ["tmux"], options)
+
+    // then
+    expect(paths(candidates)).toEqual(["reference/c.md"])
+  })
+
+  it("#given a Korean match inside a longer word #when bm25 builds the excerpt #then it is centered on the matched text", () => {
+    // given
+    const body = `${"앞부분 설명 ".repeat(30)}퍼블리시 토큰 위치는 키체인이다 ${"뒷부분 설명 ".repeat(30)}`
+    const documents = [doc("reference/publish.md", "절차", body)]
+
+    // when
+    const candidates = selectRecallCandidates(documents, ["퍼블리시할"], BM25_OPTS)
+
+    // then
+    const excerpt = candidates[0]?.excerpt ?? ""
+    expect(excerpt).toContain("퍼블리시 토큰")
+    expect(excerpt.length).toBeLessThanOrEqual(200)
+  })
+})
