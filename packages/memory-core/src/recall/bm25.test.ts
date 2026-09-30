@@ -95,6 +95,11 @@ describe("tokenizeRecallText", () => {
     expect(tokens).toEqual(["\u{20000}\u{20001}"])
   })
 
+  it("#given a lone CJK syllable #when tokenized #then no bigram is emitted and only an identical token can match", () => {
+    // given / when / then: a note that stores a lone syllable is unreachable from a longer query word
+    expect(tokenizeRecallText("키 보관")).toEqual(["키", "보관"])
+  })
+
   it("#given punctuation and quotes only #when tokenized #then nothing is emitted", () => {
     // given / when / then
     expect(tokenizeRecallText(`" -- ! "`)).toEqual([])
@@ -130,6 +135,21 @@ describe("rankRecallDocumentsBm25", () => {
     // then
     expect(ranked[0]?.document.path).toBe("notes/b.md")
     expect(ranked.map((entry) => entry.document.path).sort()).toEqual(["notes/a.md", "notes/b.md", "notes/c.md"])
+  })
+
+  it("#given one-term matches of equal tf and length #when ranked #then idf alone lifts the rarer term", () => {
+    // given
+    const documents = [
+      doc("notes/a.md", "one", "session alpha"),
+      doc("notes/b.md", "two", "session beta"),
+      doc("notes/z.md", "three", "tmux gamma"),
+    ]
+
+    // when
+    const ranked = rankRecallDocumentsBm25(documents, ["session", "tmux"])
+
+    // then
+    expect(ranked[0]?.document.path).toBe("notes/z.md")
   })
 
   it("#given a match only in the description #when ranked #then the description counts as document text", () => {
