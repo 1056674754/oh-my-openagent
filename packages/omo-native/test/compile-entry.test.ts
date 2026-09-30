@@ -24,7 +24,6 @@ import {
   provisionEmbeddedRuntime,
   runningExecutablePath,
   selectRuntimeManifest,
-  shouldReexecAfterProvisioning,
   type EmbeddedManifest,
 } from "../compile-runtime"
 
@@ -112,8 +111,6 @@ describe("compiled omo entry launcher parity", () => {
     )
     expect(runningExecutablePath("bun", "/usr/local/bin/bun", "win32")).toBe("/usr/local/bin/bun")
     expect(runningExecutablePath("/runtime/omo", "/usr/local/bin/bun", "darwin")).toBe("/usr/local/bin/bun")
-    expect(shouldReexecAfterProvisioning("win32")).toBe(false)
-    expect(shouldReexecAfterProvisioning("darwin")).toBe(true)
   })
 
   test("strips Linux procfs deleted suffix but preserves it on other platforms", () => {
