@@ -4,6 +4,7 @@ import { canonicalAgentDir } from "./bin/lib/agent-dir.js"
 import { doctorCoverageLines } from "./bin/lib/category-coverage.js"
 import { doctorComputerUseLines } from "./bin/lib/computer-use-doctor.js"
 import { daemonReportLines } from "./bin/lib/daemon.js"
+import { transientMemoryReport, warningsForSettings } from "./bin/lib/doctor.js"
 import { migrationReport } from "./bin/lib/doctor-migration.js"
 import { piConfigReport } from "./bin/lib/doctor-pi-config.js"
 import { launchSpecDoctorLines } from "./bin/lib/launch-spec-mode.js"
@@ -78,8 +79,10 @@ export async function runCompiledDoctor(input: CompiledDoctorInput): Promise<voi
     lines.push(...daemonReportLines({ engine: input.engine, pluginRoot: join(input.execDir, "plugin"), agentDir: canonicalAgentDir(), env: process.env, platform: process.platform }))
   }
   lines.push(...migrationReport({ ...options, standalone: true }, null))
+  lines.push(...warningsForSettings())
   lines.push(...configDoctorLines({ cwd: process.cwd(), env }))
   lines.push(...piConfigReport({ env: options.env, homeDir: options.homeDir }))
+  lines.push(...transientMemoryReport({ env }))
   const [computerUse, coverage] = await Promise.all([computerUseLines(input, env), coverageLines(input, env)])
   if (computerUse.some((line) => line.startsWith("FAIL "))) failed = true
   lines.push(...computerUse, ...coverage)

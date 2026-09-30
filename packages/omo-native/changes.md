@@ -3,7 +3,8 @@
 The compiled entry (`compile-entry.ts`) answered `omo setup` with the inventory table only (`printSetupReport`), while
 `bin/omo.js` runs `runSetup`: summary, consent and the import. Its hand-kept `runCompiledDoctor` never received the
 `Update:` line, the computer-use section (#8939) or the task-category coverage section (#8858). `setup` now dispatches
-to `runSetup`. The doctor moved to `compiled-doctor.ts` and prints those three sections; a computer-use `FAIL` sets
+to `runSetup`. The doctor moved to `compiled-doctor.ts` and prints those three sections plus the settings and memory-identity lines
+(`warningsForSettings`, `transientMemoryReport`, now exported from `bin/lib/doctor.js`); a computer-use `FAIL` sets
 exit code 1, as on npm. The helpers behind the new lines load their runtime from the npm layout, which the binary does
 not have, and they fail open, so wiring them in alone would print nothing. `compiled-diagnostic-runtime.ts` gives them
 the provisioned `plugin/runtime/category-coverage/index.js` and the engine modules compiled into the binary (relative
