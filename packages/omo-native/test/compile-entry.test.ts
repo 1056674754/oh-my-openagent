@@ -133,7 +133,7 @@ describe("compiled omo entry launcher parity", () => {
   })
 
   test("re-exec source contract uses signal-aware child execution", () => {
-    const source = readFileSync(new URL("../compile-entry.ts", import.meta.url), "utf8")
+    const source = readFileSync(new URL("../provisioned-handoff.ts", import.meta.url), "utf8")
     expect(source).toContain('import { propagateResult, runChild } from "./bin/lib/child-process.js"')
     expect(source).not.toContain("spawn(expected")
   })
