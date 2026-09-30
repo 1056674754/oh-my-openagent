@@ -25,6 +25,7 @@ const workflowExpectations = [
       "lazycodex-published-smoke",
       "build",
       "omo-ai-payload-check",
+      "native-binary-parity",
       "auto-commit-schema",
       "draft-release",
     ],

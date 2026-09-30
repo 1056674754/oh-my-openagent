@@ -1,3 +1,45 @@
+## 2026-09-30 - The standalone binary gate starts the binary from an empty download folder and runs a Windows leg (#7485)
+
+`native-binary-parity` (#9259) ran the binary where `build-omo-binary.ts` wrote it, and only on macOS, so the Windows
+release exe dying in its download folder (#7485, fixed by #9255) could not fail it. `script/qa/omo-native-parity-smoke.mjs`
+now copies the binary alone into an empty `download/` folder inside its sandbox before every binary run, on every leg.
+`--npm-omo` became optional: without it the script runs the binary session twice in the same sandbox (the first run
+provisions `~/.omo/binary-runtime/<version>/`, the second reuses it) and fails unless the `eval-js` and `pty-bash` steps
+succeed with no extension load failure (`binaryOnlyFailures` in `omo-native-parity-compare.mjs`). The job is now a
+matrix: `macos-15` keeps the binary/npm comparison, `windows-latest` builds the `x86_64-pc-windows-msvc` desktop
+engine and the windows-x64 binary and runs the binary-only pair. Windows has no `ps e`, so the sandbox reaper there
+lists processes whose executable or command line sits under the sandbox through `Win32_Process`. This replaces the
+standalone `windows-standalone-binary.yml` from #9260, so there is one binary gate, not two.
+
+## 2026-09-30 - CI compares the standalone binary with the npm launcher (#9248 class)
+
+Every packaging check the binary build runs is self-referential. `build-omo-binary.ts` compares Bun's embedded files
+with the staged files (`collectStagedFiles`), and `resolveExpectedSidecarRelPaths` derives its expected set from the
+same `engineSidecarSources()` list that stages them, so a runtime dependency the list never names (codemode's
+`@babel/parser`, #9248) passes every check. The release smoke only runs `--version`. The new `native-binary-parity` CI
+job (macos-15, heavy mode) builds the darwin-arm64 binary and the omo-ai launcher from the same commit and runs
+`script/qa/omo-native-parity-smoke.mjs`: both drive one scripted session in isolated sandboxes (eval JS and Python,
+grep, a pty command, tool search, webfetch against a local page, text and image reads, LSP diagnostics, apply_patch,
+memory, task) against a scripted provider (`omo-native-parity-provider.mjs`), then `omo doctor` and
+`omo setup --dry-run`. `omo-native-parity-compare.mjs` fails on any registered-tool, step-result, doctor-section or
+setup-line difference and on any extension load failure; the lines that differ by distribution (engine resolution,
+edition line, embedded vs downloaded desktop engine) are listed with the reason in `DOCTOR_EXPECTED_ONLY`. The driver
+stops every process its sandboxes started (found by the sandbox path in their environment) before removing them.
+
+## 2026-09-30 - The /docs/<slug> guide pages render on omo.dev instead of returning 404 (DESKTOP-62 follow-up)
+
+After #9261 deployed, every `/docs/<slug>` guide page answered 404 on omo.dev (`x-nextjs-prerender: 1`, `x-nextjs-cache: MISS`) while `next start` served them. The route exported `dynamicParams = false`; the Cloudflare Worker's incremental cache holds no prerendered entries, so each request was a cache miss and a closed route refuses to render on a miss. `app/[locale]/docs/[slug]/page.tsx` drops the export, like every other prerendered route in the site (`/manifesto` renders the same way); an unknown slug still ends in `notFound()`.
+
+## 2026-09-30 - omo.dev guide pages for the OmO Desktop help links: workflows, agents, keywords, telemetry, desktop updates (DESKTOP-62)
+
+OmO Desktop's "Learn more" buttons and its telemetry and update links opened raw markdown in this repository or a private releases page, because omo.dev had no page to send them to. `docs/guide/` gains five user-facing pages written for someone who has never read the code: `workflows.md` (what `mass ulw` does and how to follow a run), `agents.md` (delegation and the Agents panel), `keywords.md` (the engine's keyword list, mirrored from `packages/omo-senpi/src/components/ultrawork/index.ts` and `skill-pointers/index.ts`, including the `mulw` / `ulw mass` / `meth` aliases and the rule that code spans and fences are ignored), `telemetry.md` (a plain summary of `docs/reference/senpi-telemetry.md` with the `telemetry.enabled` and environment opt-outs) and `desktop-updates.md` (update flow, release notes, the Stable and Nightly tracks). `packages/web/lib/docs-sections-data.mjs` lists them as `DOC_GUIDE_PAGES_DATA`, so the generator compiles them and rewrites links between them to their routes; the new `app/[locale]/docs/[slug]/page.tsx` serves each one at `/docs/<slug>` with its own title, description and section sidebar, using `splitDocSections` (the widget-free half of `splitDocPage`), and the sitemap lists them. `docs-page.test.ts` checks every guide page splits into a titled lead with unique sections and that cross-page links resolve to site routes; `e2e/docs.spec.ts` opens each route.
+
+## 2026-09-30 - Memory recall reads the memory repo with one git cat-file batch and re-reads only changed blobs (#9251)
+
+`packages/memory-core/src/recall/provider.ts` loaded the recall corpus with one `git show <rev>:<path>` process per memory file, and `RecallCorpusCache` threw every parsed document away whenever HEAD moved. A memory repo with 2,159 recall files and about 17 auto-commits an hour made every live session spawn about 2,160 git processes per commit; with ~40 sessions and RPC hosts on one machine a 25 s sample caught 2,118 distinct `git show` processes (~85/s) at load 220-290, and the exited children waiting to be reaped showed up as a steady population of `<defunct>` git under the RPC hosts. A load is now `ls-tree -r` (new `GitMemoryRepo.lsTreeBlobs`, which keeps each blob id) plus at most one `git cat-file --batch` (new `GitMemoryRepo.readBlobs`, parsed from the raw stdout bytes the exec now also returns, so multibyte UTF-8 splits on byte offsets). The cache keeps the parsed document per path and blob id, so a HEAD move reads only the blobs whose id changed, reuses the unchanged document objects (the haystack, bm25 and CJK memos stay warm), drops deleted files, and reads nothing when the move touched no recall file. The tree and batch parsers live in `git/repo-tree.ts`. Every git child is still awaited on `close` on every path.
+
+RED on dev (the old provider under the new `provider-git-budget.test.ts`): a 40-file load ran `show` once per file, and the one-edit-one-delete HEAD move and the system-only HEAD move each re-read the whole tree (41 extra `show` runs). GREEN: 3/3 in that file. With 200 files and 10 HEAD moves each load ran exactly 3 git processes (`rev-parse`, `ls-tree`, `cat-file`) and the test process had 0 zombie children.
+
 ## 2026-09-30 - Config pruning keeps valid siblings across unsafe keys, model aliases and legacy maxTokens (refs #7676)
 
 The per-leaf pruning added by #7676 had three follow-up gaps. First, `constructor`, `prototype` and `__proto__` inside an otherwise valid config could bypass layer validation: `constructor` was then read through an inherited Zod shape member and crashed `unknown-key-diagnostics.ts`, while the other unsafe keys could survive or silently disappear. `layer-validation.ts` now rebuilds every parsed layer from safe own entries, reports each unsafe path through the existing `unknown-keys` diagnostic, and preserves valid siblings; the OpenCode schema walker also reads only shape-owned members. Second, `omo-config-chain.ts` parsed all model-reference input at once, so one invalid OpenCode leaf made it skip every model alias. It now prunes invalid model-input paths before `resolveModelReferences`, while the normal plugin-view warning still names the dropped leaf. Third, legacy `maxTokens` normalization moved even a wrong-typed value to `max_tokens`; the pruner could not find that normalized path in the raw document and removed the whole category. Invalid `maxTokens` now stays at its original path until validation removes only that field, while valid numeric values still normalize to `max_tokens`.
