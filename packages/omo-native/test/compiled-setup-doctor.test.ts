@@ -76,6 +76,20 @@ describe("compiled omo doctor", () => {
   })
 })
 
+describe("compiled omo doctor --reap", () => {
+  test("#given --reap <pid> #when the compiled doctor runs #then it reaps instead of printing the report", async () => {
+    const root = runtimeRoot()
+    const signalled: number[] = []
+    const output = await captureLog(() => runCompiledLauncher(["doctor", "--reap", "4242"], root, "2026.8.28", root, {
+      list: () => [{ pid: 4242, ppid: 1, elapsed: "01:00", tty: "ttys001", command: "/home/u/.omo/binary-runtime/9.2.1/omo" }],
+      kill: (pid) => { signalled.push(pid) },
+    }))
+    expect(signalled).toEqual([4242])
+    expect(output).toContain("PASS reaped stale engine pid 4242")
+    expect(output).not.toContain("PASS plugin manifest")
+  })
+})
+
 describe("compiled diagnostic runtime", () => {
   test("#given a provisioned runtime #when the loader runs #then it imports the staged category-coverage bundle from that runtime", async () => {
     const root = temp()
