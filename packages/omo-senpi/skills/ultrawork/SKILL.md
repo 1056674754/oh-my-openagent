@@ -359,9 +359,8 @@ Until every success criterion PASSES with its evidence captured:
    vars. Append a one-line cleanup receipt to the notepad next to the
    artifact, e.g. `cleanup: killed 12345; tmux kill-session ulw-qa-foo;
    rm -rf /tmp/ulw.aB12cD`. No receipt → criterion stays in_progress.
-6. Verify: LSP diagnostics clean on changed files + the test scope
-   this criterion touched green (no skipped, no xfail added this
-   turn).
+6. Verify: LSP diagnostics clean on changed files; no test skipped or
+   xfail-ed this turn.
 7. Mark completed. Append non-obvious findings / learnings.
 8. Evidence stays valid per target until an input changes; record with
    each artifact the commit and what it exercised. After each increment
