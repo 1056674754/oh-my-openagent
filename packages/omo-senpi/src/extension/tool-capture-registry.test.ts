@@ -58,4 +58,16 @@ describe("tool capture registry", () => {
     expect(pi.tools).toHaveLength(1)
     expect(registry.getCapturedTools()).toHaveLength(0)
   })
+
+  it("#given omo component registration is complete #when later builtins register #then they are forwarded but not shared with children", () => {
+    const pi = new FakeExtensionAPI()
+    const registry = installToolCaptureRegistry(pi)
+    pi.registerTool(fakeTool("lsp_diagnostics"))
+
+    registry.stopCapture()
+    pi.registerTool(fakeTool("eval"))
+
+    expect(pi.tools.map((tool) => tool.name)).toEqual(["lsp_diagnostics", "eval"])
+    expect(registry.getCapturedTools().map((tool) => tool.name)).toEqual(["lsp_diagnostics"])
+  })
 })
