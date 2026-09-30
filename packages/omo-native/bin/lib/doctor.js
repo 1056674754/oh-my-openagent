@@ -42,7 +42,7 @@ function fail(lines, message) {
   lines.push(`FAIL ${message}`)
 }
 
-function warningsForSettings() {
+export function warningsForSettings() {
   const agentDir = canonicalAgentDir()
   const settingsPath = join(agentDir, "settings.json")
   if (!existsSync(settingsPath)) return []
@@ -307,7 +307,7 @@ export function formatTransientMemoryLines(counts) {
   ]
 }
 
-function transientMemoryReport(options) {
+export function transientMemoryReport(options) {
   const root = memoryRoot(options.env ?? process.env)
   return formatTransientMemoryLines(countTransientMemoryIdentities({
     agentsRoot: join(root, MEMORY_AGENTS_DIRNAME),
