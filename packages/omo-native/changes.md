@@ -1,3 +1,27 @@
+## 2026-09-30 - standalone binaries stage codemode's external runtime closure and smoke eval (#9248)
+
+### What changed
+
+The release-binary sidecar resolver now reads codemode's own dependency manifest, excludes direct
+dependencies already supplied by the senpi engine host, and recursively stages every remaining runtime
+dependency under codemode's package-local `node_modules`. The platform release workflow runs a freshly
+built Darwin arm64 binary through an isolated local-provider RPC smoke that requires `eval` to register
+and return `42`. Every Darwin, Linux and Windows target manifest is checked for the same closure.
+
+### Why
+
+OmO 5.1.3 and 5.1.4 copied the codemode package without `@babel/parser`, so codemode failed during
+extension loading and both JavaScript and Python eval disappeared from every standalone binary.
+
+### Why an extension could not handle it
+
+The extension cannot register when its own import graph is incomplete. The dependency closure must be
+present in the compiled binary's provisioned runtime before extension loading begins.
+
+### Expected merge conflict zones
+
+`script/engine-sidecar-sources.ts`, the platform release smoke steps, and sidecar manifest tests.
+
 ## 2026-09-29 - A umask 002 install no longer breaks every process child and team; a refused launch spec names itself (#9208)
 
 npm and bun extract `plugin/daemon-launch-spec.json` with the installing user's umask, so under `umask 002` (the Ubuntu
