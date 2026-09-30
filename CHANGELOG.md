@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-**Memory recall can rank candidates with BM25.** Set `memory.recall.ranker` to `"bm25"` in `omo.json` to pick the memories the Kibitzer judges by word rarity instead of the earliest verbatim match. Korean, Chinese and Japanese text is split into two-character pieces, so a question like `퍼블리시할 때 토큰 어디 있어` finds a note about `퍼블리시` that the default ranker misses. The default stays `"substring"`, so nothing changes unless you opt in. `bun packages/omo-senpi/scripts/qa/recall-ranker-bench.mjs` compares both rankers on a bundled synthetic corpus. The approach comes from [birkin-mnemosyne](https://github.com/ashmoonori-afk/birkin-mnemosyne).
+**Memory recall finds Korean, Chinese and Japanese memories, and scales to large memory repositories, with nothing to configure.** Recall now picks how it ranks the memories it offers the Kibitzer. English conversations over an English memory of fewer than 200 notes keep today's verbatim matching, so their candidates are unchanged. When the conversation contains Korean, Chinese or Japanese text, or at least a tenth of the letters in your notes are, candidates are scored by word rarity with the text split into two-character pieces, so a question like `퍼블리시할 때 토큰 어디 있어` finds a note about `퍼블리시` that verbatim matching misses. From 200 notes on, both rankings are combined so a memory either one finds can still reach the sidecar, which keeps deciding what is worth a nudge. `bun packages/omo-senpi/scripts/qa/recall-ranker-bench.mjs` measures each choice on a bundled synthetic corpus. The approach comes from [birkin-mnemosyne](https://github.com/ashmoonori-afk/birkin-mnemosyne).
 
 ## [5.1.4] - 2026-09-29
 

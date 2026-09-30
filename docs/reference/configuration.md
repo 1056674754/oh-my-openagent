@@ -636,6 +636,14 @@ relying on it, and expanding the entry shows that caveat.
 Like the other memory blocks, every recall option can be overridden per agent under
 `memory.agents.<name>.recall`; `event_caps` merges field by field.
 
+How candidate memories are picked before the sidecar judges them is not a setting. Recall picks
+it from the conversation and your memory repository: English conversations over an English
+memory of fewer than 200 notes match every query word verbatim, as before. When the conversation contains Korean, Chinese
+or Japanese text, or at least a tenth of the letters in your notes are, candidates are scored by
+word rarity with the text split into two-character pieces, so `퍼블리시할` still finds a note
+about `퍼블리시`. From 200 notes on, both are combined so a memory either one finds can still
+reach the sidecar, which decides what is worth a nudge.
+
 #### Facts
 
 Background extraction of durable facts from settled turns.
