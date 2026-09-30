@@ -28,14 +28,19 @@
 //                    stays on the engine default; a pool whose sibling account is valid is kept.
 // Isolation: SENPI_CODING_AGENT_DIR + XDG_CONFIG_HOME point at a throwaway sandbox; the real
 // ~/.senpi/agent credential files are digest-compared before/after and MUST stay identical.
+// The memory root is sandboxed too (isolatedChildEnv sets OMO_MEMORY_HOME): every scenario checks
+// that its child resolves a memory root inside the sandbox and that no child output names the
+// caller's real memory root, so a sweep over the real ~/.omo/memory fails the run (#9239).
+// The real tree is not content-digested: other live sessions on the same machine write to it.
 import { spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
-import { delimiter, dirname, join, resolve } from "node:path"
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createHash } from "node:crypto"
 
 import { createSandbox } from "./drive.mjs"
+import { resolveMemoryRoot } from "../../../memory-core/src/identity/layout.ts"
 
 const HOST_VOLATILE_SETTINGS_KEYS = ["workflow-skills", "tipsHistory", "skills"]
 
@@ -68,6 +73,19 @@ const packageRoot = resolve(scriptDir, "..", "..")
 const defaultPluginRoot = join(packageRoot, "plugin")
 const mockProviderEntry = join(scriptDir, "model-profile-e2e-mock-provider.ts")
 const realSenpiAgentDir = join(homedir(), ".senpi", "agent")
+const realMemoryRoot = resolveMemoryRoot(process.env, process.cwd())
+
+function isInside(root, path) {
+  const rel = relative(root, path)
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel)
+}
+
+function mentionsPath(text, path) {
+  const home = homedir()
+  const forms = [path]
+  if (path === home || path.startsWith(home + sep)) forms.push("~" + path.slice(home.length))
+  return forms.some((form) => text.includes(form))
+}
 
 import { APPLIED_TYPE, UNKNOWN_TYPE, UNAVAILABLE_TYPE, PROFILE_TYPES, KNOWN_PROFILES, SCENARIOS } from "./model-profile-e2e-scenarios.mjs"
 
@@ -206,6 +224,8 @@ function runScenario(name, scenario, args, senpiBin) {
           ? profileNotices.length === 0
           : profileNotices.length === 1 && profileNotices[0].customType === scenario.expect.notice,
     }
+    checks.memory_root_in_sandbox = isInside(sandbox.root, resolveMemoryRoot(spawnEnv(sandbox, sessionDir, scenario), sandbox.cwd))
+    checks.real_memory_root_unseen = runs.every((each) => !mentionsPath(`${each.stdout ?? ""}\n${each.stderr ?? ""}`, realMemoryRoot))
     const provider = scenario.expect.provider ?? "omo-mock"
     const engine = observeEngineThinking(entries, loadStreamCaptures(sandbox.cwd))
     checks.stream_model = engine.captures.some((capture) => capture.model === scenario.expect.model)
