@@ -74,6 +74,13 @@ pub struct StopPolicy {
 
 /// Snapshot of supervisor state used for gating and status reporting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopPathFailure {
+    Unavailable,
+    AccessibilityDenied,
+}
+
+/// Snapshot of supervisor state used for gating and status reporting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SupervisorStatus {
     /// Input is latched off until a user-only reset.
     pub suspended: bool,
@@ -86,6 +93,7 @@ pub struct SupervisorStatus {
     pub stop_path: ActiveStopPath,
     /// The source of the stop that latched suspension.
     pub stopped_by: Option<StopSource>,
+    pub global_failure: Option<StopPathFailure>,
 }
 
 impl SupervisorStatus {
@@ -121,6 +129,7 @@ pub struct Supervisor {
     /// Guards every write to `suspended` so the flag and its source agree.
     stopped_by: Mutex<Option<StopSource>>,
     stop_paths: Mutex<HashMap<StopPathId, StopPathState>>,
+    global_failure: Mutex<Option<StopPathFailure>>,
     clock: Arc<dyn Clock>,
 }
 
@@ -132,8 +141,14 @@ impl Supervisor {
             suspended: AtomicBool::new(false),
             stopped_by: Mutex::new(None),
             stop_paths: Mutex::new(HashMap::new()),
+            global_failure: Mutex::new(None),
             clock,
         }
+    }
+
+    /// The latest global listener start result; success clears a previous failure.
+    pub fn note_global_failure(&self, failure: Option<StopPathFailure>) {
+        *self.global_failure.lock() = failure;
     }
 
     /// Record that a stop path is live (or not); going live counts as a beat.
@@ -202,6 +217,7 @@ impl Supervisor {
             heartbeat_fresh,
             stop_path,
             stopped_by,
+            global_failure: *self.global_failure.lock(),
         }
     }
 
