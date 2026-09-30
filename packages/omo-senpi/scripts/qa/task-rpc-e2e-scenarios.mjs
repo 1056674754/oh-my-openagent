@@ -2,6 +2,7 @@ import { spawn } from "node:child_process"
 import { mkdirSync, rmSync, watch, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { isolatedChildEnv, sandboxStateDir } from "./sandbox-child-env.mjs"
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const { createSandbox, seedSandbox } = await import(pathToFileURL(join(scriptDir, "drive.mjs")).href)
@@ -46,7 +47,7 @@ function childArgv(sessionDir, prompt) {
 }
 
 function childEnv(sandbox, sessionDir, senpiBin) {
-  return { ...process.env, SENPI_BIN: senpiBin, SENPI_CODING_AGENT_DIR: sandbox.agentDir, XDG_CONFIG_HOME: sandbox.xdgConfigHome, SENPI_CODING_AGENT_SESSION_DIR: sessionDir, OMO_SENPI_QA: "1" }
+  return { ...isolatedChildEnv(process.env, sandbox.agentDir), SENPI_BIN: senpiBin, SENPI_CODING_AGENT_DIR: sandbox.agentDir, XDG_CONFIG_HOME: sandbox.xdgConfigHome, SENPI_CODING_AGENT_SESSION_DIR: sessionDir, OMO_SENPI_QA: "1" }
 }
 
 function writeScript(sandbox, parentSteps, childSteps) {
@@ -77,7 +78,7 @@ export function prepareScenarioSandbox(projectConfig = PROJECT_OMO_CONFIG) {
   mkdirSync(sessionDir, { recursive: true })
   mkdirSync(join(sandbox.cwd, ".omo"), { recursive: true })
   writeFileSync(join(sandbox.cwd, ".omo", "omo.json"), `${JSON.stringify(projectConfig, null, 2)}\n`)
-  const stateDir = join(sandbox.cwd, ".omo", "senpi-task")
+  const stateDir = sandboxStateDir(sandbox)
   mkdirSync(join(stateDir, "tasks"), { recursive: true })
   mkdirSync(join(stateDir, "logs"), { recursive: true })
   return { sandbox, sessionDir, stateDir }
@@ -198,11 +199,12 @@ export async function runKillCheck(senpiBin) {
       // already gone counts as killed
     }
     const errored = await waitForRecord(stateDir, (r) => r.task_id === running.task_id && r.status === "error" && r.killed === true, 15_000)
+    const latest = readRecords(stateDir).find((r) => r.task_id === running.task_id)
     return {
       check: "kill_marks_error_killed_true",
       verdict: errored ? "PASS" : "FAIL",
       ...(errored ? {} : { reason: "kill did not yield status=error killed:true" }),
-      facts: { pid: running.pid, killed: errored?.killed ?? false, error_excerpt: (errored?.error_message ?? "").slice(0, 120) },
+      facts: { pid: running.pid, killed: errored?.killed ?? false, status: latest?.status, recordedKilled: latest?.killed, error_excerpt: (latest?.error_message ?? "").slice(0, 120) },
     }
   } finally {
     await cleanupSenpiHost(parent)
