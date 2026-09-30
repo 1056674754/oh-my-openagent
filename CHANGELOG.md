@@ -27,6 +27,8 @@ OmO no longer slows your machine down with many sessions open, because memory re
 
 The Windows release `.exe` runs from the folder you downloaded it to instead of failing at startup. ([#7485](https://github.com/code-yeongyu/oh-my-openagent/issues/7485), [#9255](https://github.com/code-yeongyu/oh-my-openagent/pull/9255))
 
+The standalone binary downloads the Claude Code version it is pinned to on your first Claude subscription turn, checks its hash and caches it, so you no longer need `claude` installed yourself, and `omo doctor` shows it. ([#9262](https://github.com/code-yeongyu/oh-my-openagent/issues/9262), [#9266](https://github.com/code-yeongyu/oh-my-openagent/pull/9266))
+
 One invalid value in `omo.jsonc` no longer switches off the whole file: only that key is ignored, `omo doctor` prints one warning naming it, and an unsafe key like `__proto__` is dropped without losing its valid neighbors. Thanks to @mooire733. ([#7676](https://github.com/code-yeongyu/oh-my-openagent/pull/7676), [#9249](https://github.com/code-yeongyu/oh-my-openagent/pull/9249))
 
 On Windows those config warnings name the file as `~/.omo/omo.jsonc`. ([#9244](https://github.com/code-yeongyu/oh-my-openagent/pull/9244))
