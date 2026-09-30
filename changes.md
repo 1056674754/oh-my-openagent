@@ -1,3 +1,14 @@
+## 2026-09-30 - Keep signed macOS computer-use engines at one path across updates (#9282)
+
+Signed release engines now launch from `~/.omo/engines/senpi-desktop-engine/<host>/senpi-desktop-engine`,
+so the absolute-path part of a macOS Accessibility or Screen Recording grant does not change on update.
+Every service spawn reacquires its requested release and holds a process-safe exclusive lock through
+atomic replacement, SHA-256 verification and native spawn. Concurrent sessions cannot replace the image
+between another session's verification and spawn. Doctor uses the same transaction and reports that path.
+Explicit overrides, sidecars, development engines, unsigned builds and quarantine diagnostics retain their
+existing behavior; unsigned files never replace the permission-bearing release engine. Other platforms
+retain immutable release generations.
+
 ## 2026-09-30 - The standalone binary gate starts the binary from an empty download folder and runs a Windows leg (#7485)
 
 `native-binary-parity` (#9259) ran the binary where `build-omo-binary.ts` wrote it, and only on macOS, so the Windows
