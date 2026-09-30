@@ -3,8 +3,9 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, sy
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { spawnSync } from "node:child_process"
+import { fileURLToPath } from "node:url"
 
-const script = readFileSync(new URL("../scripts/install.sh", import.meta.url), "utf8")
+const script = readFileSync(fileURLToPath(new URL("../scripts/install.sh", import.meta.url)), "utf8")
 const roots: string[] = []
 
 afterEach(() => {
