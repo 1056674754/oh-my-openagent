@@ -205,13 +205,24 @@ export const SCENARIOS = {
     cliThinking: "low",
     expect: { model: "mock-1", notice: null, thinking: "low" },
   },
+  // senpi's recommended-models builtin switches only away from an implicit start that is off its
+  // ladder, so no listed provider may serve its engine provider default (chatgpt-subscription's is
+  // gpt-6.1-sol, opencode-go's kimi-k3): the session starts first-available on mock-1, the builtin
+  // switches to its gpt-6-astra rung, and Daily · Normal then wins with glm-5.3 (#9238).
   "lane-beats-recommended-models": {
     omoConfig: { model_profile: "daily-normal" },
-    mockModels: ["mock-1", "glm-5.3", "gpt-6-sol"],
+    mockModels: ["mock-1", "glm-5.3", "gpt-6-astra"],
     cliModel: undefined,
     recommendedModels: undefined,
-    registerProviders: ["chatgpt-subscription", "zai"],
-    expect: { model: "glm-5.3", provider: "zai", notice: APPLIED_TYPE, thinking: "max" },
+    registerProviders: ["chatgpt-subscription", "opencode-go"],
+    expect: {
+      model: "glm-5.3",
+      provider: "opencode-go",
+      notice: APPLIED_TYPE,
+      thinking: "max",
+      initialModel: "mock-1",
+      recommendedSwitch: "chatgpt-subscription/gpt-6-astra",
+    },
   },
   // A stored Claude login whose refresh token the (offline) fixture exchange rejects, the way a
   // revoked subscription login is: Recommended must not pin it, and the turn must run on the next
