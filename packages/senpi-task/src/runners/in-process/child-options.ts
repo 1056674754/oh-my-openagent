@@ -121,9 +121,12 @@ export function buildChildSessionOptions(input: BuildChildSessionOptionsInput): 
   return {
     cwd: spec.cwd,
     sessionManager,
-    resourceLoader: createChildResourceLoader(
-      spec.systemPrompt === undefined ? {} : { systemPrompt: spec.systemPrompt },
-    ),
+    resourceLoader: createChildResourceLoader({
+      cwd: spec.cwd,
+      settingsManager,
+      ...(spec.agentDir === undefined ? {} : { agentDir: spec.agentDir }),
+      ...(spec.systemPrompt === undefined ? {} : { systemPrompt: spec.systemPrompt }),
+    }),
     customTools,
     ...(spec.agentDir !== undefined && { agentDir: spec.agentDir }),
     ...(spec.authStorage !== undefined && { authStorage: spec.authStorage }),

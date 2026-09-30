@@ -129,8 +129,12 @@ export type InProcessRunnerOptions = {
   readonly kernelToolBindings?: KernelToolBindingRegistry
 }
 
-const defaultCreateChildSession: CreateChildSession = async (options) =>
-  (await (await loadSenpiBarrel()).createAgentSession(options)).session
+const defaultCreateChildSession: CreateChildSession = async (options) => {
+  // SDK callers that supply a ResourceLoader own its reload. Load the builtin-only child surface
+  // before createAgentSession consumes it; injected test/session factories remain side-effect free.
+  await options.resourceLoader?.reload()
+  return (await (await loadSenpiBarrel()).createAgentSession(options)).session
+}
 
 export class InProcessRunner {
   readonly #sharedParentTools: readonly ToolDefinition[]
