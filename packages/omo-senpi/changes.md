@@ -1,3 +1,17 @@
+## 2026-09-30 - claude-code: acquire before the auth check, from the provisioned runtime, with progress (#9276)
+
+- `src/components/claude-code/index.ts`: the component now also runs on `input`, which senpi's `prompt()` emits
+  before `checkAuth` (`emitInput`, then `checkAuth`, then `emitBeforeAgentStart`), so a prompt from a
+  `claude login`-only user downloads the executable before the ambient auth probe needs it. `before_agent_start` stays
+  for turns an extension starts (they skip `input`), registered `previewSafe` and skipping the prompt-cache preview.
+  The pin and cache root come from `claudeCodeRuntimeDir` (`OMO_PACKAGE_DIR`, else `dirname(execPath)`), since the
+  compiled launcher pins the provisioned runtime there while `execPath` can still be the downloaded binary.
+  A progress status (`omo-claude-code`: `Downloading Claude Code <version>: N% of M MB`, every 10%) shows while the
+  tarball streams (`acquire.ts` `onProgress`). New `applyCachedClaudeCode` lets the compiled launcher point the engine
+  at an already-downloaded copy before it starts.
+- Limit: on the launch that downloads, the startup ambient probe may already have cached "not signed in" for 30 s
+  (`availability.ts` `AMBIENT_STATUS_TTL_MS`); the next prompt after that window, and every later launch, resolve it.
+
 ## 2026-09-30 - model-profile e2e: lane-beats-recommended-models proves a real recommended-models switch (#9238)
 
 - `scripts/qa/model-profile-e2e-scenarios.mjs`: `lane-beats-recommended-models` serves `mock-1`, `glm-5.3` and

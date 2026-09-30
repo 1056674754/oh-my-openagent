@@ -1,3 +1,10 @@
+## 2026-09-30 - The compiled binary hands a downloaded Claude Code to the engine at startup (#9276)
+
+`compile-entry.ts` calls `applyCachedClaudeCode` (omo-senpi `claude-code/index.ts`) right after
+`remapSenpiEnvironment`, so a Claude Code downloaded in an earlier session reaches the engine through
+`CLAUDE_CODE_EXECUTABLE` before its startup availability probe, every turn's auth check, and task children. An explicit
+`CLAUDE_CODE_EXECUTABLE` or `claude` on PATH still wins, and nothing happens before the first download.
+
 ## 2026-09-30 - The standalone binary downloads Claude Code on the first anthropic-subscription turn (#9262)
 
 A release binary embeds no Claude Code executable, because the platform package's `claude` alone (226 MB on
