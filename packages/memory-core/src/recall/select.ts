@@ -103,7 +103,8 @@ function rankBm25Candidates(
     candidates.push({
       path: document.path,
       description: document.description,
-      excerpt: buildExcerpt(document.body, queryTokens),
+      // The tokens are NFKC, so the window is searched in the NFKC body to stay anchored.
+      excerpt: buildExcerpt(document.body.normalize("NFKC"), queryTokens),
       score: 1 / (1 + score),
     })
   }

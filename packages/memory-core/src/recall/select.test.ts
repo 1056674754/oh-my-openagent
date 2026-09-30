@@ -316,6 +316,34 @@ describe("selectRecallCandidates automatic strategy", () => {
     expect(paths(substring)).toEqual([])
     expect(paths(automatic)).toEqual(["reference/publish.md"])
   })
+
+  it("#given an NFD-stored Hangul note #when a composed Korean query selects #then the note surfaces", () => {
+    // given: text pasted from macOS file names is often NFD
+    const documents = [
+      doc("reference/publish.md", "npm 퍼블리시 절차".normalize("NFD"), "토큰은 키체인에 있다".normalize("NFD")),
+      doc("reference/travel.md", "여행 계획", "다음 달 제주도"),
+    ]
+
+    // when
+    const candidates = selectRecallCandidates(documents, ["퍼블리시할"], BASE_OPTS)
+
+    // then
+    expect(paths(candidates)).toEqual(["reference/publish.md"])
+  })
+
+  it("#given a full-width Latin query #when it selects over a half-width note #then the note surfaces", () => {
+    // given
+    const documents = [
+      doc("reference/npm.md", "npm token", "the npm token lives in the keychain"),
+      doc("reference/travel.md", "여행 계획", "다음 달 제주도"),
+    ]
+
+    // when
+    const candidates = selectRecallCandidates(documents, ["ＮＰＭ", "토큰"], BASE_OPTS)
+
+    // then
+    expect(paths(candidates)).toEqual(["reference/npm.md"])
+  })
 })
 
 describe("selectRecallCandidates with the hybrid strategy", () => {

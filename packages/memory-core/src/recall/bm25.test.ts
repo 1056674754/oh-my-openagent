@@ -73,15 +73,15 @@ describe("tokenizeRecallText", () => {
     expect(tokens).toEqual(["\u8a18\u61b6", "\u691c\u7d22"])
   })
 
-  it("#given a decomposed accented latin word #when tokenized #then the combining mark stays inside the word", () => {
-    // given
-    const text = "cafe\u0301 menu"
+  it("#given decomposed accented latin words #when tokenized #then marks compose or stay inside the word", () => {
+    // given: x + U+0301 has no precomposed form, so NFKC keeps the combining mark
+    const text = "cafe\u0301 x\u0301y menu"
 
     // when
     const tokens = tokenizeRecallText(text)
 
     // then
-    expect(tokens).toEqual(["cafe\u0301", "menu"])
+    expect(tokens).toEqual(["caf\u00e9", "x\u0301y", "menu"])
   })
 
   it("#given a two-character run outside the basic plane #when tokenized #then no duplicate bigram is emitted", () => {
@@ -93,6 +93,16 @@ describe("tokenizeRecallText", () => {
 
     // then
     expect(tokens).toEqual(["\u{20000}\u{20001}"])
+  })
+
+  it("#given NFD Hangul and full-width Latin #when tokenized #then they tokenize like their NFKC forms", () => {
+    // given
+    const decomposed = "퍼블리시할".normalize("NFD")
+    const fullWidth = "ＮＰＭ 토큰"
+
+    // when / then
+    expect(tokenizeRecallText(decomposed)).toEqual(tokenizeRecallText("퍼블리시할"))
+    expect(tokenizeRecallText(fullWidth)).toEqual(["npm", "토큰"])
   })
 
   it("#given a lone CJK syllable #when tokenized #then no bigram is emitted and only an identical token can match", () => {

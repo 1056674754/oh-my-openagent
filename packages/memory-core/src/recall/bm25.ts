@@ -32,12 +32,14 @@ interface RecallBm25Index {
 }
 
 /**
- * Lowercased tokens: non-CJK letter/digit words as-is, CJK runs as the whole run plus its character
- * bigrams when the run is longer than two characters.
+ * NFKC-normalized, lowercased tokens: non-CJK letter/digit words as-is, CJK runs as the whole run plus
+ * its character bigrams when the run is longer than two characters. NFKC composes NFD Hangul (common in
+ * text pasted from macOS file names) and folds full-width Latin, so both sides meet on one form. A lone
+ * CJK character emits no bigram, so it only matches an identical lone token, never a longer word.
  */
 export function tokenizeRecallText(text: string): string[] {
   const tokens: string[] = []
-  for (const match of text.toLowerCase().matchAll(TOKEN_PATTERN)) {
+  for (const match of text.normalize("NFKC").toLowerCase().matchAll(TOKEN_PATTERN)) {
     const token = match[0]
     tokens.push(token)
     const characters = Array.from(token)
