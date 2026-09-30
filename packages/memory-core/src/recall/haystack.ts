@@ -6,8 +6,8 @@ import type { RecallDocument } from "./provider"
 
 /**
  * Normalized `description\nbody` per document object. RecallCorpusCache hands out the same document
- * objects for as long as HEAD has not moved, so this memo is naturally per corpus revision and a
- * moved HEAD (fresh objects) drops it. Composing and normalizing the haystack per document per
+ * object for as long as its blob has not changed, even across HEAD moves, so the memo lives exactly as
+ * long as the content it was derived from; a changed file gets a fresh object and drops it. Composing and normalizing the haystack per document per
  * QUERY was ~20ms per query pass at a 4.2MB corpus (#8335); the scores it feeds are unchanged.
  */
 const NORMALIZED_HAYSTACKS = new WeakMap<RecallDocument, string>()
