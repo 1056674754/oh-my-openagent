@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import type { ComponentContext, OmoSenpiComponent, SenpiExtensionAPI } from "../../extension/types"
 import { acquireClaudeCode, type ClaudeCodePin } from "./acquire"
+import { findOnPath } from "./find-on-path"
 
 export const CLAUDE_CODE_PROVIDER = "anthropic-subscription"
 export const CLAUDE_CODE_PIN_FILE = "claude-code-pin.json"
@@ -41,7 +42,7 @@ export function createClaudeCodeComponent(options: ClaudeCodeComponentOptions = 
       if (pin === undefined) return
       let settled: Promise<void> | undefined
       const ensure = (turn: TurnContext | undefined): Promise<void> => {
-        if (env.CLAUDE_CODE_EXECUTABLE || (options.which ?? Bun.which)("claude") !== null) return Promise.resolve()
+        if (env.CLAUDE_CODE_EXECUTABLE || (options.which ?? ((command: string) => findOnPath(command, env)))("claude") !== null) return Promise.resolve()
         settled ??= acquireClaudeCode({
           pin,
           cacheRoot: join(runtimeDir, "claude-code"),
