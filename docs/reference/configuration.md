@@ -645,7 +645,10 @@ still finds a note about `퍼블리시`. The planned terms include terms taken f
 are not the raw message, so the switch goes both ways: a Korean word the planner does not keep leaves
 a mostly English message on verbatim matching, and a Korean file path in a tool argument such as
 `docs/배포-절차.md` switches the selection to word rarity. From 200 notes on, both are combined so a
-memory either one finds can still reach the sidecar, which decides what is worth a nudge.
+memory either one finds can still reach the sidecar, which decides what is worth a nudge, and the
+note that matches an English phrase from the conversation word for word keeps first place. Word
+rarity treats common English endings as one word, so `rollback` still finds a note that says
+`rollbacks`.
 
 #### Facts
 
