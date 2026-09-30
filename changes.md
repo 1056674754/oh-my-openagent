@@ -1,3 +1,18 @@
+## 2026-09-30 - CI compares the standalone binary with the npm launcher (#9248 class)
+
+Every packaging check the binary build runs is self-referential. `build-omo-binary.ts` compares Bun's embedded files
+with the staged files (`collectStagedFiles`), and `resolveExpectedSidecarRelPaths` derives its expected set from the
+same `engineSidecarSources()` list that stages them, so a runtime dependency the list never names (codemode's
+`@babel/parser`, #9248) passes every check. The release smoke only runs `--version`. The new `native-binary-parity` CI
+job (macos-15, heavy mode) builds the darwin-arm64 binary and the omo-ai launcher from the same commit and runs
+`script/qa/omo-native-parity-smoke.mjs`: both drive one scripted session in isolated sandboxes (eval JS and Python,
+grep, a pty command, tool search, webfetch against a local page, text and image reads, LSP diagnostics, apply_patch,
+memory, task) against a scripted provider (`omo-native-parity-provider.mjs`), then `omo doctor` and
+`omo setup --dry-run`. `omo-native-parity-compare.mjs` fails on any registered-tool, step-result, doctor-section or
+setup-line difference and on any extension load failure; the lines that differ by distribution (engine resolution,
+edition line, embedded vs downloaded desktop engine) are listed with the reason in `DOCTOR_EXPECTED_ONLY`. The driver
+stops every process its sandboxes started (found by the sandbox path in their environment) before removing them.
+
 ## 2026-09-30 - Config pruning keeps valid siblings across unsafe keys, model aliases and legacy maxTokens (refs #7676)
 
 The per-leaf pruning added by #7676 had three follow-up gaps. First, `constructor`, `prototype` and `__proto__` inside an otherwise valid config could bypass layer validation: `constructor` was then read through an inherited Zod shape member and crashed `unknown-key-diagnostics.ts`, while the other unsafe keys could survive or silently disappear. `layer-validation.ts` now rebuilds every parsed layer from safe own entries, reports each unsafe path through the existing `unknown-keys` diagnostic, and preserves valid siblings; the OpenCode schema walker also reads only shape-owned members. Second, `omo-config-chain.ts` parsed all model-reference input at once, so one invalid OpenCode leaf made it skip every model alias. It now prunes invalid model-input paths before `resolveModelReferences`, while the normal plugin-view warning still names the dropped leaf. Third, legacy `maxTokens` normalization moved even a wrong-typed value to `max_tokens`; the pruner could not find that normalized path in the raw document and removed the whole category. Invalid `maxTokens` now stays at its original path until validation removes only that field, while valid numeric values still normalize to `max_tokens`.

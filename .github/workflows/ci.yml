@@ -731,6 +731,84 @@ jobs:
           JOB_SUMMARY_NEXT: Inspect the failing build, payload verifier, or dry-run publish step.
         run: GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" bash .github/scripts/write-job-summary.sh
 
+  # The standalone binary and the npm launcher must behave the same: every tool step, omo doctor and
+  # omo setup. Packaging checks compare the payload with its own source list and cannot see a runtime
+  # dependency that list never named (#9248), so this job drives both through one scripted session.
+  native-binary-parity:
+    needs: [ci-mode]
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        if: needs.ci-mode.outputs.run_heavy == 'true'
+        with:
+          node-version: "24"
+
+      - uses: oven-sh/setup-bun@v2
+        if: needs.ci-mode.outputs.run_heavy == 'true'
+        with:
+          bun-version: "1.4.2"
+
+      - uses: actions/cache@v6
+        if: needs.ci-mode.outputs.run_heavy == 'true'
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-1.4.2-${{ hashFiles('bun.lock') }}
+
+      - name: Install dependencies
+        if: needs.ci-mode.outputs.run_heavy == 'true'
+        run: bun install --frozen-lockfile
+
+      - name: Build the desktop engine the binary embeds
+        if: needs.ci-mode.outputs.run_heavy == 'true'
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: |
+          toolchain=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+          rustup target add aarch64-apple-darwin
+          cargo build --release -p senpi-desktop-engine --locked --target aarch64-apple-darwin
+
+      - name: Build the standalone binary and the npm launcher payload
+        if: needs.ci-mode.outputs.run_heavy == 'true'
+        run: |
+          version=$(jq -r .version packages/omo-native/package.json)
+          bun script/build-omo-binary.ts --target darwin-arm64 --omo-version "$version" --omo-ai-version "$version" --out-dir .omo/parity-binary
+          bun run build:omo-native
+
+      - name: Compare the binary with the npm launcher
+        if: needs.ci-mode.outputs.run_heavy == 'true'
+        run: |
+          bun script/qa/omo-native-parity-smoke.mjs \
+            --binary .omo/parity-binary/omo-darwin-arm64 \
+            --npm-omo "bun $PWD/packages/omo-native/bin/omo.js" \
+            --evidence-dir .omo/parity-evidence
+
+      - name: Upload parity runs
+        if: failure() && needs.ci-mode.outputs.run_heavy == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-binary-parity-runs
+          path: .omo/parity-evidence
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Write job summary
+        if: always()
+        shell: bash
+        env:
+          JOB_SUMMARY_TITLE: Standalone binary / npm parity
+          JOB_SUMMARY_STATUS: ${{ job.status }}
+          JOB_SUMMARY_DETAILS: |
+            - Builds the darwin-arm64 standalone binary and the omo-ai launcher from this commit.
+            - Drives both through the same scripted session (eval JS/Python, grep, pty, tool search, webfetch, read, LSP, apply_patch, memory, task), omo doctor and omo setup --dry-run.
+            - Fails on any tool, result, doctor or setup difference that is not a documented distribution line.
+          JOB_SUMMARY_NEXT: Read the listed differences; the uploaded parity-runs.json holds both runs.
+        run: GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" bash .github/scripts/write-job-summary.sh
+
   auto-commit-schema:
     runs-on: ubuntu-latest
     needs: [ci-mode, test, typecheck, codex-compatibility, senpi-compatibility, build, omo-ai-payload-check]
