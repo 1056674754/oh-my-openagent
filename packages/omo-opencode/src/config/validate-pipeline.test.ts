@@ -133,6 +133,19 @@ describe("validatePluginConfig pipeline", () => {
     })
   })
 
+  it("#given canonical max_tokens beside an invalid legacy maxTokens value #when validating #then keeps the category and reports only the invalid legacy leaf", () => {
+    withProjectConfig("canonical-and-invalid-legacy-max-tokens", {
+      categories: { quick: { model: "provider/quick", max_tokens: 4096, maxTokens: "bad" } },
+    }, (project) => {
+      const result = validatePluginConfig(project)
+
+      expect(result.config.categories?.quick?.model).toBe("provider/quick")
+      expect(result.warnings).toEqual([
+        "config: ~/project/.omo/omo.jsonc: categories.quick.maxTokens ignored (invalid value)",
+      ])
+    })
+  })
+
   it("#given an invalid shared task value beside a valid one #when validating #then the loader's ignored key is reported as a warning, not a failure", () => {
     withProjectConfig("shared-task", {
       task: { host_engine_policy: "sometimes", default_concurrency: 3 },

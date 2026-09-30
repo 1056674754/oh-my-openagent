@@ -66,7 +66,9 @@ export function normalizeLegacyModelFields(entry: Readonly<Record<string, unknow
 
   if (entry["max_tokens"] !== undefined) {
     normalized["max_tokens"] = entry["max_tokens"]
-    delete normalized["maxTokens"]
+    if (entry["maxTokens"] === undefined || typeof entry["maxTokens"] === "number") {
+      delete normalized["maxTokens"]
+    }
   } else if (typeof entry["maxTokens"] === "number") {
     normalized["max_tokens"] = entry["maxTokens"]
     delete normalized["maxTokens"]
