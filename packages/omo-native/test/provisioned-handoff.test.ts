@@ -10,6 +10,9 @@ const home = join(root, "home")
 const download = join(root, "Downloads", `omo-${process.platform}-${process.arch}${exe}`)
 const provisioned = join(home, ".omo", "binary-runtime", "handoff-fixture", `omo${exe}`)
 
+// The long-name form: tmpdir() is an 8.3 short path (RUNNER~1) on Windows runners, process.execPath is not.
+const canonical = (path: string) => realpathSync.native(path)
+
 type Run = { code: number; stdout: string; stderr: string }
 type Report = { version: string; execPath: string; args: string[]; launch: { provision: boolean; handOff: boolean } }
 
@@ -95,7 +98,7 @@ describe("a compiled omo launched from an empty download directory (#7485)", () 
     // then
     const firstBody = report(first)
     expect(firstBody.version).toBe("0.0.0-handoff-fixture")
-    expect(realpathSync(dirname(firstBody.execPath))).toBe(realpathSync(dirname(provisioned)))
+    expect(canonical(dirname(firstBody.execPath))).toBe(canonical(dirname(provisioned)))
     expect(firstBody.args).toEqual(["7", "two words"])
     expect(first.code).toBe(7)
 
@@ -103,14 +106,14 @@ describe("a compiled omo launched from an empty download directory (#7485)", () 
     const again = await run([download, "3"])
     // then
     expect(report(again).version).toBe("0.0.0-handoff-fixture")
-    expect(realpathSync(dirname(report(again).execPath))).toBe(realpathSync(dirname(provisioned)))
+    expect(canonical(dirname(report(again).execPath))).toBe(canonical(dirname(provisioned)))
     expect(again.code).toBe(3)
 
     // when: the provisioned executable itself runs
     const direct = await run([provisioned, "0"])
     // then: it runs in place, with nothing to provision or hand off
     expect(report(direct).launch).toEqual(expect.objectContaining({ provision: false, handOff: false }))
-    expect(realpathSync(dirname(report(direct).execPath))).toBe(realpathSync(dirname(provisioned)))
+    expect(canonical(dirname(report(direct).execPath))).toBe(canonical(dirname(provisioned)))
     expect(direct.code).toBe(0)
   }, 180_000)
 })
