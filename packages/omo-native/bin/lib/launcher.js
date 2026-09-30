@@ -230,8 +230,8 @@ export async function runLauncher(args = process.argv.slice(2)) {
     process.exitCode = 2
     return
   }
-  // The daemon is the engine's to run; omo only supplies the launch spec, the policy from
-  // omo.json, and an exit code the caller can branch on.
+  // The daemon is the engine's to run; omo only supplies the launch spec, the task settings from
+  // the omo config (daemon-config.js), and an exit code the caller can branch on.
   if (command === "daemon") {
     const outcome = runDaemonCommand(args.slice(1), {
       engine: { run: engineHostCall },
