@@ -75,6 +75,9 @@ export type ChildSpec = {
   // Denylist mapped onto senpi's real deny field `excludeTools` (`tools:` is the allowlist and does
   // NOT deny). Sourced from record.tool_deny (the agent definition's disallowedTools).
   readonly toolDenylist?: readonly string[]
+  // Ordinary task children match process mode's nested task/workpool surface. DAG/workpool/member
+  // children leave this false and retain the stricter orchestration exclusion.
+  readonly includeTaskTools?: boolean
   // Names of the member-scoped tools, carried for persistence so a later resume can re-resolve
   // them against the live shared parent tools (todo 10). Start uses `memberScopedTools` directly.
   readonly memberScopedToolNames?: readonly string[]

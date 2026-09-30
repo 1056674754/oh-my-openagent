@@ -39,10 +39,11 @@ export type NestedHostScopeRequest = {
   readonly childToolNames?: readonly string[]
   readonly toolAllowlist?: readonly string[]
   readonly toolDenylist?: readonly string[]
+  readonly includeTaskTools?: boolean
 }
 
 function reachableHostTools(request: NestedHostScopeRequest): readonly string[] {
-  return childStructuralToolNames(request.childToolNames ?? []).filter((name) => !isChildOrchestrationExcluded(name))
+  return childStructuralToolNames(request.childToolNames ?? []).filter((name) => !isChildOrchestrationExcluded(name, request.includeTaskTools === true))
 }
 
 /**

@@ -43,7 +43,7 @@ describe("tool capture registry", () => {
     pi.registerTool(fakeTool("task_output"))
     pi.registerTool(fakeTool("task_send"))
 
-    const shared = filterSharedParentTools(registry.getCapturedTools())
+    const shared = filterSharedParentTools(registry.getCapturedTools(), { includeTaskTools: true })
 
     expect(shared.map((tool) => tool.name)).toEqual(["lsp_diagnostics", "task", "task_output", "task_send"])
     expect(shared.every((tool) => typeof tool.execute === "function")).toBe(true)

@@ -101,6 +101,7 @@ export function buildChildSessionOptions(input: BuildChildSessionOptionsInput): 
   const { spec, sessionManager, uiOnlyToolNames } = input
   const mergedCustomTools = mergeChildCustomTools(input.sharedParentTools, spec.memberScopedTools, {
     uiOnlyToolNames,
+    includeTaskTools: spec.includeTaskTools === true,
   })
   const existingToolNames = childStructuralToolNames(mergedCustomTools.map((tool) => tool.name))
   const curated = spec.agentType !== undefined && CURATED_READONLY_AGENT_NAMES.has(spec.agentType)

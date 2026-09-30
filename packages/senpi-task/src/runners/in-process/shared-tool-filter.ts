@@ -9,14 +9,18 @@ export const CHILD_DIRECT_EXPOSURE_TOOL_NAMES: ReadonlySet<string> = new Set(["x
 
 export type SharedToolFilterOptions = {
   readonly uiOnlyToolNames?: Iterable<string>
+  // Ordinary task children match process mode. DAG/workpool/member policies leave this false so
+  // nested orchestration tools remain unavailable unless explicitly member-scoped.
+  readonly includeTaskTools?: boolean
 }
 
 export function isTaskOrTeamFamilyTool(name: string): boolean {
   return name === "workpool" || name.startsWith("workpool_") || name === "workflow" || name === "task" || name.startsWith("task_") || name.startsWith("team_")
 }
 
-export function isChildOrchestrationExcluded(name: string): boolean {
-  return name === "workflow" || name.startsWith("team_")
+export function isChildOrchestrationExcluded(name: string, includeTaskTools = false): boolean {
+  if (name === "workflow" || name.startsWith("team_")) return true
+  return !includeTaskTools && (name === "workpool" || name.startsWith("workpool_") || name === "task" || name.startsWith("task_"))
 }
 
 /**
@@ -30,7 +34,7 @@ export function childVisibleToolNames(
   uiOnlyToolNames: Iterable<string> = [],
 ): string[] {
   const uiOnly = new Set(uiOnlyToolNames)
-  return names.filter((name) => !isChildOrchestrationExcluded(name) && !uiOnly.has(name))
+  return names.filter((name) => !isChildOrchestrationExcluded(name, false) && !uiOnly.has(name))
 }
 
 // Only `name` and `exposure` are read, and every tool is passed through unchanged, so the element
@@ -42,7 +46,7 @@ export function filterSharedParentTools<TTool extends Pick<ToolDefinition, "name
 ): TTool[] {
   const uiOnly = new Set(options.uiOnlyToolNames ?? [])
   return tools
-    .filter((tool) => !isChildOrchestrationExcluded(tool.name) && !uiOnly.has(tool.name))
+    .filter((tool) => !isChildOrchestrationExcluded(tool.name, options.includeTaskTools === true) && !uiOnly.has(tool.name))
     .map((tool) =>
       CHILD_DIRECT_EXPOSURE_TOOL_NAMES.has(tool.name) && tool.exposure === "search"
         ? { ...tool, exposure: "direct" }

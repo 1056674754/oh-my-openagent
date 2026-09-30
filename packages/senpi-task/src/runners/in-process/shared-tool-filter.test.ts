@@ -35,7 +35,7 @@ describe("shared parent tool family filter", () => {
   test("#given shared task, team, workflow, and ui-only entries #when filtered #then process-child task tools remain while lead-only and ui-only tools are removed", () => {
     const shared = [makeTool("grep"), makeTool("task_create"), makeTool("workpool"), makeTool("team_create"), makeTool("workflow"), makeTool("render_widget")]
 
-    const filtered = filterSharedParentTools(shared, { uiOnlyToolNames: ["render_widget"] })
+    const filtered = filterSharedParentTools(shared, { uiOnlyToolNames: ["render_widget"], includeTaskTools: true })
 
     expect(filtered.map((tool) => tool.name)).toEqual(["grep", "task_create", "workpool"])
   })
@@ -44,7 +44,7 @@ describe("shared parent tool family filter", () => {
     const shared = [makeTool("grep"), makeTool("task")]
     const memberScoped = [makeTool("task_send")]
 
-    const merged = mergeChildCustomTools(shared, memberScoped)
+    const merged = mergeChildCustomTools(shared, memberScoped, { includeTaskTools: true })
 
     expect(merged.map((tool) => tool.name)).toEqual(["grep", "task", "task_send"])
     for (const tool of merged) {
@@ -55,7 +55,7 @@ describe("shared parent tool family filter", () => {
   test("#given no member-scoped tools #when merged #then process-child task tools remain in the shared set", () => {
     const shared = [makeTool("glob"), makeTool("task_update")]
 
-    const merged = mergeChildCustomTools(shared, undefined)
+    const merged = mergeChildCustomTools(shared, undefined, { includeTaskTools: true })
 
     expect(merged.map((tool) => tool.name)).toEqual(["glob", "task_update"])
   })

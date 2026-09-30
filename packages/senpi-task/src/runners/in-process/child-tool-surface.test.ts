@@ -37,6 +37,7 @@ function spec(policy: {
     parentSessionId: "parent",
     rootSessionId: "parent",
     prompt: "surface",
+    includeTaskTools: true,
     ...policy,
   }
 }
@@ -56,7 +57,8 @@ function grantSide(
 ): string[] {
   return [
     ...childEffectiveToolNames({
-      childToolNames: mergeChildCustomTools(parent, memberScoped, { uiOnlyToolNames: ["memory"] }).map((entry) => entry.name),
+      childToolNames: mergeChildCustomTools(parent, memberScoped, { uiOnlyToolNames: ["memory"], includeTaskTools: true }).map((entry) => entry.name),
+      includeTaskTools: true,
       ...policy,
     }),
   ]
