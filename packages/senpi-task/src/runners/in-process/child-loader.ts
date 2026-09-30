@@ -18,7 +18,6 @@ export function createChildResourceLoader(options: ChildResourceLoaderOptions): 
     cwd: options.cwd,
     agentDir: options.agentDir ?? senpi.getAgentDir(),
     settingsManager: options.settingsManager,
-    sessionKind: "worker",
     noExtensions: true,
     noSkills: true,
     noPromptTemplates: true,
