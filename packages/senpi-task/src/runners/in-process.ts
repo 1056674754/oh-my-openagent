@@ -130,10 +130,13 @@ export type InProcessRunnerOptions = {
 }
 
 const defaultCreateChildSession: CreateChildSession = async (options) => {
-  // SDK callers that supply a ResourceLoader own its reload. Load the builtin-only child surface
-  // before createAgentSession consumes it; injected test/session factories remain side-effect free.
+  // SDK callers that supply a ResourceLoader own its reload and extension binding. Load the
+  // builtin-only child surface, then run session_start so model-aware builtins (apply_patch, web
+  // search, terminal) select the same variants and active names as a process child.
   await options.resourceLoader?.reload()
-  return (await (await loadSenpiBarrel()).createAgentSession(options)).session
+  const session = (await (await loadSenpiBarrel()).createAgentSession(options)).session
+  await session.bindExtensions({ mode: "print" })
+  return session
 }
 
 export class InProcessRunner {
