@@ -15,6 +15,8 @@ import { isBusyError, Sql, type SqliteConnection } from "./sql"
 import * as ops from "./store-ops"
 import * as relay from "./store-relay-ops"
 import * as ownership from "./store-ownership"
+import { StoreExtensions } from "./store-extension-ops"
+import type { StoreExtensionRegistration } from "./store-extensions"
 import type { GatewayStoreConfig, GatewayStoreEvent } from "./types"
 
 type WorkerRequest = { readonly type: "request"; readonly id: number; readonly op: string; readonly args: unknown }
@@ -30,6 +32,7 @@ const barriers = new Map<string, () => void>()
 let running = false
 let context: ops.StoreContext | undefined
 let connection: SqliteConnection | undefined
+let extensions: StoreExtensions | undefined
 
 port.on("message", (message: WorkerRequest | WorkerControl) => {
   if (message.type === "resume") {
@@ -82,10 +85,19 @@ async function dispatch(op: string, args: unknown): Promise<unknown> {
     connection?.close()
     connection = undefined
     context = undefined
+    extensions = undefined
     return null
   }
   const ctx = requireContext()
   switch (op) {
+    case "extension_register": {
+      const request = args as { readonly extension: StoreExtensionRegistration; readonly now: number }
+      return await extensions?.register(request.extension, request.now)
+    }
+    case "extension_call": {
+      const request = args as { readonly name: string; readonly op: string; readonly args: unknown; readonly now: number }
+      return await extensions?.call(request.name, request.op, request.args, request.now)
+    }
     case "enqueue": return await ops.enqueue(ctx, args as Parameters<typeof ops.enqueue>[1])
     case "reconcile": return await ops.reconcile(ctx, args as Parameters<typeof ops.reconcile>[1])
     case "claim": return await ops.claim(ctx, args as Parameters<typeof ops.claim>[1])
@@ -167,6 +179,7 @@ async function open(request: { readonly config: GatewayStoreConfig; readonly now
     delay: (ms) => delay(ms),
   }
   await ops.migrate(context)
+  extensions = new StoreExtensions(context)
   const legacy = await ops.migrateLegacyMailboxes(context, request.now)
   context.stats.writes = 0
   context.stats.transactions = 0
