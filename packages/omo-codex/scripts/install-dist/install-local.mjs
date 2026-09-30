@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// omo-codex-install:78f0f3a4a82446ddca34159dfd7f38c5b1c0e9d36d9d5f89462bedda416eba54:6653f11093d766baee66c170a5feab5cb0e0356ec2cbf86f26eeea595350f7f0
+// omo-codex-install:84fdce22eb0fe16fc5116fe334da17ae2005810fd47f55c0d387a06c7bc0948c:57958fe4620dd1c5b638a6c41e972cbaa0c85e8f93f17dc44bcf238448cf23c7
 var __esm = (fn, res, err) => () => {
   if (fn)
     try {
@@ -19271,7 +19271,9 @@ function normalizeLegacyModelFields(entry) {
     normalized["provider_options"] = providerOptions;
   if (entry["max_tokens"] !== undefined) {
     normalized["max_tokens"] = entry["max_tokens"];
-    delete normalized["maxTokens"];
+    if (entry["maxTokens"] === undefined || typeof entry["maxTokens"] === "number") {
+      delete normalized["maxTokens"];
+    }
   } else if (typeof entry["maxTokens"] === "number") {
     normalized["max_tokens"] = entry["maxTokens"];
     delete normalized["maxTokens"];
