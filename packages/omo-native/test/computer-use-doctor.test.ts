@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import { spawn } from "node:child_process"
 import { createHash, randomUUID } from "node:crypto"
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
@@ -11,6 +11,8 @@ import {
   type ComputerUseDoctorReport,
 } from "../computer-use-doctor-runtime"
 import type { EngineLauncher } from "../computer-use-engine-probe"
+import * as releaseSignature from "../../senpi-desktop-engine/src/release-signature"
+import { describeEngineSource } from "../../omo-senpi/src/components/computer-use/engine-source"
 
 const roots: string[] = []
 
@@ -204,18 +206,35 @@ describe("computer use doctor probe", () => {
       fetched += 1
       throw new Error("doctor must not fetch")
     }, { preconnect: realFetch.preconnect })
+    const signature = spyOn(releaseSignature, "isDesktopEngineRelease").mockReturnValue(true)
+    const launchedPaths: string[] = []
     let report: ComputerUseDoctorReport
     try {
       report = await computerUseDoctorReport({
         cwd: home, env: { HOME: home, OMO_TEST_REQUEST_LOG: engine.log },
         version: "5.1.4", packageRoot: join(home, "package"),
-        platform: "darwin", arch: "arm64", launchEngine: runEngineScript,
+        platform: "darwin", arch: "arm64", launchEngine: (path, args, env) => {
+          launchedPaths.push(path)
+          return runEngineScript(path, args, env)
+        },
       })
     } finally {
       globalThis.fetch = realFetch
+      signature.mockRestore()
     }
     expect(report.kind).toBe("ready")
     expect(report).toMatchObject({ enginePath: cached, engineSource: "cache" })
+    const stable = join(home, ".omo", "engines", "senpi-desktop-engine", "darwin-arm64", "senpi-desktop-engine")
+    expect(launchedPaths).toEqual([stable])
+    expect(report).toMatchObject({ launchedEnginePath: stable })
+    const stamped = join(home, "stamped")
+    mkdirSync(stamped)
+    writeFileSync(join(stamped, "package.json"), JSON.stringify({ name: "omo", version: "5.1.4" }))
+    expect(describeEngineSource(undefined, { HOME: home, OMO_PACKAGE_DIR: stamped }, {
+      platform: "darwin", arch: "arm64", execDir: join(home, "bin"),
+      packageDir: join(home, "engine-package"), repoRoot: home,
+    })).toBe(`found ${cached} (cache, omo v5.1.4)`)
+    expect(formatComputerUseDoctorLines(report)).toContain(`INFO computer use launched executable: ${stable}`)
     expect(fetched).toBe(0)
     expect(readFileSync(engine.log, "utf8").trim().split("\n").map((line) => JSON.parse(line).method))
       .toEqual(["engine.hello", "capabilities"])

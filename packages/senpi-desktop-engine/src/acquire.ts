@@ -38,6 +38,7 @@ export type AcquiredDesktopEngine =
 /** Finds a verified, executable release-cache generation without acquiring or starting an engine. */
 export function findCachedDesktopEngine(
 	options: Pick<AcquireDesktopEngineOptions, "version" | "host" | "cacheDir">,
+	onAttempt?: (path: string) => void,
 ): { readonly path: string; readonly sha256: string } | { readonly path: null; readonly attemptedPaths: readonly string[] } {
 	const { host, version } = options;
 	const asset = desktopEngineReleaseAssetName(host);
@@ -52,6 +53,7 @@ export function findCachedDesktopEngine(
 			if (match === null) continue;
 			const cached = join(hostDir, entry, asset);
 			attemptedPaths = [...attemptedPaths, cached];
+			onAttempt?.(cached);
 			if (existsSync(cached)
 				&& createHash("sha256").update(readFileSync(cached)).digest("hex") === match[1]
 				&& !isQuarantinedFile(cached, platform)) {
@@ -119,9 +121,10 @@ export async function acquireDesktopEngine(options: AcquireDesktopEngineOptions)
 		}
 		const cacheRoot = options.cacheDir ?? join(homedir(), ".omo", "cache", "senpi-desktop-engine");
 		const hostDir = join(cacheRoot, version, host);
-		const cached = findCachedDesktopEngine(options);
+		const cached = findCachedDesktopEngine(options, (path) => {
+			attemptedPaths = [...attemptedPaths, path];
+		});
 		if (cached.path !== null) return cached;
-		attemptedPaths = [...attemptedPaths, ...cached.attemptedPaths];
 
 		if (options.allowDownload === false) return unavailable("No installed release engine");
 		const fetchRelease = options.fetch ?? globalThis.fetch;

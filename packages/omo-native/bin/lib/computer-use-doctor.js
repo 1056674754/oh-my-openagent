@@ -29,6 +29,7 @@ function readyLines(report) {
   return [
     baseLine(report),
     `PASS computer use engine: ready (${report.engineSource}) ${report.enginePath} (version ${report.hello.engineVersion}, ABI ${report.hello.abi}, protocol ${report.hello.protocolVersion})`,
+    ...(report.launchedEnginePath ? [`INFO computer use launched executable: ${report.launchedEnginePath}`] : []),
     `${backendLevel} computer use backend: ${capabilities.backend}${displayServer}`,
     `${permissionLevel} computer use permissions: capture=${capabilities.capturePermission} input=${capabilities.inputPermission} accessibility=${capabilities.axPermission}`,
     `${displayLevel} computer use display: count=${capabilities.displayCount} screenLocked=${capabilities.screenLocked}`,
@@ -65,6 +66,7 @@ export function formatComputerUseDoctorLines(report) {
         `FAIL computer use engine: ${report.code}: ${report.message}`,
         `INFO computer use engine path: ${report.enginePath}`,
         `INFO computer use engine source: ${report.engineSource}`,
+        ...(report.launchedEnginePath ? [`INFO computer use launched executable: ${report.launchedEnginePath}`] : []),
       ]
     default:
       throw new TypeError(`unknown computer use doctor report kind: ${String(report.kind)}`)

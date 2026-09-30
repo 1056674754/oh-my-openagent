@@ -32,6 +32,7 @@ export type ComputerUseDoctorReport =
       readonly kind: "ready"
       readonly enginePath: string
       readonly engineSource: string
+      readonly launchedEnginePath?: string
       readonly hello: {
         readonly protocolVersion: string
         readonly engineVersion: string
@@ -63,6 +64,7 @@ export type ComputerUseDoctorReport =
       readonly kind: "failed"
       readonly enginePath: string
       readonly engineSource: string
+      readonly launchedEnginePath?: string
       readonly code: "abi-mismatch" | "handshake-failed" | "timeout"
       readonly message: string
     })
@@ -208,14 +210,18 @@ export async function computerUseDoctorReport(input: ComputerUseDoctorInput): Pr
     return unavailable(base, launched.diagnostic)
   }
   const probed = await launched.value.probe
+  const location = {
+    enginePath: resolved.path,
+    engineSource: resolved.source,
+    ...(launched.path === resolved.path ? {} : { launchedEnginePath: launched.path }),
+  }
   if (!probed.ok) {
-    return { ...base, kind: "failed", enginePath: launched.path, engineSource: resolved.source, code: probed.code, message: probed.message }
+    return { ...base, ...location, kind: "failed", code: probed.code, message: probed.message }
   }
   return {
     ...base,
     kind: "ready",
-    enginePath: launched.path,
-    engineSource: resolved.source,
+    ...location,
     hello: probed.value.hello,
     capabilities: probed.value.capabilities,
   }
