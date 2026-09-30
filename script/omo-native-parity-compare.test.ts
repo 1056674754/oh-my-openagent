@@ -34,7 +34,7 @@ describe("binary/npm parity comparison", () => {
 
   test("#given distribution-specific doctor lines #when compared #then they are not differences", () => {
     const npm = run({ doctor: [...run().doctor, "PASS senpi version 2026.9.29-5", "INFO computer use engine: not installed yet"] })
-    const binary = run({ doctor: [...run().doctor, "INFO omo 5.1.4 (engine: senpi 2026.9.29-5)", "PASS computer use engine: native/senpi-desktop-engine"] })
+    const binary = run({ doctor: [...run().doctor, "INFO omo 5.1.4 (engine: senpi 2026.9.29-5)", "PASS computer use engine: native/senpi-desktop-engine", "INFO Claude Code 2.1.284: not downloaded yet"] })
     expect(compareRuns(binary, npm)).toEqual([])
   })
 
