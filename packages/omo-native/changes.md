@@ -1,3 +1,20 @@
+## 2026-09-30 - The Windows release exe runs from its download folder instead of dying on the pi-pty package version (#7485)
+
+A raw `omo-windows-*.exe` launched from an empty folder provisioned `~/.omo/binary-runtime/<version>/` and then
+ran the engine in-process, because `shouldReexecAfterProvisioning()` was false on win32 since #7447. `process.execPath`
+stayed in the download folder, so every engine lookup beside it failed: the pi-pty loader's `package.json` first, then
+the built-in themes and native prebuilds. `OMO_PACKAGE_DIR` (#7487's superseding fix) covers only the lookups that
+read it. The new `provisioned-handoff.ts` makes every platform hand a launch off to the provisioned executable when it
+is not already that executable: POSIX keeps `execve`, Windows runs it through `runChild` and passes its exit code
+through. The child is told it is the provisioned runtime through `OMO_PROVISIONED_HANDOFF` (the path the parent
+spawned), so it never provisions or re-execs again even if its own executable identity is misreported, the loop that
+made #7445/#7447 turn the handoff off; the marker is removed before the engine starts. While the child runs, the
+Windows parent holds `SIGINT` so Ctrl+C does not return the prompt before the child exits. `compile-entry.ts` only
+calls `planProvisionedLaunch` and `handOffToProvisionedRuntime`. `test/provisioned-handoff.test.ts` compiles a fixture
+that runs the same launch sequence and reads `package.json` beside `process.execPath` like the pi-pty loader, copies it
+into an empty download folder with an isolated home, and runs it three times (first launch, already provisioned, the
+provisioned exe directly); on the Windows CI shard it failed before this change and passes after it.
+
 ## 2026-09-30 - The standalone binary runs the same omo setup import and omo doctor sections as the npm launcher (#9252)
 
 The compiled entry (`compile-entry.ts`) answered `omo setup` with the inventory table only (`printSetupReport`), while
