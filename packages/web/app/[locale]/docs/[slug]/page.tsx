@@ -11,8 +11,9 @@ import { loadDocSource } from "@/lib/docs-source"
 
 type Params = Promise<{ locale: string; slug: string }>
 
-export const dynamicParams = false
-
+// No `dynamicParams = false`: on Cloudflare the Worker's incremental cache starts empty, and a
+// closed route answers every cache miss with a 404 instead of rendering. Unknown slugs still 404
+// through notFound() below.
 export function generateStaticParams(): Array<{ readonly slug: string }> {
   return DOC_GUIDE_PAGES.map(({ slug }) => ({ slug }))
 }
