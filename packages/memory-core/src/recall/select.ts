@@ -8,7 +8,7 @@ import { matchScoreNormalized, normalizeText, parseQuery, type ParsedQuery } fro
 import { rankRecallDocumentsBm25, tokenizeRecallText } from "./bm25"
 import { normalizedHaystack } from "./haystack"
 import type { RecallDocument } from "./provider"
-import { chooseRecallStrategy, type RecallStrategy } from "./strategy"
+import { chooseRecallStrategy, hasCjk, type RecallStrategy } from "./strategy"
 
 export interface RecallCandidate {
   readonly path: string
@@ -43,9 +43,9 @@ export function selectRecallCandidates(
   if (maxItems === 0 || parsedQueries.length === 0) return []
   const strategy = options.strategy ?? chooseRecallStrategy(documents, queries)
   if (strategy === "bm25") return rankBm25Candidates(documents, queries, options).slice(0, maxItems)
-  if (strategy === "hybrid") return fuseCandidates(
-    rankSubstringCandidates(documents, parsedQueries, options),
-    rankBm25Candidates(documents, queries, options),
+  if (strategy === "hybrid") return pinPhraseLeader(
+    fuseCandidates(rankSubstringCandidates(documents, parsedQueries, options), rankBm25Candidates(documents, queries, options)),
+    phraseLeaderPath(documents, parsedQueries, options),
   ).slice(0, maxItems)
   return rankSubstringCandidates(documents, parsedQueries, options).slice(0, maxItems)
 }
@@ -140,6 +140,51 @@ function fuseCandidates(substring: readonly RecallCandidate[], bm25: readonly Re
         left.candidate.path.localeCompare(right.candidate.path),
     )
     .map(({ candidate, weight }) => ({ ...candidate, score: 1 / (1 + weight) }))
+}
+
+function isNonCjkMultiWord(parsed: ParsedQuery): boolean {
+  const multiWord = parsed.terms.length + parsed.phrases.length > 1 || parsed.phrases.some((phrase) => /\s/.test(phrase.trim()))
+  return multiWord && !hasCjk([...parsed.terms, ...parsed.phrases].join(" "))
+}
+
+/**
+ * The note today's substring ranker puts first among matches of the non-CJK multi-word planned queries
+ * (quoted phrases, or several words that must all appear): an exact phrase is the strongest lexical
+ * evidence recall has, and the flat substring vote in fuseCandidates cannot tell it from a lone-word
+ * hit. CJK queries are left to fusion, since substring matching is what fails on inflected Korean.
+ */
+function phraseLeaderPath(
+  documents: readonly RecallDocument[],
+  parsedQueries: readonly ParsedQuery[],
+  options: SelectRecallOptions,
+): string | undefined {
+  const multiWord = parsedQueries.filter(isNonCjkMultiWord)
+  if (multiWord.length === 0) return undefined
+  let leader: { path: string; score: number } | undefined
+  for (const document of documents) {
+    if (isExcluded(document.path, options)) continue
+    const haystack = normalizedHaystack(document)
+    for (const parsed of multiWord) {
+      const score = matchScoreNormalized(haystack, parsed)
+      if (score === null) continue
+      if (leader === undefined || score < leader.score || (score === leader.score && document.path.localeCompare(leader.path) < 0)) {
+        leader = { path: document.path, score }
+      }
+    }
+  }
+  return leader?.path
+}
+
+/**
+ * Substring floor for the hybrid: the phrase leader keeps the first place it holds today, so fusion can
+ * only add notes around it and never demote the note an exact phrase found. It takes the first place's
+ * score so the list stays ascending.
+ */
+function pinPhraseLeader(fused: readonly RecallCandidate[], leaderPath: string | undefined): RecallCandidate[] {
+  const leader = fused.find((candidate) => candidate.path === leaderPath)
+  const first = fused[0]
+  if (leader === undefined || first === undefined || leader === first) return [...fused]
+  return [{ ...leader, score: first.score }, ...fused.filter((candidate) => candidate !== leader)]
 }
 
 function collectQueryTerms(parsedQueries: readonly ParsedQuery[]): string[] {
