@@ -4,7 +4,7 @@ import { canonicalAgentDir } from "./bin/lib/agent-dir.js"
 import { doctorCoverageLines } from "./bin/lib/category-coverage.js"
 import { doctorComputerUseLines } from "./bin/lib/computer-use-doctor.js"
 import { daemonReportLines } from "./bin/lib/daemon.js"
-import { transientMemoryReport, warningsForSettings } from "./bin/lib/doctor.js"
+import { reapStaleEngines, staleEngineReport, transientMemoryReport, warningsForSettings } from "./bin/lib/doctor.js"
 import { migrationReport } from "./bin/lib/doctor-migration.js"
 import { piConfigReport } from "./bin/lib/doctor-pi-config.js"
 import { launchSpecDoctorLines } from "./bin/lib/launch-spec-mode.js"
@@ -21,6 +21,8 @@ export type CompiledDoctorOptions = {
   readonly platform?: NodeJS.Platform
   readonly coverageLines?: () => Promise<string[]>
   readonly computerUseLines?: () => Promise<string[]>
+  readonly list?: () => { pid: number; ppid: number; elapsed: string; tty: string; command: string }[]
+  readonly kill?: (pid: number, signal: NodeJS.Signals) => void
 }
 
 const doctorArtifacts = [
@@ -36,6 +38,7 @@ export type CompiledDoctorInput = {
   readonly versionText: string
   readonly updateCommand: string
   readonly engine?: DaemonEngine
+  readonly args?: readonly string[]
   readonly options?: CompiledDoctorOptions
 }
 
@@ -61,6 +64,12 @@ function coverageLines(input: CompiledDoctorInput, env: NodeJS.ProcessEnv): Prom
 
 export async function runCompiledDoctor(input: CompiledDoctorInput): Promise<void> {
   const options = input.options ?? {}
+  if (input.args?.[0] === "--reap") {
+    const result = reapStaleEngines(input.args.slice(1), options)
+    console.log(result.lines.join("\n"))
+    process.exitCode = result.failed ? 1 : 0
+    return
+  }
   const env = options.env ?? process.env
   let failed = false
   const lines: string[] = []
@@ -83,6 +92,7 @@ export async function runCompiledDoctor(input: CompiledDoctorInput): Promise<voi
   lines.push(...warningsForSettings())
   lines.push(...configDoctorLines({ cwd: process.cwd(), env }))
   lines.push(...piConfigReport({ env: options.env, homeDir: options.homeDir }))
+  lines.push(...staleEngineReport(options))
   lines.push(...transientMemoryReport({ env }))
   const [computerUse, coverage] = await Promise.all([computerUseLines(input, env), coverageLines(input, env)])
   if (computerUse.some((line) => line.startsWith("FAIL "))) failed = true
