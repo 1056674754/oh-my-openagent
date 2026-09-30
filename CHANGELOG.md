@@ -17,7 +17,7 @@ Memory recall finds Korean, Japanese and Chinese notes and picks the right note 
 
 The Recommended profile tries GPT-6.1 Sol (medium) before GPT-6 Sol on your ChatGPT subscription or the OpenAI API, and GitHub Copilot and OpenCode Zen keep GPT-6 Sol. ([#9237](https://github.com/code-yeongyu/oh-my-openagent/pull/9237))
 
-In the standalone binary, `omo setup` now imports your settings and `omo doctor` prints the same sections as an npm install. ([#9252](https://github.com/code-yeongyu/oh-my-openagent/issues/9252), [#9253](https://github.com/code-yeongyu/oh-my-openagent/pull/9253))
+In the standalone binary, `omo setup` now imports your settings, `omo doctor` prints the same sections as an npm install, and `omo doctor --reap` cleans up the binary's own stale engines. ([#9252](https://github.com/code-yeongyu/oh-my-openagent/issues/9252), [#9253](https://github.com/code-yeongyu/oh-my-openagent/pull/9253), [#9265](https://github.com/code-yeongyu/oh-my-openagent/pull/9265))
 
 omo.dev has guide pages on mass ulw runs, agents, keywords, telemetry and desktop updates under `/docs/`. ([#9261](https://github.com/code-yeongyu/oh-my-openagent/pull/9261), [#9264](https://github.com/code-yeongyu/oh-my-openagent/pull/9264))
 
