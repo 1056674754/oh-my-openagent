@@ -76,8 +76,8 @@ export async function doctorComputerUseLines(options = {}) {
     const report = await runtime.computerUseDoctorReport({
       cwd: options.cwd ?? process.cwd(),
       env: options.env ?? process.env,
-      version: packageManifest().version,
-      packageRoot,
+      version: options.version ?? packageManifest().version,
+      packageRoot: options.packageRoot ?? packageRoot,
       platform: options.platform ?? process.platform,
       arch: options.arch ?? process.arch,
       timeoutMs: options.timeoutMs,

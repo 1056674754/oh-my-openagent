@@ -19,15 +19,13 @@ import { compiledUpdate, fetchGitHubReleases, releaseAssetName, RELEASES_URL } f
 import { migrateLegacyBunGlobalManifest } from "./bin/lib/legacy-bun-global-migration.js"
 import { adoptLegacyFlatState, canonicalAgentDir } from "./bin/lib/agent-dir.js"
 import { nearestNodeBin, readJson, releaseBanner } from "./bin/lib/package-paths.js"
-import { daemonReportLines, runDaemonCommand } from "./bin/lib/daemon.js"
+import { runDaemonCommand } from "./bin/lib/daemon.js"
 import { runDoctor } from "./bin/lib/doctor.js"
 import { isSelfUpdate, updateUsageAnswer } from "./bin/lib/update-args.js"
-import { migrationReport } from "./bin/lib/doctor-migration.js"
-import { piConfigReport } from "./bin/lib/doctor-pi-config.js"
-import { launchSpecDoctorLines } from "./bin/lib/launch-spec-mode.js"
-import { configDoctorLines } from "./config-doctor-runtime"
-import { detectHarnesses, needsSetupSuggestion } from "./bin/lib/setup-detect.js"
-import { printSetupReport } from "./bin/lib/setup-report.js"
+import { detectHarnesses } from "./bin/lib/setup-detect.js"
+import { runSetup } from "./bin/lib/setup-import.js"
+import { runCompiledDoctor, type CompiledDoctorOptions } from "./compiled-doctor"
+import { compiledDiagnosticRuntimeLoader, loadCompiledCoverageEngine } from "./compiled-diagnostic-runtime"
 import { isInternalSupervisorLaunch, runInternalSupervisor } from "./supervisor-fast-path"
 import { registerEngineRuntimeModules } from "./engine-runtime-modules"
 import { spawnSync } from "node:child_process"
@@ -51,11 +49,6 @@ import { pruneMissingStoreIndexEntriesSync } from "../senpi-task/src/runners/rpc
 // Probe receipts: .omo/evidence/20260825-bun-compile-release-binaries/
 
 const earlyCommands = new Set(["install", "remove", "list", "config", "auth", "app-server", "host"])
-const doctorArtifacts = [
-  ["plugin manifest", "plugin/package.json"],
-  ["extension", "plugin/extensions/omo.js"],
-  ["lsp-daemon runtime", "plugin/runtime/lsp-daemon/dist/cli.js"],
-] as const
 
 export function buildSenpiArgs(args: string[], execDir: string): string[] {
   const command = args[0]
@@ -145,34 +138,13 @@ export function remapSenpiEnvironment(source: NodeJS.ProcessEnv = process.env, e
   return env
 }
 
-type DaemonEngine = { run(args: string[], options: { env: Record<string, string | undefined> }): { exitCode: number; stdout: string; stderr: string } }
+type CompiledLauncherOptions = CompiledDoctorOptions & {
+  readonly runSetup?: (args: string[], options: Record<string, unknown>) => Promise<void>
+}
 
-type MigrationOptions = { env?: NodeJS.ProcessEnv; homeDir?: string; platform?: NodeJS.Platform }
-
-function runCompiledDoctor(inventory: Awaited<ReturnType<typeof detectHarnesses>>, execDir: string, enginePin: string, engine?: DaemonEngine, migration: MigrationOptions = {}): void {
-  let failed = false
-  const lines: string[] = []
-  for (const [label, artifact] of doctorArtifacts) {
-    if (existsSync(join(execDir, artifact))) lines.push(`PASS ${label}: ${artifact}`)
-    else {
-      lines.push(`FAIL ${label}: missing ${artifact}`)
-      failed = true
-    }
-  }
-  const packageJson = readJson(join(execDir, "package.json"))
-  for (const line of versionLine(packageJson, enginePin).split("\n")) lines.push(`INFO ${line}`)
-  const launchSpec = launchSpecDoctorLines(join(execDir, "plugin"))
-  if (launchSpec.some((line) => line.startsWith("FAIL "))) failed = true
-  lines.push(...launchSpec)
-  if (engine !== undefined) {
-    lines.push(...daemonReportLines({ engine, pluginRoot: join(execDir, "plugin"), agentDir: canonicalAgentDir(), env: process.env, platform: process.platform }))
-  }
-  lines.push(...migrationReport({ ...migration, standalone: true }, null))
-  lines.push(...configDoctorLines({ cwd: process.cwd(), env: migration.env ?? process.env }))
-  lines.push(...piConfigReport({ env: migration.env, homeDir: migration.homeDir }))
-  if (needsSetupSuggestion(inventory)) lines.push("INFO no credentials found; run omo setup to review sibling stores")
-  console.log(lines.join("\n"))
-  process.exitCode = failed ? 1 : 0
+export function compiledUpdateCommand(rawBuildInfo: unknown): string {
+  const info = parseBuildInfo(rawBuildInfo)
+  return info === undefined ? "omo update" : `rebuild with: bun run ${info.command}`
 }
 
 function answerUpdateHint(args: string[], rawBuildInfo: unknown): void {
@@ -257,7 +229,7 @@ function compiledRollbackMigration() {
   }
 }
 
-export async function runCompiledLauncher(args: string[], execDir: string, enginePin = "unknown", compiledPackageRoot?: string, migration: MigrationOptions = {}): Promise<boolean> {
+export async function runCompiledLauncher(args: string[], execDir: string, enginePin = "unknown", compiledPackageRoot?: string, migration: CompiledLauncherOptions = {}): Promise<boolean> {
   const packageJson = readJson(join(execDir, "package.json")) as { version: string; omoBuild?: unknown }
   migrateLegacyBunGlobalManifest(execDir)
   adoptLegacyFlatState()
@@ -300,11 +272,28 @@ export async function runCompiledLauncher(args: string[], execDir: string, engin
   }
   if (command === "doctor") {
     const inventory = await detectHarnesses()
-    if (compiledPackageRoot) runCompiledDoctor(inventory, compiledPackageRoot, enginePin, engine, migration)
-    else runDoctor(inventory, [], { daemonEngine: engine })
+    if (compiledPackageRoot) {
+      const stamped = readJson(join(compiledPackageRoot, "package.json")) as { version: string; omoBuild?: unknown; engineBuild?: unknown }
+      await runCompiledDoctor({
+        inventory,
+        execDir: compiledPackageRoot,
+        version: stamped.version,
+        versionText: versionLine(stamped, enginePin),
+        updateCommand: compiledUpdateCommand(stamped.omoBuild),
+        engine,
+        options: migration,
+      })
+    } else runDoctor(inventory, [], { daemonEngine: engine })
     return true
   }
-  if (command === "setup") { printSetupReport(await detectHarnesses()); process.exitCode = 0; return true }
+  // The same consent-gated import as `bin/omo.js`, with its coverage row answered by this binary.
+  if (command === "setup") {
+    await (migration.runSetup ?? runSetup)(args.slice(1), {
+      loadCoverageRuntime: compiledDiagnosticRuntimeLoader(compiledPackageRoot ?? execDir),
+      loadCoverageEngine: loadCompiledCoverageEngine,
+    })
+    return true
+  }
   if ((command === "--version" || command === "-v") && args.length === 1) { console.log(versionLine(packageJson, enginePin ?? "unknown")); return true }
   if (isSelfUpdate(args)) { answerUpdateHint(args, packageJson.omoBuild); return true }
   return false
