@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// omo-codex-install:89ff60c58969309e6dbac154cc847ac0b178bec99c7ea0beb15d4aaf98698d96:187fe9db5156fd1c73e720c261727a8fd921ce93a40c94248e67d6f0fee37637
+// omo-codex-install:78f0f3a4a82446ddca34159dfd7f38c5b1c0e9d36d9d5f89462bedda416eba54:6653f11093d766baee66c170a5feab5cb0e0356ec2cbf86f26eeea595350f7f0
 var __esm = (fn, res, err) => () => {
   if (fn)
     try {
@@ -19252,7 +19252,6 @@ function normalizeLegacyModelFields(entry) {
   delete normalized["reasoningEffort"];
   delete normalized["thinking"];
   delete normalized["textVerbosity"];
-  delete normalized["maxTokens"];
   delete normalized["providerOptions"];
   if (typeof entry["model"] === "string")
     normalized["model"] = canonicalModelString(entry["model"]);
@@ -19270,10 +19269,13 @@ function normalizeLegacyModelFields(entry) {
     providerOptions["textVerbosity"] = entry["textVerbosity"];
   if (Object.keys(providerOptions).length > 0)
     normalized["provider_options"] = providerOptions;
-  if (entry["max_tokens"] !== undefined)
+  if (entry["max_tokens"] !== undefined) {
     normalized["max_tokens"] = entry["max_tokens"];
-  else if (entry["maxTokens"] !== undefined)
+    delete normalized["maxTokens"];
+  } else if (typeof entry["maxTokens"] === "number") {
     normalized["max_tokens"] = entry["maxTokens"];
+    delete normalized["maxTokens"];
+  }
   return normalized;
 }
 var OmoLegacyFallbackModelObjectInputSchema = object({
@@ -21044,21 +21046,36 @@ function invalidValueDiagnostics(path, dropped) {
 function unrecognizedKeyIssues(issues) {
   return issues.flatMap((issue) => issue.code === "unrecognized_keys" ? [{ keys: issue.keys, path: issue.path.map((segment) => String(segment)) }] : []);
 }
-function hasUnsafeUnrecognizedKey(issues) {
-  return issues.some((issue) => issue.keys.some((key) => isUnsafeObjectKey(key)));
-}
-function hasTamperedPrototype(value) {
-  if (Array.isArray(value))
-    return value.some((entry) => hasTamperedPrototype(entry));
-  if (!isRecord9(value))
-    return false;
-  const prototype = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null)
-    return true;
-  return Object.values(value).some((entry) => hasTamperedPrototype(entry));
-}
 function isRecord9(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function sanitizeUnsafeKeys(value, path = []) {
+  if (Array.isArray(value)) {
+    const issues = [];
+    const sanitized = value.map((entry, index) => {
+      const nested = sanitizeUnsafeKeys(entry, [...path, String(index)]);
+      issues.push(...nested.issues);
+      return nested.value;
+    });
+    return { issues, value: sanitized };
+  }
+  if (!isRecord9(value))
+    return { issues: [], value };
+  const issues = [];
+  if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) {
+    issues.push({ keys: ["__proto__"], path });
+  }
+  const sanitized = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (isUnsafeObjectKey(key)) {
+      issues.push({ keys: [key], path });
+      continue;
+    }
+    const nested = sanitizeUnsafeKeys(entry, [...path, key]);
+    issues.push(...nested.issues);
+    sanitized[key] = nested.value;
+  }
+  return { issues, value: sanitized };
 }
 function containerAt(record, path) {
   let node = record;
@@ -21104,17 +21121,14 @@ var validateLayerRecord = (record) => {
   return parsed.success ? { success: true } : { success: false, issues: parsed.error.issues };
 };
 function validateConfigLayer(path, data) {
-  if (hasTamperedPrototype(data)) {
-    return {
-      loaded: false,
-      diagnostics: [{ kind: "validation", message: `Invalid omo config at ${path}: "__proto__" member is not allowed`, path }]
-    };
-  }
-  const record = toRecord(data);
-  const validation = OmoConfigLayerSchema.safeParse(data);
+  const sanitized = sanitizeUnsafeKeys(data);
+  const record = toRecord(sanitized.value);
+  const unsafeIssuePaths = sanitized.issues.flatMap((issue) => issue.keys.map((key) => [...issue.path, key].join(".")));
+  const unsafeDiagnostics = unsafeIssuePaths.length === 0 ? [] : [{ kind: "unknown-keys", message: `Ignored unknown keys in ${path}: ${unsafeIssuePaths.join(", ")}`, path, issuePaths: unsafeIssuePaths }];
+  const validation = OmoConfigLayerSchema.safeParse(sanitized.value);
   if (validation.success) {
     if (record !== null)
-      return { loaded: true, diagnostics: [], value: record };
+      return { loaded: true, diagnostics: unsafeDiagnostics, value: record };
     return {
       loaded: false,
       diagnostics: [{ kind: "validation", message: `Invalid omo config at ${path}: root must be an object`, path }]
@@ -21122,11 +21136,11 @@ function validateConfigLayer(path, data) {
   }
   const rejected = { loaded: false, diagnostics: [validationDiagnostic(path, validation.error.issues)] };
   const unknownIssues = unrecognizedKeyIssues(validation.error.issues);
-  if (hasUnsafeUnrecognizedKey(unknownIssues) || record === null)
+  if (record === null)
     return rejected;
   let candidate = record;
   let issues = validation.error.issues;
-  const diagnostics = [];
+  const diagnostics = [...unsafeDiagnostics];
   if (unknownIssues.length > 0) {
     const { issuePaths, stripped } = stripUnrecognizedKeys(record, unknownIssues);
     if (issuePaths.length > 0) {
