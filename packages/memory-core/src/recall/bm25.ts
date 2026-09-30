@@ -55,6 +55,7 @@ export function tokenizeRecallText(text: string): string[] {
 /**
  * One index per document array. RecallCorpusCache hands out the same array for as long as HEAD has
  * not moved, so the index is built once per corpus revision and a moved HEAD (a fresh array) drops it.
+ * The array must not be mutated after it is first ranked: an in-place change keeps the stale index.
  */
 const INDEXES = new WeakMap<readonly RecallDocument[], RecallBm25Index>()
 

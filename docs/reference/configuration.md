@@ -637,12 +637,15 @@ Like the other memory blocks, every recall option can be overridden per agent un
 `memory.agents.<name>.recall`; `event_caps` merges field by field.
 
 How candidate memories are picked before the sidecar judges them is not a setting. Recall picks
-it from the conversation and your memory repository: English conversations over an English
-memory of fewer than 200 notes match every query word verbatim, as before. When the conversation contains Korean, Chinese
-or Japanese text, or at least a tenth of the letters in your notes are, candidates are scored by
-word rarity with the text split into two-character pieces, so `퍼블리시할` still finds a note
-about `퍼블리시`. From 200 notes on, both are combined so a memory either one finds can still
-reach the sidecar, which decides what is worth a nudge.
+it from the terms it plans from the conversation and from your memory repository: English terms over
+an English memory of fewer than 200 notes match every query word verbatim, as before. When a planned
+term contains Korean, Chinese or Japanese text, or at least a tenth of the letters in your notes are,
+candidates are scored by word rarity with the text split into two-character pieces, so `퍼블리시할`
+still finds a note about `퍼블리시`. The planned terms include terms taken from tool arguments and
+are not the raw message, so the switch goes both ways: a Korean word the planner does not keep leaves
+a mostly English message on verbatim matching, and a Korean file path in a tool argument such as
+`docs/배포-절차.md` switches the selection to word rarity. From 200 notes on, both are combined so a
+memory either one finds can still reach the sidecar, which decides what is worth a nudge.
 
 #### Facts
 

@@ -28,7 +28,11 @@ const CJK_CHARACTER = new RegExp(`[${CJK_CLASS}]`, "u")
 const CJK_CHARACTERS = new RegExp(`[${CJK_CLASS}]`, "gu")
 const LETTERS = new RegExp(`[\\p{L}${CJK_CLASS}]`, "gu")
 
-/** Per document array, so the scan runs once per corpus revision like the other recall memos. */
+/**
+ * Per document array, so the scan runs once per corpus revision like the other recall memos. The array
+ * must not be mutated after it is first measured: an in-place change keeps the stale share.
+ * RecallCorpusCache hands out a fresh array per revision.
+ */
 const CJK_SHARES = new WeakMap<readonly RecallDocument[], number>()
 
 export function hasCjk(text: string): boolean {
