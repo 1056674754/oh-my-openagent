@@ -4,6 +4,7 @@ import { delimiter, isAbsolute, join, relative, sep } from "node:path"
 import { spawnNode } from "./child-process.js"
 import { doctorCoverageLines } from "./category-coverage.js"
 import { doctorComputerUseLines } from "./computer-use-doctor.js"
+import { doctorConfigLines } from "./config-doctor.js"
 import { runDaemonCommand } from "./daemon.js"
 import { runDoctor } from "./doctor.js"
 import { ensureEnginePrepared, preparePluginLaunchSpec } from "./engine-prepare.js"
@@ -258,16 +259,18 @@ export async function runLauncher(args = process.argv.slice(2)) {
   if (command === "doctor") {
     // Doctor is a launch too: it reports only what the launch-time preparation could not fix.
     preparePluginLaunchSpec({ pluginRoot: join(packageRoot, "plugin") })
-    const [categoryCoverage, computerUse] = args[1] === "--reap"
-      ? [[], []]
+    const [categoryCoverage, computerUse, configDiagnostics] = args[1] === "--reap"
+      ? [[], [], []]
       : await Promise.all([
           doctorCoverageLines({ agentDir: canonicalAgentDir() }),
           doctorComputerUseLines(),
+          doctorConfigLines(),
         ])
     runDoctor(await detectHarnesses(), args.slice(1), {
       daemonEngine: { run: engineHostCall },
       categoryCoverage,
       computerUse,
+      configDiagnostics,
     })
     return
   }

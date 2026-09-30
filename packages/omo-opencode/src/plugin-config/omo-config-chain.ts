@@ -3,18 +3,22 @@ import {
   loadOmoConfig,
   mergeOmoConfigRecords,
   OmoConfigSchema,
+  type OmoConfigDiagnostic,
   type OmoConfigEnv,
+  type OmoModelReferenceDiagnostic,
   resolveModelReferences,
   resolveOmoConfigView,
 } from "@oh-my-opencode/omo-config-core"
 
 export type OmoOpenCodeConfigView = {
   readonly config: Record<string, unknown>
+  /** Where the view sits in its file (`[opencode].`, `profiles.<P>.`), so a diagnostic names the full key. */
+  readonly keyPrefix: string
   readonly path: string
 }
 
 export type OmoOpenCodeConfigChain = {
-  readonly diagnostics: readonly { readonly kind?: string; readonly message: string; readonly path: string }[]
+  readonly diagnostics: readonly (OmoConfigDiagnostic | OmoModelReferenceDiagnostic)[]
   readonly protectedUserView: Record<string, unknown>
   readonly views: readonly OmoOpenCodeConfigView[]
 }
@@ -47,10 +51,11 @@ function appendViews(
   views: OmoOpenCodeConfigView[],
   layers: ReturnType<typeof loadOmoConfig>["layers"],
   select: (config: Readonly<Record<string, unknown>>) => Record<string, unknown>,
+  keyPrefix: string,
 ): void {
   for (const layer of layers) {
     const config = select(layer.config)
-    if (Object.keys(config).length > 0) views.push({ config, path: layer.source.path })
+    if (Object.keys(config).length > 0) views.push({ config, keyPrefix, path: layer.source.path })
   }
 }
 
@@ -86,7 +91,7 @@ function modelInput(view: Readonly<Record<string, unknown>>): Record<string, unk
 
 function modelView(view: Readonly<Record<string, unknown>>): {
   readonly config: Record<string, unknown>
-  readonly diagnostics: readonly { readonly message: string; readonly path: string }[]
+  readonly diagnostics: readonly OmoModelReferenceDiagnostic[]
 } {
   const parsed = OmoConfigSchema.safeParse(modelInput(view))
   if (!parsed.success) return { config: {}, diagnostics: [] }
@@ -118,15 +123,16 @@ export function loadOmoOpenCodeConfigChain(
   const views: OmoOpenCodeConfigView[] = []
   const selectedProfile = loaded.profile
 
-  appendViews(views, loaded.layers, baseView)
-  appendViews(views, loaded.layers, block)
-  appendViews(views, loaded.layers, (config) => baseView(profile(config, selectedProfile)))
-  appendViews(views, loaded.layers, (config) => block(profile(config, selectedProfile)))
+  const profilePrefix = selectedProfile === undefined ? "" : `profiles.${selectedProfile}.`
+  appendViews(views, loaded.layers, baseView, "")
+  appendViews(views, loaded.layers, block, "[opencode].")
+  appendViews(views, loaded.layers, (config) => baseView(profile(config, selectedProfile)), profilePrefix)
+  appendViews(views, loaded.layers, (config) => block(profile(config, selectedProfile)), `${profilePrefix}[opencode].`)
 
   const resolvedModels = modelView(resolved.config)
   if (Object.keys(resolvedModels.config).length > 0) {
     const source = loaded.layers[0]?.source.path ?? directory
-    views.push({ config: resolvedModels.config, path: source })
+    views.push({ config: resolvedModels.config, keyPrefix: "", path: source })
   }
 
   let protectedUserView: Record<string, unknown> = {}
