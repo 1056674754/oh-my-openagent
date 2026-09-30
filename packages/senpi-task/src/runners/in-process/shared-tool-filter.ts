@@ -2,12 +2,9 @@ import type { ToolDefinition } from "@code-yeongyu/senpi"
 
 // The shared-MCP-client mechanism: sharedParentTools are the parent extension's own
 // registered ToolDefinitions (same process, same execute closures, same client instances).
-// The task/team tool family and the lead-only `workflow` orchestrator are excluded so a child cannot
-// spawn or coordinate its own graph; memberScopedTools (merged afterwards) are the ONLY sanctioned
-// bypass. This predicate matches on the REGISTERED TOOL NAME, so it must track any rename of that
-// tool - it was `dag` before the workflow rename.
+// Team tools and the lead-only `workflow` orchestrator stay excluded. Task/workpool tools remain
+// available, matching process children and relying on the existing depth and allow/deny policy.
 
-// Children have no tool_search builtin; thread_* tools are intentionally excluded.
 export const CHILD_DIRECT_EXPOSURE_TOOL_NAMES: ReadonlySet<string> = new Set(["x_search"])
 
 export type SharedToolFilterOptions = {
@@ -16,6 +13,10 @@ export type SharedToolFilterOptions = {
 
 export function isTaskOrTeamFamilyTool(name: string): boolean {
   return name === "workpool" || name.startsWith("workpool_") || name === "workflow" || name === "task" || name.startsWith("task_") || name.startsWith("team_")
+}
+
+export function isChildOrchestrationExcluded(name: string): boolean {
+  return name === "workflow" || name.startsWith("team_")
 }
 
 /**
@@ -29,7 +30,7 @@ export function childVisibleToolNames(
   uiOnlyToolNames: Iterable<string> = [],
 ): string[] {
   const uiOnly = new Set(uiOnlyToolNames)
-  return names.filter((name) => !isTaskOrTeamFamilyTool(name) && !uiOnly.has(name))
+  return names.filter((name) => !isChildOrchestrationExcluded(name) && !uiOnly.has(name))
 }
 
 // Only `name` and `exposure` are read, and every tool is passed through unchanged, so the element
@@ -41,7 +42,7 @@ export function filterSharedParentTools<TTool extends Pick<ToolDefinition, "name
 ): TTool[] {
   const uiOnly = new Set(options.uiOnlyToolNames ?? [])
   return tools
-    .filter((tool) => !isTaskOrTeamFamilyTool(tool.name) && !uiOnly.has(tool.name))
+    .filter((tool) => !isChildOrchestrationExcluded(tool.name) && !uiOnly.has(tool.name))
     .map((tool) =>
       CHILD_DIRECT_EXPOSURE_TOOL_NAMES.has(tool.name) && tool.exposure === "search"
         ? { ...tool, exposure: "direct" }

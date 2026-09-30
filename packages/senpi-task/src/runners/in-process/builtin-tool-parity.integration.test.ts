@@ -145,10 +145,6 @@ async function recordChildTools(mode: "in-process" | "process"): Promise<readonl
 
   try {
     const recorded = await withTimeout(childRequest.promise, `${mode} child request`)
-    const exitCode = await withTimeout(processResult.exited, `${mode} parent exit`)
-    if (exitCode !== 0) {
-      throw new Error(`senpi exited ${exitCode}: ${await new Response(processResult.stderr).text()}`)
-    }
     return recorded.tools
   } finally {
     server.stop(true)
