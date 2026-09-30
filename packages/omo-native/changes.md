@@ -1,3 +1,18 @@
+## 2026-09-30 - The standalone binary runs the same omo setup import and omo doctor sections as the npm launcher (#9252)
+
+The compiled entry (`compile-entry.ts`) answered `omo setup` with the inventory table only (`printSetupReport`), while
+`bin/omo.js` runs `runSetup`: summary, consent and the import. Its hand-kept `runCompiledDoctor` never received the
+`Update:` line, the computer-use section (#8939) or the task-category coverage section (#8858). `setup` now dispatches
+to `runSetup`. The doctor moved to `compiled-doctor.ts` and prints those three sections plus the settings and memory-identity lines
+(`warningsForSettings`, `transientMemoryReport`, now exported from `bin/lib/doctor.js`); a computer-use `FAIL` sets
+exit code 1, as on npm. The helpers behind the new lines load their runtime from the npm layout, which the binary does
+not have, and they fail open, so wiring them in alone would print nothing. `compiled-diagnostic-runtime.ts` gives them
+the provisioned `plugin/runtime/category-coverage/index.js` and the engine modules compiled into the binary (relative
+literal imports so bun traces them). `computer-use-doctor.js` accepts `packageRoot` and `version`, and
+`setup-import.js` forwards `loadCoverageEngine`. `setup-credentials.js` and `setup-opencode-providers.js` import
+`provider-map.json` statically instead of reading it beside the module URL, which the binary cannot serve.
+Supersedes #7489, which re-dispatched `setup` on a base whose `setup-import.js` has since been rewritten.
+
 ## 2026-09-29 - A umask 002 install no longer breaks every process child and team; a refused launch spec names itself (#9208)
 
 npm and bun extract `plugin/daemon-launch-spec.json` with the installing user's umask, so under `umask 002` (the Ubuntu
