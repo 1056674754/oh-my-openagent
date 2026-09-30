@@ -199,6 +199,30 @@ describe("createModelProfileComponent", () => {
     expect(pi.sessionThinkingLevels).toEqual(["medium"])
   })
 
+  test("#given unset with GPT-6.1 Sol and GPT-6 Sol connected ahead of GLM #when the session starts #then gpt-6.1-sol medium is applied", async () => {
+    const { pi, start } = harness({}, [SOL, SOL_61, GLM, UNRELATED])
+
+    await start(STARTUP)
+
+    expect(pi.sessionModels).toEqual([SOL_61])
+    expect(pi.sessionThinkingLevels).toEqual(["medium"])
+    expect(pi.messages[0]?.message).toMatchObject({
+      details: { profile: "recommended", model: "chatgpt-subscription/gpt-6.1-sol", reasoning: "medium" },
+    })
+  })
+
+  test("#given unset with only Copilot GPT-6 Sol and GLM #when the session starts #then the gpt-6-sol medium fallback rung is applied", async () => {
+    const { pi, start } = harness({}, [SOL, GLM, UNRELATED])
+
+    await start(STARTUP)
+
+    expect(pi.sessionModels).toEqual([SOL])
+    expect(pi.sessionThinkingLevels).toEqual(["medium"])
+    expect(pi.messages[0]?.message).toMatchObject({
+      details: { profile: "recommended", model: "github-copilot/gpt-6-sol", reasoning: "medium" },
+    })
+  })
+
   test("#given daily-normal and Opus only through a gateway #when the session starts #then the lane skips the gateway for its next listed rung", async () => {
     const { pi, start } = harness({ model_profile: "daily-normal" }, [GATEWAY_OPUS, CODING_KIMI])
 

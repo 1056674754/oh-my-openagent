@@ -388,6 +388,31 @@ describe("builtin chain routing", () => {
     })
   })
 
+  it("resolves recommended to gpt-6.1-sol medium when the subscription serves it next to gpt-6-sol", () => {
+    const result = resolveModelProfile({
+      active: "recommended",
+      availableModels: ["chatgpt-subscription/gpt-6-sol", SOL_61, "zai/glm-5.3"],
+    })
+
+    expect(result).toMatchObject({
+      kind: "resolved",
+      provider: "chatgpt-subscription",
+      modelId: "gpt-6.1-sol",
+      reasoning: "medium",
+    })
+  })
+
+  it("resolves recommended to gpt-6-sol medium when only Copilot serves a GPT-6 Sol", () => {
+    const result = resolveModelProfile({ active: "recommended", availableModels: [SOL_COPILOT, "zai/glm-5.3"] })
+
+    expect(result).toMatchObject({
+      kind: "resolved",
+      provider: "github-copilot",
+      modelId: "gpt-6-sol",
+      reasoning: "medium",
+    })
+  })
+
   it("picks zai/glm-5.3 on recommended when only a zai key serves glm", () => {
     const result = resolveModelProfile({ active: "recommended", availableModels: ["zai/glm-5.3"] })
 

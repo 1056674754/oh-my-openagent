@@ -86,6 +86,20 @@ export const SCENARIOS = {
     registerProviders: ["opengateway", "kimi-coding"],
     expect: { model: "kimi-k3", provider: "kimi-coding", notice: APPLIED_TYPE, thinking: "max" },
   },
+  "unset-gpt-6-1-sol": {
+    omoConfig: {},
+    mockModels: ["mock-1", "gpt-6-sol", "gpt-6.1-sol", "glm-5.3"],
+    cliModel: undefined,
+    registerProviders: ["chatgpt-subscription", "zai"],
+    expect: { model: "gpt-6.1-sol", provider: "chatgpt-subscription", notice: APPLIED_TYPE, thinking: "medium" },
+  },
+  "unset-copilot-gpt-6-sol": {
+    omoConfig: {},
+    mockModels: ["mock-1", "gpt-6-sol", "glm-5.3"],
+    cliModel: undefined,
+    registerProviders: ["github-copilot", "zai"],
+    expect: { model: "gpt-6-sol", provider: "github-copilot", notice: APPLIED_TYPE, thinking: "medium" },
+  },
   "empty-registry": {
     omoConfig: { model_profile: "daily-normal" },
     mockModels: ["mock-1"],
