@@ -89,7 +89,7 @@ describe("codex-config autonomous features", () => {
 
   test("#given existing child_agents_md=true setting #when updating config #then removes the unsupported feature", async () => {
     // given
-    const root = await mkdtemp(join(tmpdir(), "omo-codex-config-child-agents-preserve-"))
+    const root = await mkdtemp(join(tmpdir(), "omo-codex-config-child-agents-true-"))
     const configPath = join(root, "config.toml")
     await writeFile(configPath, ["[features]", "child_agents_md = true", ""].join("\n"))
 

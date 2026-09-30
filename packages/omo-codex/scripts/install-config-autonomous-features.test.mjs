@@ -87,7 +87,7 @@ test("#given autonomous permissions disabled #when script installer updates conf
 
 test("#given existing child_agents_md=true setting #when script installer updates config #then removes the unsupported feature", async () => {
 	// given
-	const root = await mkdtemp(join(tmpdir(), "omo-codex-script-config-child-agents-preserve-"));
+	const root = await mkdtemp(join(tmpdir(), "omo-codex-script-config-child-agents-true-"));
 	const configPath = join(root, "config.toml");
 	await writeFile(configPath, ["[features]", "child_agents_md = true", ""].join("\n"));
 
