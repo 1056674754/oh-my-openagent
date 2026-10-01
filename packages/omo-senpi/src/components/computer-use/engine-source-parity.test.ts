@@ -6,13 +6,20 @@ import { join } from "node:path"
 import { computerUseDoctorReport } from "../../../../omo-native/computer-use-doctor-runtime"
 import { describeEngineSource } from "./engine-source"
 
-test.each(["missing", "not executable", ...(process.platform === "darwin" ? ["quarantined"] : [])])("explicit %s status agrees with doctor without spawning", async (kind) => {
+// Mode bits only mean "not executable" where the host filesystem has them; Windows has no exec bit.
+const modeBitHost = process.platform !== "win32"
+test.each([
+  "missing",
+  ...(modeBitHost ? ["not executable"] : []),
+  "windows non-exe",
+  ...(process.platform === "darwin" ? ["quarantined"] : []),
+])("explicit %s status agrees with doctor without spawning", async (kind) => {
   const root = mkdtempSync(join(tmpdir(), "cu-source-parity-"))
   const engine = join(root, "engine")
   try {
     if (kind !== "missing") {
       writeFileSync(engine, "not executable")
-      chmodSync(engine, kind === "quarantined" ? 0o755 : 0o644)
+      chmodSync(engine, kind === "not executable" ? 0o644 : 0o755)
       if (kind === "quarantined") {
         const result = spawnSync("/usr/bin/xattr", ["-w", "com.apple.quarantine", "0081;test;fixture;", engine])
         expect(result.status).toBe(0)
@@ -22,7 +29,7 @@ test.each(["missing", "not executable", ...(process.platform === "darwin" ? ["qu
     writeFileSync(join(root, ".omo", "omo.jsonc"), JSON.stringify({
       "[native]": { computer: { enabled: true, engine_path: engine } },
     }))
-    const platform = kind === "quarantined" ? "darwin" : "linux"
+    const platform = kind === "quarantined" ? "darwin" : kind === "windows non-exe" ? "win32" : "linux"
     const report = await computerUseDoctorReport({
       cwd: root, env: { HOME: root }, version: "5.1.7",
       packageRoot: join(root, "packages", "omo-native"), platform, arch: "x64",

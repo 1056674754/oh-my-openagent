@@ -153,7 +153,7 @@ function runSigning(root: string, env: NodeJS.ProcessEnv, binary: string) {
 }
 
 describe("notarization polling", () => {
-  test("submits every input even when two share a basename", () => {
+  posixBashTest("submits every input even when two share a basename", () => {
     const { root, env, binary } = notarySandbox(["Accepted"])
     try {
       mkdirSync(join(root, "arm64"))
@@ -173,7 +173,7 @@ describe("notarization polling", () => {
     }
   })
 
-  test("keeps polling through transient notarytool errors until Apple accepts", () => {
+  posixBashTest("keeps polling through transient notarytool errors until Apple accepts", () => {
     const { root, env, binary } = notarySandbox(["FAIL", "In Progress", "FAIL", "Accepted"])
     try {
       const result = runSigning(root, env, binary)
@@ -184,7 +184,7 @@ describe("notarization polling", () => {
     }
   })
 
-  test("fails when Apple rejects the submission", () => {
+  posixBashTest("fails when Apple rejects the submission", () => {
     const { root, env, binary } = notarySandbox(["In Progress", "Invalid"])
     try {
       const result = runSigning(root, env, binary)
