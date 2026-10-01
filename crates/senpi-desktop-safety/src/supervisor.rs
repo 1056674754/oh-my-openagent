@@ -72,7 +72,8 @@ pub struct StopPolicy {
     pub allow_host_relay_only: bool,
 }
 
-/// Snapshot of supervisor state used for gating and status reporting.
+/// Why the global stop-chord listener failed to start; the gate turns
+/// `AccessibilityDenied` into a permission error instead of a missing stop path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopPathFailure {
     Unavailable,
