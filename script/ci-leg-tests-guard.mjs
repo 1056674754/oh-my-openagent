@@ -31,14 +31,10 @@ export function judgeLeg({ outcomes, os, runHeavy, fullMatrix, runtimeTouching, 
       message: `tests not run: add ci:full-matrix. This change needs the tests on ${os}, but every test step of this leg was skipped.`,
     }
   }
-  const reason = runHeavy
-    ? "no runtime path changed, so only ubuntu runs the tests"
-    : "the change is web or docs only, or a generated release merge"
-  return {
-    exitCode: 0,
-    level: "notice",
-    message: `tests intentionally not run on ${os}: ${reason}. Add the ci:full-matrix label to run them here.`,
-  }
+  const message = runHeavy
+    ? `tests intentionally not run on ${os}: no runtime path changed, so only ubuntu runs the tests. Add the ci:full-matrix label to run them here.`
+    : `tests intentionally not run on ${os}: the change is web or docs only, or a generated release merge, so no leg runs the heavy tests.`
+  return { exitCode: 0, level: "notice", message }
 }
 
 function parseBoolean(name, value) {

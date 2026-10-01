@@ -192,5 +192,6 @@ describe("a leg that skipped tests on purpose", () => {
 
     expect(result.status).toBe(0)
     expect(result.stdout).toContain("::notice title=tests intentionally not run::")
+    expect(result.stdout).not.toContain("ci:full-matrix")
   })
 })
