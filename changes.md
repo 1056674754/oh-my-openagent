@@ -1,3 +1,7 @@
+## 2026-10-01 - Preserve Windows killed-task classification across repeated Bun advisories (#9228)
+
+Windows RPC exits now accept any positive number of Bun's known child-reaper startup advisory lines as advisory-only stderr. An empty stderr remains an external termination, while any other stderr line still proves a crash. This preserves `status: error` with `killed: true` for externally terminated code-1/no-signal children without weakening crash diagnostics.
+
 ## 2026-10-01 - Adopt senpi 2026.10.1-2
 
 Every `@code-yeongyu/senpi` pin moves from 2026.9.30 to 2026.10.1-2: the root devDependency, `omo-native`, the `omo-senpi`

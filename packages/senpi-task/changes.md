@@ -1,3 +1,8 @@
+## 2026-10-01 - Repeated Bun Windows advisories remain external termination output (#9228)
+
+- `runners/rpc/exit-mapping.ts` accepts any positive number of known Bun child-reaper startup advisory lines in the Windows exit-code-1/no-signal case. A different stderr line still classifies the child as crashed.
+- Focused cases pin N advisory-only lines to `killed: true` and advisory lines plus one real error to `crashed`.
+
 ## 2026-10-01 - Windows child parity regression (#9274, #6709)
 
 - `builtin-tool-parity.integration.test.ts` reloads the in-process child loader beside the `DefaultResourceLoader` policy used by process children and compares their builtin registrations directly. This removes both Windows CLI cold starts while pinning equal platform-specific builtin counts, exact names, and `web_search`; shared parent and session-default tool policy remains covered by the existing surface tests.

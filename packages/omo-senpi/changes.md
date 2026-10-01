@@ -1,3 +1,7 @@
+## 2026-10-01 - Windows RPC kills tolerate repeated Bun startup advisories (#9228)
+
+- The task bundle treats any number of known Bun child-reaper advisory lines as advisory-only stderr for Windows code-1/no-signal exits. Any different stderr line remains a crash diagnostic.
+
 ## 2026-10-01 - Windows task-child parity regression (#9274, #6709)
 
 - The parity regression now reloads the in-process child loader beside the process child's builtin loader policy and pins equal platform-specific builtin names plus `web_search`, avoiding Windows CLI cold starts while the existing surface tests retain shared-parent and session-default coverage.
