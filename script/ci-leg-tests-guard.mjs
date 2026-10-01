@@ -21,7 +21,9 @@ export function judgeLeg({ outcomes, os, runHeavy, fullMatrix, runtimeTouching, 
       message: `tests not run on ${os}: an earlier step failed or the run was cancelled before the tests started.`,
     }
   }
-  const required = runtimeTouching || (runHeavy && (os === "ubuntu-latest" || fullMatrix))
+  // run_heavy=false is the classifier's deliberate skip (web-only change or a
+  // generated release merge, whose version bumps still touch runtime paths).
+  const required = runHeavy && (runtimeTouching || os === "ubuntu-latest" || fullMatrix)
   if (required) {
     return {
       exitCode: 1,
