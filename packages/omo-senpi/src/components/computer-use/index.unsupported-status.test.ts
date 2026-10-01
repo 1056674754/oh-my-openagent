@@ -7,6 +7,7 @@ import { FakeExtensionAPI } from "../../../test-support/fake-extension-api"
 import { defaultEngineChild, describeEngineSource } from "./engine-source"
 import { createComputerUseComponent } from "./index"
 import { createComputerUseRuntime } from "./runtime"
+import { describeEnginePermissions } from "./permission-status"
 
 class Host extends FakeExtensionAPI {
   getActiveTools() { return ["read"] }
@@ -36,6 +37,7 @@ test.each(["linux", "win32"])("status preserves %s-arm64 absence after failed fi
         createComputerUseRuntime: (options) => ({
           ...createComputerUseRuntime(options),
           describeEngineSource: () => describeEngineSource(undefined, {}, locator),
+          describeEnginePermissions: () => describeEnginePermissions(undefined, {}, locator),
         }),
       }),
     }).register(pi, { logger: { info() {}, warn() {}, error() {} }, config: { getFlag: () => undefined } })

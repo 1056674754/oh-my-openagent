@@ -1,3 +1,12 @@
+## 2026-10-01 - Validate computer-use status sources and passively report permissions (#9349)
+
+Status and doctor share installed-engine source selection and explicit-path validation.
+Missing, non-executable and quarantined overrides are no longer reported as found,
+and status retains the location after startup or failure. Before activation, status
+uses the existing bounded hello/capabilities probe on an installed engine: no
+acquisition, session opening, stop listener, input or permission prompt. Absent
+engines and failed probes report unknown permissions rather than claiming a grant.
+
 ## 2026-10-01 - Preserve unsupported computer-use host diagnostics after first use (#9348)
 
 `/computer status` retains the installed-engine diagnostic after activation fails as

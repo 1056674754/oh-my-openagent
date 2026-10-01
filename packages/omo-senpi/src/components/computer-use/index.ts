@@ -27,7 +27,7 @@ import {
   createComputerRuntimeLoader,
 } from "./runtime-loader"
 import { resolveOmoComputerSettings } from "./settings"
-import { skillStatusLine } from "./skill-status"
+import { skillStatusLine, toolActivatedNames } from "./registration-support"
 import { createComputerUseTelemetry } from "./telemetry"
 
 type ComputerExecute = ComputerUseRuntime["computerTool"]["execute"]
@@ -74,12 +74,6 @@ function hostApi(pi: SenpiExtensionAPI): ComputerHostApi | undefined {
 
 function defaultLoadSettings(cwd: string, platform: string): ComputerSettings {
   return resolveOmoComputerSettings(loadSenpiOmoConfig({ cwd }).config.computer, platform)
-}
-
-function toolActivatedNames(payload: unknown): readonly string[] {
-  if (typeof payload !== "object" || payload === null) return []
-  const names = (payload as { toolNames?: unknown }).toolNames
-  return Array.isArray(names) ? names.filter((name): name is string => typeof name === "string") : []
 }
 
 /**
@@ -164,7 +158,7 @@ export function createComputerUseComponent(options: ComputerUseComponentOptions 
           const command = args.trim().toLowerCase() || "status"
           state.telemetryContext = commandCtx
           try {
-            const { handle, service, describeEngineSource } = await runtime.load()
+            const { handle, service, describeEngineSource, describeEnginePermissions } = await runtime.load()
             const wasActive = handle.active
             const text = await runComputerCommand(args, handle, commandCtx)
             if (command === "on" && !wasActive && handle.active && !state.activationReported) {
@@ -192,7 +186,9 @@ export function createComputerUseComponent(options: ComputerUseComponentOptions 
               return
             }
             const prelude = available.host.getActiveTools().includes(COMPUTER_TOOL_NAME) ? "active" : "inactive"
-            const status = `${text}\nengine: ${service.engineState}${service.engineState === "not started" || service.engineState === "native-unavailable" ? ` (${describeEngineSource(available.settings.enginePath, options.env ?? process.env, { platform })})` : ""}\nprelude: ${prelude}${skillStatusLine(state.skill)}`
+            const source = describeEngineSource(available.settings.enginePath, options.env ?? process.env, { platform })
+            const permissions = handle.running ? "" : `\n${await describeEnginePermissions(available.settings.enginePath, options.env ?? process.env, { platform })}`
+            const status = `${text}\nengine: ${service.engineState}${service.engineState === "not started" ? ` (${source})` : ""}\nprelude: ${prelude}${skillStatusLine(state.skill)}\nengine source: ${source}${permissions}`
             commandCtx.ui.notify(status, "info")
             if (commandCtx.hasUI === false) process.stderr.write(`${status}\n`)
           } catch (error) {
