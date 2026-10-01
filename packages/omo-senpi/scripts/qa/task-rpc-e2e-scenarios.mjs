@@ -179,6 +179,18 @@ function waitForRecord(stateDir, predicate, timeoutMs) {
   })
 }
 
+// The parent Senpi host starts cold on every scenario: on a loaded Windows runner its startup alone
+// can take most of a minute before it even creates the task. Give that phase its own budget, then
+// time the child spawn separately, so a slow parent start is not misread as a missing child.
+const PARENT_TASK_CREATE_MS = 120_000
+const CHILD_SPAWN_MS = 40_000
+
+async function waitForRunningRpcChild(stateDir, name) {
+  const created = await waitForRecord(stateDir, (r) => r.name === name, PARENT_TASK_CREATE_MS)
+  if (created === undefined) return undefined
+  return waitForRecord(stateDir, (r) => r.name === name && runningRpcChild(r), CHILD_SPAWN_MS)
+}
+
 async function cleanupSenpiHost(child) {
   const terminated = await killSenpiHost(child)
   if (!terminated) throw new Error(`could not terminate Senpi host pid=${child.pid ?? "unknown"}`)
@@ -189,7 +201,7 @@ export async function runKillCheck(senpiBin) {
   const { sandbox, sessionDir, stateDir } = prepareScenarioSandbox()
   const parent = driveSenpiAsync(senpiBin, sandbox, sessionDir, hangingChildSteps("pk"), CHILD_STEPS_HANG, "drive the kill scenario")
   try {
-    const running = await waitForRecord(stateDir, (r) => r.name === "pk" && runningRpcChild(r), 40_000)
+    const running = await waitForRunningRpcChild(stateDir, "pk")
     if (running === undefined) {
       const seen = readRecords(stateDir).find((r) => r.name === "pk")
       const seenMessage = typeof seen?.error_message === "string" ? seen.error_message : ""
@@ -241,7 +253,7 @@ export async function runReconcileCheck(senpiBin) {
   const parent = driveSenpiAsync(senpiBin, sandbox, sessionDir, hangingChildSteps("pr"), CHILD_STEPS_HANG, "drive the reconcile scenario")
   let orphanPid
   try {
-    const running = await waitForRecord(stateDir, (r) => r.name === "pr" && runningRpcChild(r), 40_000)
+    const running = await waitForRunningRpcChild(stateDir, "pr")
     if (running === undefined) {
       return { check: "reconcile_lost_terminates_orphan", verdict: "FAIL", reason: "no running rpc child appeared to reconcile" }
     }
