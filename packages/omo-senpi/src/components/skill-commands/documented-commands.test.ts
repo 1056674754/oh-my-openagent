@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 import { dirname, join, relative } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createOmoSenpiComponents } from "../../extension/component-list"
 import { readBundledSkillNames } from "./bare-skill-command"
@@ -14,7 +14,7 @@ const repoRoot = join(packageRoot, "../..")
 const senpiDistDir = dirname(fileURLToPath(import.meta.resolve("@code-yeongyu/senpi")))
 // The engine's own builtin list, read as data: scraping the dist text broke when an entry
 // gained fields and wrapped onto several lines (senpi #2482).
-const { BUILTIN_SLASH_COMMANDS } = (await import(join(senpiDistDir, "core/slash-commands.js"))) as {
+const { BUILTIN_SLASH_COMMANDS } = (await import(pathToFileURL(join(senpiDistDir, "core/slash-commands.js")).href)) as {
   BUILTIN_SLASH_COMMANDS: ReadonlyArray<{ name: string }>
 }
 
