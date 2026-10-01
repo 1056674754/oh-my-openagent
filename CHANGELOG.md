@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+Memory recall also matches Chinese characters and Japanese kanji one by one, so a question worded differently from the note can still find it; a question without any such character gets the same candidates as before.
+
+Memory recall can widen its own searches with synonyms, keywords in your other languages and related terms when you set `memory.recall.query_expansion` to `true`; an added term counts for less than the same match on one of the query's own words, a note that holds every word of the query stays first, and with the setting off, the default, nothing changes.
+
+### Fixed
+
+Piping the recommended installer to `sh` or `dash` now hands the script to Bash instead of failing on Bash syntax. If Bash is unavailable, the installer prints the exact `curl ... | bash` command to use and exits cleanly. ([#9325](https://github.com/code-yeongyu/oh-my-openagent/issues/9325))
+
 ## [5.1.7] - 2026-09-30
 
 **Computer use on macOS says what it needs and where its engine comes from.** A downloaded install trusts the engine shipped inside its own app, a missing Screen Recording or Accessibility grant opens the right System Settings pane, and `/computer status` and `omo doctor` show which engine you have before it starts. This release runs on the senpi 2026.9.30 engine, like 5.1.6.
@@ -53,13 +63,13 @@ Chat bridges can ask the engine for a chat prompt surface, which drops the routi
 
 ### Changed
 
+The recommended `curl` installer now offers `Remove the other omo install at <path>? [y/N]` when it verifies a second installation. Non-interactive runs keep both unless `--remove-other-installs` is explicit, and `omo doctor` prints the exact Bun, npm, or standalone removal command for the non-active install. ([#9324](https://github.com/code-yeongyu/oh-my-openagent/issues/9324))
+
 The engine's recommended OpenAI model is GPT-6.1 Sol at medium, one slot below GPT-6 Astra. Models you listed yourself in `recommendedModels` stay as you set them. ([senpi#2390](https://github.com/code-yeongyu/senpi/issues/2390))
 
 ultrawork reuses QA and review evidence per target instead of rerunning everything after each patch, while keeping the nets that catch what the changer cannot see: each artifact records the commit and what it exercised; after an increment the session reruns the tests of every touched file and its importers, the scenarios that exercise them, and anything whose dependencies or environment moved, cites the capture for the rest, and still runs the full set once before the final message. Every re-review spawns a new reviewer with the delta diff and the cited blockers, at most twice. Defects inside the change's blast radius are fixed in the same run to the ideal state; defects outside it get a tracked issue and a line in the final message instead of growing the run. The memory line now also records every regression a check caught and each QA scenario with its invocation. ([#9294](https://github.com/code-yeongyu/oh-my-openagent/issues/9294), [#9298](https://github.com/code-yeongyu/oh-my-openagent/pull/9298))
 
 ### Fixed
-
-Piping the recommended installer to `sh` or `dash` now hands the script to Bash instead of failing on Bash syntax. If Bash is unavailable, the installer prints the exact `curl ... | bash` command to use and exits cleanly. ([#9325](https://github.com/code-yeongyu/oh-my-openagent/issues/9325))
 
 On a Claude subscription, a `write` or `edit` to a file outside the working directory runs once and returns one result. Before, Claude Code's own read check refused the call while the change still went through, so a retry could apply an edit twice. Thanks to @haamsuk-collab. ([senpi#2401](https://github.com/code-yeongyu/senpi/issues/2401))
 

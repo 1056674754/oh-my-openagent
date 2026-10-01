@@ -1,20 +1,15 @@
-import { accessSync, constants, existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { loadOmoConfig, type OmoConfigEnv } from "@oh-my-opencode/omo-config-core"
 import {
-  desktopEngineReleaseAssetName,
   getDesktopEngineHost,
-  getDesktopEngineCandidatePaths,
-  findCachedDesktopEngine,
-  isQuarantinedFile,
   launchDesktopEngine,
-  locateDesktopEngine,
   type DesktopEngineLocateDiagnostic,
 } from "@oh-my-opencode/senpi-desktop-engine"
 import type { DesktopCapabilities } from "@oh-my-opencode/senpi-desktop-protocol"
 import { isSupportedHost } from "@oh-my-opencode/senpi-desktop-tool"
 import { resolveOmoComputerSettings } from "../omo-senpi/src/components/computer-use/settings"
+import { resolveInstalledEngine } from "../omo-senpi/src/components/computer-use/installed-engine"
 import {
   COMPUTER_USE_DOCTOR_TIMEOUT_MS,
   type EngineLauncher,
@@ -88,86 +83,6 @@ function unavailable(
   return { ...base, kind: "unavailable", diagnostic }
 }
 
-function explicitPathDiagnostic(
-  enginePath: string,
-  host: string,
-  platform: string,
-): DesktopEngineLocateDiagnostic | undefined {
-  if (!existsSync(enginePath)) {
-    return {
-      code: "native-unavailable",
-      host,
-      attemptedPaths: [enginePath],
-      message: `No senpi-desktop-engine binary is available for ${host}.`,
-      cause: `${enginePath}: missing`,
-    }
-  }
-  if (isQuarantinedFile(enginePath, platform)) {
-    return {
-      code: "quarantined",
-      host,
-      attemptedPaths: [enginePath],
-      message: `The senpi-desktop-engine binary for ${host} is quarantined by macOS Gatekeeper: ${enginePath}.`,
-      cause: `${enginePath}: blocked because com.apple.quarantine is present (macOS Gatekeeper)`,
-    }
-  }
-  try {
-    accessSync(enginePath, constants.X_OK)
-    return undefined
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error)) throw error
-    return {
-      code: "native-unavailable",
-      host,
-      attemptedPaths: [enginePath],
-      message: `No senpi-desktop-engine binary is available for ${host}.`,
-      cause: `${enginePath}: not executable (chmod +x)`,
-    }
-  }
-}
-
-/**
- * Where the engine is, if it is installed. Doctor never installs it: a user who has not started computer use yet
- * has no engine, which is the normal state, and the engine is downloaded the first time computer use starts.
- */
-function resolveEnginePath(
-  input: ComputerUseDoctorInput,
-  enginePath: string | undefined,
-):
-  | { readonly path: string; readonly source: string }
-  | { readonly diagnostic: DesktopEngineLocateDiagnostic }
-  | { readonly notInstalled: readonly string[] } {
-  const platform = input.platform ?? process.platform
-  const arch = input.arch ?? process.arch
-  const host = getDesktopEngineHost(platform, arch)
-  if (enginePath !== undefined) {
-    const diagnostic = explicitPathDiagnostic(enginePath, host, platform)
-    return diagnostic === undefined ? { path: enginePath, source: "explicit" } : { diagnostic }
-  }
-
-  const locatorOptions = {
-    platform,
-    arch,
-    runtimeDir: input.env.OMO_PACKAGE_DIR ?? "",
-    execDir: dirname(process.execPath),
-    packageDir: resolve(input.packageRoot, "..", "senpi-desktop-engine"),
-    repoRoot: resolve(input.packageRoot, "..", ".."),
-  }
-  const located = locateDesktopEngine(locatorOptions)
-  if (located.path !== null) {
-    const candidates = getDesktopEngineCandidatePaths(locatorOptions)
-    const sources = locatorOptions.runtimeDir ? ["runtime-dir", "sidecar", "package-prebuild", "dev-build"] : ["sidecar", "package-prebuild", "dev-build"]
-    return { path: located.path, source: sources[candidates.indexOf(located.path)] }
-  }
-  if (located.diagnostic.code === "quarantined") return { diagnostic: located.diagnostic }
-  const cached = findCachedDesktopEngine({
-    version: input.version, host,
-    cacheDir: join(input.env.HOME ?? homedir(), ".omo", "cache", "senpi-desktop-engine"),
-  })
-  if (cached.path !== null) return { path: cached.path, source: "cache" }
-  if (desktopEngineReleaseAssetName(host) === null) return { diagnostic: located.diagnostic }
-  return { notInstalled: located.diagnostic.attemptedPaths }
-}
 
 export async function computerUseDoctorReport(input: ComputerUseDoctorInput): Promise<ComputerUseDoctorReport> {
   const platform = input.platform ?? process.platform
@@ -180,8 +95,15 @@ export async function computerUseDoctorReport(input: ComputerUseDoctorInput): Pr
   if (!supported) return { ...base, kind: "skipped", reason: "unsupported" }
   if (!settings.enabled) return { ...base, kind: "skipped", reason: "disabled" }
 
-  const resolved = resolveEnginePath(input, settings.enginePath)
-  if ("notInstalled" in resolved) return { ...base, kind: "not-installed", attemptedPaths: resolved.notInstalled }
+  const locatorOptions = {
+    platform, arch,
+    runtimeDir: input.env.OMO_PACKAGE_DIR ?? "",
+    execDir: dirname(process.execPath),
+    packageDir: resolve(input.packageRoot, "..", "senpi-desktop-engine"),
+    repoRoot: resolve(input.packageRoot, "..", ".."),
+  }
+  const resolved = resolveInstalledEngine(settings.enginePath, input.env, input.version, locatorOptions)
+  if ("notInstalled" in resolved) return { ...base, kind: "not-installed", attemptedPaths: resolved.notInstalled.attemptedPaths }
   if ("diagnostic" in resolved) return unavailable(base, resolved.diagnostic)
   const probe = (path: string) => ({ probe: probeComputerUseEngine(
     path,
@@ -198,13 +120,7 @@ export async function computerUseDoctorReport(input: ComputerUseDoctorInput): Pr
       allowDownload: false,
       cacheDir: join(home, ".omo", "cache", "senpi-desktop-engine"),
       installDir: join(home, ".omo", "engines", "senpi-desktop-engine"),
-      locatorOptions: {
-        platform, arch,
-        runtimeDir: input.env.OMO_PACKAGE_DIR ?? "",
-        execDir: dirname(process.execPath),
-        packageDir: resolve(input.packageRoot, "..", "senpi-desktop-engine"),
-        repoRoot: resolve(input.packageRoot, "..", ".."),
-      },
+      locatorOptions,
     }, probe)
   if (launched.path === null) {
     return unavailable(base, launched.diagnostic)

@@ -62,7 +62,7 @@ describe("install.sh POSIX preamble", () => {
 
     expect(result.status).toBe(0)
     expect(readFileSync(captured, "utf8")).toStartWith("#!/usr/bin/env bash\n# OmO native installer")
-    expect(readFileSync(captured, "utf8")).toEndWith('main "$@"\n')
+    expect(readFileSync(captured, "utf8")).toEndWith('if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi\n')
     expect(readFileSync(args, "utf8")).toBe("alpha\nbeta\n")
   })
 
