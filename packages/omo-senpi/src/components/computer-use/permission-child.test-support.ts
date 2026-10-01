@@ -1,6 +1,5 @@
 import { join } from "node:path"
 import { spawn } from "node:child_process"
-import { createAgentSession } from "@code-yeongyu/senpi"
 import { OmoTaskSettingsSchema } from "@oh-my-opencode/omo-config-core"
 import {
   createInProcessManagedRunner,
@@ -31,6 +30,7 @@ export async function permissionOwner(sessionContext?: Readonly<Record<string, s
           inProcess: () => createInProcessManagedRunner(new InProcessRunner({
             sharedParentTools: ctx.getCapturedTools?.() ?? [],
             createSession: async (options) => {
+              const { createAgentSession } = await import("@code-yeongyu/senpi")
               await options.resourceLoader?.reload()
               const { session } = await createAgentSession(options)
               await session.bindExtensions({ mode: "rpc" })

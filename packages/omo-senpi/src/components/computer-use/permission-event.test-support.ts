@@ -3,12 +3,6 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createInterface } from "node:readline"
-import {
-  createAgentSession,
-  DefaultResourceLoader,
-  SessionManager,
-  SettingsManager,
-} from "@code-yeongyu/senpi"
 import { resolveComputerSettings } from "@oh-my-opencode/senpi-desktop-tool"
 import { DesktopEngineUnavailableError } from "@oh-my-opencode/senpi-desktop-service"
 import { composeOmoSenpiExtension } from "../../extension/compose"
@@ -26,6 +20,7 @@ export async function permissionSession(options: {
   readonly sessionContext?: Readonly<Record<string, string>>
   readonly components?: readonly OmoSenpiComponent[]
 } = {}) {
+  const { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager } = await import("@code-yeongyu/senpi")
   const home = await mkdtemp(join(tmpdir(), "computer-permission-"))
   const events: Array<{ name: string; data: unknown }> = []
   const methods: string[] = []
