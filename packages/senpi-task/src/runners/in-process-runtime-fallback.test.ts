@@ -164,7 +164,7 @@ describe("InProcessRunner runtime fallback", () => {
     expect(capturedRetrySettings(captured)).toMatchObject({
       modelFallback: true,
       chains: {
-        "chatgpt-subscription/gpt-6-luna-fast": ["opencode-go/minimax-m3:max"],
+        "chatgpt-subscription/gpt-6-luna-fast": ["opencode-go/minimax-m3"],
       },
     })
   })
