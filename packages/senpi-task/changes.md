@@ -1,3 +1,8 @@
+## 2026-10-01 - Repeated Bun Windows advisories remain external termination output (#9228)
+
+- `runners/rpc/exit-mapping.ts` accepts any positive number of known Bun child-reaper startup advisory lines in the Windows exit-code-1/no-signal case. A different stderr line still classifies the child as crashed.
+- Focused cases pin N advisory-only lines to `killed: true` and advisory lines plus one real error to `crashed`.
+
 ## 2026-09-30 - The foreground task wait is bounded at 900 s (#8759 cluster, senpi#2323)
 
 - `tools/task/foreground-wait.ts` `waitForForegroundTask`: the wait before a foreground child is promoted to background

@@ -1,3 +1,7 @@
+## 2026-10-01 - Windows RPC kills tolerate repeated Bun startup advisories (#9228)
+
+- The task bundle treats any number of known Bun child-reaper advisory lines as advisory-only stderr for Windows code-1/no-signal exits. Any different stderr line remains a crash diagnostic.
+
 ## 2026-09-30 - claude-code: acquire before the auth check, from the provisioned runtime, with progress (#9276)
 
 - `src/components/claude-code/index.ts`: the component now also runs on `input`, which senpi's `prompt()` emits
