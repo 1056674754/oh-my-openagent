@@ -69,19 +69,26 @@ pub(crate) fn permission_denied(permission: TccPermission) -> DesktopError {
 }
 
 fn denial(permission: TccPermission, app: String, opened: bool) -> DesktopError {
+    denial_with_identity(permission, app, opened, crate::responsible::current)
+}
+
+fn denial_with_identity(
+    permission: TccPermission,
+    app: String,
+    opened: bool,
+    lookup: impl FnOnce() -> Option<crate::responsible::ResponsibleProcess>,
+) -> DesktopError {
     let pane = match permission {
         TccPermission::ScreenRecording => "Screen Recording",
         TccPermission::Accessibility => "Accessibility",
     };
     let url = settings_url(permission);
-    let executable = std::env::current_exe()
-        .map_or_else(|_| "<unavailable>".to_owned(), |path| path.display().to_string());
+    let identity = crate::responsible::suffix_with(lookup);
     let opening = if opened { "has been opened" } else { "could not be opened automatically; open it" };
     let message = format!(
         "macOS {pane} is not granted for {app}. System Settings > Privacy & Security > {pane} \
          {opening} ({url}): enable \"{app}\", then fully quit and relaunch {app} before retrying. \
-         (TCC identity: executable={executable}, pid={})",
-        std::process::id()
+         (TCC identity: {identity})"
     );
     DesktopError::permission_denied_with(
         PermissionDeniedData {
