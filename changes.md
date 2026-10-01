@@ -1,3 +1,12 @@
+## 2026-10-01 - Adopt senpi 2026.10.1-2
+
+Every `@code-yeongyu/senpi` pin moves from 2026.9.30 to 2026.10.1-2: the root devDependency, `omo-native`, the `omo-senpi`
+and `senpi-task` peer and dev pins (with their `@earendil-works/pi-tui` -> `@code-yeongyu/senpi-tui` aliases), the pin
+tests, `provider-map.json` and the engine named in `senpi-task`'s category coverage test. The engine carries the upstream
+v0.99.1 sync, so `provider-map.json` gains the new builtin providers `meta` (OAuth login) and `typesafe`, and the
+`senpi-task` runners follow the upstream disposition and `TranscriptContext` API. It also brings the compiled-engine
+`bun` phantom-turn fix (#9362, senpi#2494) and per-session permission presets (senpi#2461).
+
 ## 2026-10-01 - The curl installer hands pipes from sh to Bash (#9325)
 
 `install.sh` keeps its Bash implementation, but its first block now parses as POSIX sh. When a user pipes the script to `sh` or `dash`, that block writes the Bash body from a quoted here-document to a private temp file and runs it with Bash, preserving arguments and the exit status. Sourcing the script from Bash, as the other-install tests do, still only defines the installer functions. If Bash is unavailable, it exits before any Bash syntax is parsed and prints the single command that uses Bash explicitly. Direct `| bash` installs are unchanged. Tests run the preamble through `sh` and `dash`, prove the complete buffered body and arguments reach Bash, and retain a direct Bash syntax check.

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+A session opened from the desktop app or another multi-session client runs with the permission mode it asked for (full access, accept edits or ask first). Before, the mode was recorded but every session ran with the host default. ([senpi#2461](https://github.com/code-yeongyu/senpi/issues/2461))
+
+`web_search` has two hosted routes: a ChatGPT subscription session searches through the subscription's own web search with your ChatGPT login, and Google Search grounding is available as an opt-in entry in `websearch.json`. ([senpi#2341](https://github.com/code-yeongyu/senpi/issues/2341))
+
+Ultrafast can be selected explicitly with a model decorator such as `chatgpt-subscription/gpt-6-astra:xhigh:ultrafast`, in `models.json` or per session. Thanks to @audreyt. ([senpi#2412](https://github.com/code-yeongyu/senpi/issues/2412))
+
 Memory recall also matches Chinese characters and Japanese kanji one by one, so a question worded differently from the note can still find it; a question without any such character gets the same candidates as before.
 
 Memory recall can widen its own searches with synonyms, keywords in your other languages and related terms when you set `memory.recall.query_expansion` to `true`; an added term counts for less than the same match on one of the query's own words, a note that holds every word of the query stays first, and with the setting off, the default, nothing changes.
@@ -20,6 +26,14 @@ Geeky · Heavy and the `deep-high` category now run GPT-6 Astra at high reasonin
 When a delegated task stops because its model hit a usage limit, the result now says so, says when no other model in the category's chain could take over (as on `deep-high`, which runs GPT-6 Astra only), and how to recover, instead of ending on the provider's raw error. ([#9372](https://github.com/code-yeongyu/oh-my-openagent/issues/9372))
 
 ### Fixed
+
+**Hotfix: `eval` and `bash` calls that run `bun` no longer start a phantom agent turn in the packaged engine.** In a compiled engine, a `bun` subprocess ran the engine itself as a second agent instead of the requested script. ([#9362](https://github.com/code-yeongyu/oh-my-openagent/issues/9362), [senpi#2494](https://github.com/code-yeongyu/senpi/pull/2494))
+
+Manual `/compact` on a Claude subscription replaces the resident Claude transcript with the compacted summary, so the next request really uses the smaller context. Thanks to @ayalcoh for the fix and @Tinycute00 for the report. ([senpi#2331](https://github.com/code-yeongyu/senpi/issues/2331))
+
+With two or more logins for one provider, a usage limit reported only in words switches the request to the next account instead of failing it. Thanks to @orientpine. ([senpi#1768](https://github.com/code-yeongyu/senpi/issues/1768))
+
+Package installs and updates no longer flash a console window on Windows. Thanks to @willowite. ([senpi#2450](https://github.com/code-yeongyu/senpi/issues/2450))
 
 Standalone release binaries now run JavaScript, Python, a real file read and cell listing on all nine natively executable targets, including Alpine musl. Seven legs run that smoke before their binary is uploaded; the linux-arm64 and linux-arm64-musl smokes run after the build, in parallel with the npm platform publish, and a failure there fails the platform release workflow's result. All twelve target manifests preserve the same derived codemode sidecars, and required wasm assets fail packaging if missing. ([#9291](https://github.com/code-yeongyu/oh-my-openagent/issues/9291))
 
