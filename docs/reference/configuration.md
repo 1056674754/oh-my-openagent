@@ -658,9 +658,11 @@ to the query: `synonyms`, `keywords` (the topic in your other working languages)
 same tool call; nothing is stored and no other model is called. A match on a synonym or keyword
 scores 0.75 of the same match on a query word and a match on a related term or the note line 0.4
 (a rare added term can still outscore a common query word), and a note that holds every word of the
-query stays ahead of the notes only an added term found, in the order it has without them. It is off by default because the
-sidecar spends extra output tokens on every search it widens. Off, the tool and its results are
-exactly what they are without the option. The candidates picked from the conversation before the
+query stays ahead of the notes only an added term found, in the order it has without them. Each list
+is capped at 16 terms of 80 characters, and `note_line` at 300 characters; invalid added terms are
+reported in the result while the query still runs as plain recall. It is off by default because the
+sidecar spends extra output tokens on every search it widens. Off, the tool and its results are exactly
+what they are without the option. The candidates picked from the conversation before the
 sidecar wakes are not widened either way: no model runs at that step.
 
 #### Facts

@@ -111,8 +111,11 @@ function readExpansions(params: ExpansionArguments): RecallQueryExpansions | str
 
 function search(query: string | undefined, added: ExpansionArguments | undefined, corpus: RecallCorpus, input: KibitzerMemoryToolInput) {
   if (query === undefined || query.trim().length === 0) return rejection("missing_argument", "search requires a non-empty query.")
-  const expansions = added === undefined ? undefined : readExpansions(added)
-  if (typeof expansions === "string") return rejection("invalid_argument", expansions)
+  const parsedExpansions = added === undefined ? undefined : readExpansions(added)
+  const expansionFallback = typeof parsedExpansions === "string" ? parsedExpansions : undefined
+  const expansions = typeof parsedExpansions === "string" ? undefined : parsedExpansions
+  // Invalid added terms never lose plain lexical recall: report the fallback in the successful result
+  // so the sidecar can correct its next search without turning this search into a miss.
   // One over the cap tells us whether the page is truncated without a second selection pass.
   const selected = selectRecallCandidates(corpus.documents, [query], {
     maxItems: input.caps.memorySearchResults + 1,
@@ -126,7 +129,7 @@ function search(query: string | undefined, added: ExpansionArguments | undefined
     excerpt: boundedText(candidate.excerpt, input.caps.memoryReadChars),
   }))
   for (const hit of results) input.searchedPaths.add(hit.path)
-  return okJson({ revision: corpus.revision, results, truncated })
+  return okJson({ revision: corpus.revision, results, truncated, ...(expansionFallback === undefined ? {} : { expansion_fallback: expansionFallback }) })
 }
 
 function read(path: string | undefined, corpus: RecallCorpus, caps: KibitzerToolCaps) {

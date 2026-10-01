@@ -167,18 +167,21 @@ describe("memory tool search with query expansion", () => {
     }
   })
 
-  test("#given a non-array expansion tier #when searched #then a shape error is returned instead of a count error", async () => {
+  test("#given a non-array expansion tier #when searched #then the tool reports the shape problem and falls back to plain recall", async () => {
     const { root, repo } = await seeded()
     const h = harness({ workspaceRoot: root, repo, queryExpansion: true })
 
     for (const field of ["synonyms", "keywords", "related"]) {
       const result = await h.call("memory", { operation: "search", query: "undo shipment", [field]: "revert" })
-      expect(result.isError).toBe(true)
-      expect(jsonOf(result)).toMatchObject({ rejected: "invalid_argument", message: `${field} is a list of terms.` })
+      expect(result.isError).toBeUndefined()
+      expect(jsonOf(result)).toMatchObject({
+        expansion_fallback: `${field} is a list of terms.`,
+        results: [{ path: "notes/deploy.md" }],
+      })
     }
   })
 
-  test("#given query expansion on #when added terms exceed the bounds #then the search is refused", async () => {
+  test("#given query expansion on #when added terms exceed the bounds #then the tool reports the problem and falls back to plain recall", async () => {
     const { root, repo } = await seeded()
     const h = harness({ workspaceRoot: root, repo, queryExpansion: true })
 
@@ -192,8 +195,11 @@ describe("memory tool search with query expansion", () => {
       { note_line: "𠮷".repeat(301) },
     ]) {
       const result = await h.call("memory", { operation: "search", query: "undo shipment", ...added })
-      expect(result.isError).toBe(true)
-      expect(jsonOf(result)).toMatchObject({ rejected: "invalid_argument" })
+      expect(result.isError).toBeUndefined()
+      expect(jsonOf(result)).toMatchObject({
+        expansion_fallback: expect.any(String),
+        results: [{ path: "notes/deploy.md" }],
+      })
     }
   })
 })
