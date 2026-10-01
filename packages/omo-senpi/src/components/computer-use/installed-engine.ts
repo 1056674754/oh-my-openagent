@@ -38,17 +38,25 @@ export function explicitPathDiagnostic(
       cause: `${enginePath}: blocked because com.apple.quarantine is present (macOS Gatekeeper)`,
     }
   }
+  // Windows has no exec bit (X_OK only proves existence there); the engine must be a .exe.
+  if (platform === "win32") {
+    return /\.exe$/i.test(enginePath) ? undefined : notExecutable(base, host, `${enginePath}: not executable (expected a .exe file)`)
+  }
   try {
     accessSync(enginePath, constants.X_OK)
     return undefined
   } catch (error) {
     if (!(error instanceof Error && "code" in error)) throw error
-    return {
-      ...base, code: "native-unavailable",
-      message: `No senpi-desktop-engine binary is available for ${host}.`,
-      cause: `${enginePath}: not executable (chmod +x)`,
-    }
+    return notExecutable(base, host, `${enginePath}: not executable (chmod +x)`)
   }
+}
+
+function notExecutable(
+  base: { readonly host: string; readonly attemptedPaths: readonly string[] },
+  host: string,
+  cause: string,
+): DesktopEngineLocateDiagnostic {
+  return { ...base, code: "native-unavailable", message: `No senpi-desktop-engine binary is available for ${host}.`, cause }
 }
 
 /** One installed-source decision for status and doctor; never acquires, copies or starts an engine. */
