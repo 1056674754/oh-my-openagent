@@ -2,9 +2,13 @@
 
 use std::ffi::CStr;
 use std::os::unix::ffi::OsStrExt;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use objc2_core_foundation::{CFBundle, CFString, CFURL, CFURLPathStyle};
+use objc2_core_foundation::{
+    CFData, CFDictionary, CFPropertyListCreateWithData, CFPropertyListMutabilityOptions, CFRetained,
+    CFString, CFType,
+};
 
 /// Larger Info.plist files are not read: the bundle id is diagnostic metadata.
 const MAX_INFO_PLIST_BYTES: u64 = 1024 * 1024;
@@ -61,14 +65,38 @@ fn executable_path(pid: libc::pid_t) -> Option<PathBuf> {
 
 fn bundle_id(executable: &Path) -> Option<String> {
     let app = executable.ancestors().find(|path| path.extension().is_some_and(|ext| ext == "app"))?;
-    let plist_len = std::fs::metadata(app.join("Contents/Info.plist")).ok()?.len();
-    if plist_len > MAX_INFO_PLIST_BYTES {
-        return None;
-    }
-    let path = CFString::from_str(app.to_str()?);
-    let url = CFURL::with_file_system_path(None, Some(&path), CFURLPathStyle::CFURLPOSIXPathStyle, true)?;
-    // CFBundleGetIdentifier only returns a string-typed CFBundleIdentifier.
-    let id = CFBundle::new(None, Some(&url))?.identifier()?.to_string();
+    bundle_id_from_plist(&read_bounded(&app.join("Contents/Info.plist"))?)
+}
+
+/// Reads at most `MAX_INFO_PLIST_BYTES`; a larger file, or one that grew
+/// while being read, is rejected instead of parsed.
+fn read_bounded(path: &Path) -> Option<Vec<u8>> {
+    let mut bytes = Vec::new();
+    std::fs::File::open(path).ok()?.take(MAX_INFO_PLIST_BYTES + 1).read_to_end(&mut bytes).ok()?;
+    (u64::try_from(bytes.len()).ok()? <= MAX_INFO_PLIST_BYTES).then_some(bytes)
+}
+
+/// Parses exactly the bytes already read, so the parser never touches the
+/// filesystem (no `Info-<platform>.plist` substitution, no re-read).
+fn bundle_id_from_plist(bytes: &[u8]) -> Option<String> {
+    let data = CFData::from_bytes(bytes);
+    // SAFETY: `data` is a live CFData. CFPropertyListCreateWithData accepts null
+    // `format` and `error` out-pointers and returns a +1 object or null.
+    let plist = unsafe {
+        CFPropertyListCreateWithData(
+            None,
+            Some(&data),
+            CFPropertyListMutabilityOptions::Immutable.0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    }?;
+    let dict = plist.downcast::<CFDictionary>().ok()?;
+    // SAFETY: a property-list dictionary has CFString keys and CFType values;
+    // the downcast below rejects a non-string identifier.
+    let dict = unsafe { CFRetained::cast_unchecked::<CFDictionary<CFString, CFType>>(dict) };
+    let key = CFString::from_str("CFBundleIdentifier");
+    let id = dict.get(&key)?.downcast::<CFString>().ok()?.to_string();
     valid_bundle_id(&id).then_some(id)
 }
 
