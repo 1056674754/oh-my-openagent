@@ -4,6 +4,11 @@
 - The project layer reaches the child only when the parent session trusted the project: `ChildSpec.projectTrusted` comes from the parent's `ctx.isProjectTrusted()` through `InProcessSessionContext`; an unknown decision counts as untrusted. Child writes stay in the in-memory copy, so the caller's settings files are never written.
 - `in-process-caller-settings.test.ts` drives a real child through `InProcessRunner`: a caller `streamStartTimeoutMs` of 150 ms cuts a silent provider at 150 ms (on the base the guard never fired within 10 s), the request carries the caller's `httpIdleTimeoutMs` (base: 300000), a caller fallback chain is never used by a child without its own chain, a child with its own chain falls back only to it, and the caller's settings file stays byte-identical.
 
+## 2026-10-01 - Repeated Bun Windows advisories remain external termination output (#9228)
+
+- `runners/rpc/exit-mapping.ts` accepts any positive number of known Bun child-reaper startup advisory lines in the Windows exit-code-1/no-signal case. A different stderr line still classifies the child as crashed.
+- Focused cases pin N advisory-only lines to `killed: true` and advisory lines plus one real error to `crashed`.
+
 ## 2026-10-01 - Windows child parity regression (#9274, #6709)
 
 - `builtin-tool-parity.integration.test.ts` reloads the in-process child loader beside the `DefaultResourceLoader` policy used by process children and compares their builtin registrations directly. This removes both Windows CLI cold starts while pinning equal platform-specific builtin counts, exact names, and `web_search`; shared parent and session-default tool policy remains covered by the existing surface tests.
