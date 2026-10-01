@@ -23,6 +23,7 @@ import { reviveDetachedTerminalOnSend, reviveTerminal } from "./revive"
 import { createSteeringControls } from "./controls"
 
 const TASK_OUTPUT_SUGGESTION = "Use task_output to read the final result."
+const TRANSPORT_LOST_PREFIX = "transport lost"
 const NOT_FOUND_SUGGESTION = "Use /tasks to see available tasks, or task_output to read a known task."
 
 export function createSteeringEngine(port: SteeringPort): SteeringEngine {
@@ -105,11 +106,16 @@ export function createSteeringEngine(port: SteeringPort): SteeringEngine {
       }
     }
     if (handle.hasExited?.() === true) {
+      // A child whose connection never came back ended for that reason; say so instead of pointing at
+      // a message (omo#9403). Its transcript and worktree are left for the parent to recover from.
+      const lost = record.error_message?.startsWith(TRANSPORT_LOST_PREFIX) === true
       return {
         kind: "not_continuable",
         task_id: record.task_id,
-        reason: `Task ${record.task_id} exited before its last message was acknowledged.`,
-        suggestion: "Inspect task_output before resending.",
+        reason: lost
+          ? `Task ${record.task_id} ended: ${record.error_message}. Its transcript and worktree are kept.`
+          : `Task ${record.task_id} exited before its last message was acknowledged.`,
+        suggestion: lost ? "Read its work with task_output and start a new task to continue it." : "Inspect task_output before resending.",
       }
     }
 

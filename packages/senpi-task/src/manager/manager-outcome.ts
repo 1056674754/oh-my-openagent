@@ -33,6 +33,8 @@ export type OutcomeTrackerPorts = {
   // record is then guaranteed non-terminal, so the waiters must be settled from this record instead.
   readonly settleWaiters: (taskId: string, terminal?: TaskRecord) => void
   readonly tryRuntimeFallback: (input: ErrorOutcomeInput) => Promise<boolean>
+  // A cancel is waiting to stop this task: the run ends as cancelled, never as the failure the stop causes.
+  readonly stopPending?: (taskId: string) => boolean
   // Merges (or retains) an isolated child's clone. Awaited BEFORE the terminal record is written, so
   // every result builder - the foreground waiter, the completion notification, task_output - reads
   // one record that already carries merge_result. A late merge would publish "done" before the
@@ -181,6 +183,7 @@ export function createOutcomeTracker(ports: OutcomeTrackerPorts): OutcomeTracker
     handle
       .waitForOutcome()
       .then(async (outcome) => {
+        if (ports.stopPending?.(taskId) === true) return
         const owned = ownedRecord(ports, taskId, handle, epoch)
         if (owned === null) return
         const timestamp = nowIso(ports.now)

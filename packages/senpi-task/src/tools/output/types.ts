@@ -5,7 +5,7 @@ import type { TaskManager } from "../../manager"
 import type { StartQueued, ResolvedModelRecord, ResidencyState, TaskRunStats, TaskStatus } from "../../state"
 import type { CallerSessionResolver } from "../control"
 
-export type OutputManager = Pick<TaskManager, "get" | "list" | "concurrency">
+export type OutputManager = Pick<TaskManager, "get" | "list" | "concurrency" | "stopPending">
 
 export type TranscriptEntry =
   | { readonly kind: "assistant"; readonly text: string }
@@ -41,6 +41,8 @@ export type TaskSnapshot = {
   readonly status: TaskStatus
   readonly residency_state: ResidencyState
   readonly suspended?: SuspendedDetails
+  // A cancel waits for this child's lost connection; it may still be running on its host.
+  readonly stop?: string
   // The child has not launched yet: its start-time fallback model is waiting for a lane slot.
   readonly start_queued?: StartQueued
   readonly execution_mode: string

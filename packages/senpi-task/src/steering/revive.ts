@@ -33,6 +33,9 @@ export async function reviveDetachedTerminalOnSend(
   endSend: (taskId: string) => void,
   granted?: ReviveReservation,
 ): Promise<SendOutcome> {
+  if (record.status === "running" && granted === undefined) {
+    return reviveRunningOnSend(port, record, message, beginSend, endSend)
+  }
   if (!beginSend(record.task_id)) return evictionRefusal(record.task_id)
   try {
     const reservation = granted ?? port.reserveForDetachedRevive?.(record) ?? port.reserveForRevive(record.task_id)
@@ -64,6 +67,46 @@ export async function reviveDetachedTerminalOnSend(
       return lazyRevivalFailure(record, "child handle is unavailable")
     }
     return deliverRevivedTerminal(port, fresh, handle, message, nowIso, reservation, true, record)
+  } finally {
+    endSend(record.task_id)
+  }
+}
+
+const UNUSED_RESERVATION = { ok: true as const, commit: (): void => undefined, release: (): void => undefined }
+
+/**
+ * A parked daemon child that was still RUNNING is reopened, not revived into a new run: the revival's
+ * own reattach opens the run's next epoch and takes its lane slot. Reserving a slot here first made
+ * that reattach refuse the very slot this send held, so every send answered `lane_capacity` even on
+ * an empty lane (omo#9403). The message is then delivered to the reopened session as a follow-up.
+ */
+async function reviveRunningOnSend(
+  port: SteeringPort,
+  record: TaskRecord,
+  message: string,
+  beginSend: (taskId: string) => boolean,
+  endSend: (taskId: string) => void,
+): Promise<SendOutcome> {
+  if (!beginSend(record.task_id)) return evictionRefusal(record.task_id)
+  try {
+    const reviveDetached = port.reviveDetached ?? getLifecycleDetachedRevival(port.store)
+    if (reviveDetached === undefined) return lazyRevivalFailure(record, "revival is unavailable")
+    let revived: Awaited<ReturnType<typeof reviveDetached>>
+    try {
+      revived = await reviveDetached(record.task_id, UNUSED_RESERVATION)
+    } catch (error) {
+      await bestEffortRollback(port, record)
+      return lazyRevivalFailure(record, error instanceof Error ? error.message : String(error))
+    }
+    if (!revived.ok) {
+      return revived.code === undefined ? lazyRevivalFailure(record, revived.reason) : { kind: revived.code, task_id: record.task_id, reason: revived.reason }
+    }
+    const fresh = port.store.load(record.task_id)
+    const handle = port.liveHandle(record.task_id)
+    if (fresh === null || handle === undefined) return lazyRevivalFailure(record, "child handle is unavailable")
+    await handle.followUp(message)
+    port.store.appendEvent(record.task_id, { type: "steered", payload: { delivered: "followUp", run_epoch: fresh.notification.run_epoch } })
+    return { kind: "revived", task_id: record.task_id, run_epoch: fresh.notification.run_epoch }
   } finally {
     endSend(record.task_id)
   }

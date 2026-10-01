@@ -46,6 +46,10 @@ export type ManagedChildHandle = {
   // A daemon-session child whose session parked - itself (its recorded endpoint refused a reattach) or
   // by its host (idle sweep, generation handoff): the record parks with that reason either way.
   onParked?(listener: (event: { readonly reason: SuspensionReason }) => void): () => void
+  // A daemon-session child whose connection dropped and is being recovered (omo#9403).
+  transportRecovering?(): boolean
+  // Stop it once reachable, before it runs anything else; resolves once it has ended on this side.
+  stopWhenReachable?(): Promise<void>
   steer(text: string): Promise<void>
   followUp(text: string): Promise<void>
   abort(): Promise<void>
@@ -99,7 +103,13 @@ export function adaptRpcHandle(handle: RpcChildHandle): ManagedChildHandle {
       return handle.pid
     },
     ...(handle.spawnSpec === undefined ? {} : { spawnSpec: handle.spawnSpec }),
-    ...(isHostSessionHandle(handle) ? { onParked: (listener) => handle.onParked(listener) } : {}),
+    ...(isHostSessionHandle(handle)
+      ? {
+          onParked: (listener) => handle.onParked(listener),
+          transportRecovering: () => handle.transportRecovering(),
+          stopWhenReachable: () => handle.stopWhenReachable(),
+        }
+      : {}),
     steer: (text) => handle.steer(text),
     followUp: (text) => handle.followUp(text),
     abort: () => handle.abort(),

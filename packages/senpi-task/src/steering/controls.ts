@@ -3,6 +3,8 @@ import type { ManagedChildHandle } from "../manager/child-handle"
 import type { TaskRecord } from "../state"
 import type { CancelOptions, CancelOutcome, InterruptOutcome, SteeringPort } from "./types"
 
+export const CANCEL_PENDING_REASON = "cancel requested, child unreachable"
+
 export function createSteeringControls(
   port: SteeringPort,
   resolve: (idOrName: string) => TaskRecord | undefined,
@@ -55,6 +57,10 @@ export function createSteeringControls(
       const reasonText = record.status === "cancelled" ? `Task ${record.task_id} is already cancelled.` : `Task ${record.task_id} is ${record.status}, not running.`
       return { kind: "noop", task_id: record.task_id, status: record.status, reason: reasonText }
     }
+    const reachable = port.liveHandle(record.task_id)
+    if (options?.abort !== "skip" && reachable?.transportRecovering?.() === true && reachable.stopWhenReachable !== undefined) {
+      return stopWhenReachable(record, reachable, reason)
+    }
     // Transition BEFORE abort so this cancel is the single terminal write; the tracker's later
     // complete/cancel transition (settled by abort) is rejected by terminal idempotence.
     const runStats = port.runStatsSnapshot(record.task_id)
@@ -88,6 +94,38 @@ export function createSteeringControls(
       await port.destruction.destroyResidentTask(record.task_id, destructionCause)
     }
     return { kind: "cancelled", task_id: record.task_id, previous_status: "running" }
+  }
+
+  // omo#9403: a child whose connection is down cannot be told to stop, and calling it cancelled would
+  // be false - it may still be running on its host. The stop waits on the handle (applied on the host
+  // before anything else once reachable, or the child ends when its connection never comes back), and
+  // only then is the record cancelled and the child torn down, which releases its lane.
+  function stopWhenReachable(record: TaskRecord, handle: ManagedChildHandle, reason: string | undefined): CancelOutcome {
+    const stop = handle.stopWhenReachable
+    if (stop === undefined) throw new Error("stopWhenReachable requires a stoppable handle")
+    port.stopRequested?.(record.task_id)
+    port.store.appendEvent(record.task_id, { type: "cancel_requested", payload: { unreachable: true, ...(reason !== undefined ? { reason } : {}) } })
+    const finish = async (): Promise<void> => {
+      const runStats = port.runStatsSnapshot(record.task_id)
+      const result = port.store.transition(record.task_id, {
+        type: "cancel",
+        timestamp: nowIso(),
+        ...(reason !== undefined ? { error_message: reason } : {}),
+        ...(runStats !== undefined ? { run_stats: runStats } : {}),
+      })
+      if (result.applied) {
+        port.store.appendEvent(record.task_id, { type: "cancelled", payload: { previous_status: "running", ...(reason !== undefined ? { reason } : {}) } })
+      }
+      try {
+        await port.destruction.destroyResidentTask(record.task_id, "cancel")
+      } finally {
+        port.stopSettled?.(record.task_id)
+      }
+    }
+    void stop.call(handle).then(finish, finish).catch((error: unknown) => {
+      log("senpi-task deferred cancel of an unreachable child failed", { taskId: record.task_id, error: String(error) })
+    })
+    return { kind: "cancel_pending", task_id: record.task_id, previous_status: "running", reason: CANCEL_PENDING_REASON }
   }
 
   function destroyAfterSettlement(handle: ManagedChildHandle, taskId: string): void {

@@ -7,6 +7,7 @@ import { createTurnSettlement, sessionIsIdle } from "../rpc/turn-settlement"
 import type { ChildEventListener, ChildExitOutcome, RpcTerminalAssistantMessage } from "../types"
 import {
   classifySessionExit,
+  sessionExitFacts,
   type SessionCloseIntent,
   type SessionExitCause,
 } from "./exit-mapping"
@@ -22,11 +23,14 @@ import type {
 import { startHostHeartbeat } from "./handle-heartbeat"
 import { createHandleListeners } from "./handle-listeners"
 import { createHandleRecovery } from "./handle-recovery"
-import { createHandleTeardown } from "./handle-teardown"
+import { createHandleTeardown, endSessionOnHost } from "./handle-teardown"
 import { createHandleWaiters } from "./handle-waiters"
 import { isTransportLossError } from "./reattach"
 import type { HostSessionParked } from "./session-client"
 import { extractTerminalAssistantMessage } from "./terminal-message"
+import { isTransportRecoveryExpired, TRANSPORT_LOST_REASON } from "./transport-recovery"
+
+const STOPPED_UNREACHED_REASON = "cancelled while its task host was unreachable"
 
 /**
  * The steerable child handle over ONE daemon session: identical turn semantics to
@@ -36,7 +40,7 @@ import { extractTerminalAssistantMessage } from "./terminal-message"
  * `terminate()` is `abort` then `close_session`, both bounded.
  */
 export function createHostSessionHandle(options: HostSessionHandleOptions): HostSessionChildHandle {
-  const { taskId, heartbeatIntervalMs, now, closeGraceMs, reattach, shardEvents } = options
+  const { taskId, heartbeatIntervalMs, now, closeGraceMs, reattach, shardEvents, transportRecovery } = options
   // Both move on a reattach: a recovered transport is a new port, and a reopened session a new
   // routing handle on a possibly new host generation. The session PATH is the child's identity.
   let client: HostSessionPort = options.client
@@ -56,6 +60,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
   let intent: SessionCloseIntent = "running"
   let parked = false
   let detached = false
+  let stopRequested = false
 
   const settleTurn = (settled: RunnerOutcome): void => {
     if (turnOutcome !== undefined) return
@@ -131,10 +136,20 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     settleClassified(classifySessionExit({ cause, intent }))
   }
 
+  // A session this child no longer drives ends on the host, so whatever it started ends with it.
+  const endOnHost = async (client: HostSessionPort): Promise<void> => {
+    await endSessionOnHost({ taskId, closeGraceMs, port: () => client }, "terminated")
+    settleExit({ kind: "killed", facts: sessionExitFacts("terminated") })
+  }
+
   const recovery = createHandleRecovery({
     taskId,
     reattach,
     events: shardEvents,
+    bound: transportRecovery,
+    stopRequested: () => stopRequested,
+    endOnHost,
+    stopUnreached: () => settleExit({ kind: "killed", facts: sessionExitFacts(STOPPED_UNREACHED_REASON) }),
     port: () => client,
     identity: () => session,
     alive: () => intent === "running" && !parked && !detached && outcome === undefined,
@@ -152,6 +167,14 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     // undelivered prompt, instead of escaping as an unhandled rejection.
     continuationFailed: (error) => {
       log("senpi-task host session reattach continuation failed", { taskId, error: String(error) })
+      if (isTransportRecoveryExpired(error)) {
+        // The bound ran out before the host took the continuation: the child is lost, and the session
+        // it reopened is ended rather than left to run on without a parent.
+        const reopened = client
+        settleExit({ kind: "crashed", facts: sessionExitFacts(TRANSPORT_LOST_REASON) })
+        void endSessionOnHost({ taskId, closeGraceMs, port: () => reopened }, "terminated")
+        return
+      }
       if (!isTransportLossError(error)) settleTurn(promptFailureOutcome(error))
     },
     park: (reason) => park({ sessionId: session.routingId, sessionPath: session.sessionPath, reason }),
@@ -242,6 +265,13 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     },
     followUp: (text) => runPrompt(text, "followUp"),
     abort: () => { abortedByUser = true; return recovery.issue({ type: "abort" }) },
+    transportRecovering: () => recovery.recovering() && outcome === undefined,
+    stopWhenReachable: async () => {
+      if (!recovery.recovering()) return await endOnHost(client)
+      abortedByUser = true
+      stopRequested = true
+      await waiters.waitForExit(outcome)
+    },
     subscribe: listeners.subscribe,
     onParked: listeners.onParked,
     onTurnResumed: listeners.onTurnResumed,
