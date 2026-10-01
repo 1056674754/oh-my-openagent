@@ -61,7 +61,11 @@ async function startCategoryChild(machine: Machine, category: string, config: Om
     modelRuntime: machine.modelRuntime,
     modelRegistry: machine.modelRegistry,
     ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
-    settingsManager: createRuntimeFallbackSettings(`${spec.provider}/${spec.modelId}`, spec.fallback_models),
+    settingsManager: createRuntimeFallbackSettings(
+      { cwd: machine.root, agentDir: machine.agentDir, projectTrusted: false },
+      `${spec.provider}/${spec.modelId}`,
+      spec.fallback_models,
+    ),
     sessionManager: machine.senpi.SessionManager.inMemory(),
     resourceLoader: createMinimalSenpiResourceLoader({ runtime: machine.senpi.createExtensionRuntime() }),
     tools: [],
