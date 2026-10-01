@@ -58,7 +58,7 @@ export function createParentRegistrySessionContext(
     }
   }
   return Object.assign(provide, {
-    resolveResumeContext: (spec: ManagedStartSpec) => {
+    resolveResumeContext: (spec: ManagedStartSpec): ResumeContextResult => {
       const resolved = resolveResumeContext(resolveRegistry, spec)
       return resolved.ok ? { ok: true, context: { ...trust(), ...resolved.context } } : resolved
     },
