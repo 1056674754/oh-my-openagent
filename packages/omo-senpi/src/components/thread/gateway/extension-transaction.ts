@@ -52,6 +52,8 @@ export function extensionTransaction(ctx: ops.StoreContext, name: string, now: n
     completeReceipt: (request) => joined(() => ops.completeReceipt(ctx, request)),
     abandonReceipt: (request) => joined(() => ops.abandonReceipt(ctx, request)),
     deliveryView: async (id) => joined(() => ops.deliveryView(ctx, id)),
+    deliveryReceipt: async (request) => joined(() => ops.deliveryReceipt(ctx, request)),
+    recoverDelivery: (request) => joined(() => ops.recoverDelivery(ctx, request)),
     bind: (request) => joined(() => relay.bindThread(ctx, request)),
     unbind: (request) => joined(() => relay.unbindThread(ctx, request)),
     rebind: (request) => joined(() => relay.rebindThread(ctx, request)),

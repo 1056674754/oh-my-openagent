@@ -63,6 +63,17 @@ test("#given inbound rules #when called through tx.enqueue #then authors modes d
   expect(existsSync(join(gatewayInboxDirectory(h.agentDir, "target"), rows[0].delivery_id))).toBe(true)
 })
 
+test("#given an event delivered through a binding that was then unbound #when the extension retries it through tx.enqueue #then its stored result replays as through the relay, and a new event meets binding_inactive", async () => {
+  const { store } = await setup()
+  const binding = await bind(store)
+  const request = { binding_id: binding.binding_id, event_id: "first", text: "hello" }
+  const first = await core<{ kind: string; delivery_id?: string }>(store, "enqueue", request)
+  expect(first).toMatchObject({ kind: "ok", deduplicated: false })
+  expect(await core(store, "unbind", { principal: "test", binding_id: binding.binding_id, expected_revision: binding.revision })).toMatchObject({ kind: "ok" })
+  expect(await core(store, "enqueue", request)).toMatchObject({ kind: "ok", deduplicated: true, delivery_id: first.delivery_id })
+  expect(await core(store, "enqueue", { ...request, event_id: "second" })).toMatchObject({ kind: "error", error: { code: "binding_inactive" } })
+})
+
 test("#given binding CAS and validation #when using joined helpers #then invalid writes refuse and valid rebind unbind preserve rules", async () => {
   const { store } = await setup()
   expect(await core(store, "bind", { principal: "test", binding: { platform: "bad", account_id: "bot", chat_id: "chat", session_durable_id: "target" } })).toMatchObject({ kind: "error", error: { code: "invalid_arguments" } })
