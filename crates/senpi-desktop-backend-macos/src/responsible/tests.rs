@@ -76,6 +76,26 @@ fn platform_info_plist_is_never_read() {
 }
 
 #[test]
+fn fifo_info_plist_is_rejected_without_blocking() {
+    let (dir, executable) = app_with_info_plist("<string>org.example.qa</string>");
+    let plist = executable.parent().unwrap().parent().unwrap().join("Info.plist");
+    std::fs::remove_file(&plist).unwrap();
+    let fifo = std::ffi::CString::new(plist.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: `fifo` is a valid NUL-terminated path; mkfifo only creates the node.
+    assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+    let link = dir.path().join("link.plist");
+    std::os::unix::fs::symlink(&plist, &link).unwrap();
+    let (done, wait) = std::sync::mpsc::channel();
+    let (exe, lnk) = (executable.clone(), link.clone());
+    std::thread::spawn(move || {
+        let _ = done.send((bundle_id(&exe), read_bounded(&lnk)));
+    });
+    let (id, via_link) = wait.recv_timeout(std::time::Duration::from_secs(5)).expect("FIFO read must not block");
+    assert!(id.is_none());
+    assert!(via_link.is_none());
+}
+
+#[test]
 fn reads_at_most_the_plist_limit() {
     let dir = tempfile::tempdir().unwrap();
     let at_limit = dir.path().join("at-limit");
