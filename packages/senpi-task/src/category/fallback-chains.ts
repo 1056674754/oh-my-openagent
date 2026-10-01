@@ -71,7 +71,7 @@ export const CATEGORY_FALLBACK_CHAINS: Readonly<Record<string, readonly Delegate
     {
       providers: ["chatgpt-subscription", "openai", "github-copilot", "opencode"],
       model: "gpt-6-astra",
-      variant: "xhigh",
+      variant: "high",
     }
   ],
   artistry: [

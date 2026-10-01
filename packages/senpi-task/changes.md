@@ -1,3 +1,11 @@
+## 2026-10-01 - deep-high runs GPT-6 Astra at high (#9372)
+
+- `category/fallback-chains.ts` `deep-high` and `category/openai-categories.ts` (builtin default
+  `chatgpt-subscription/gpt-6-astra`): variant `high` (was `xhigh`). The chain stays one Astra rung on all four GPT lanes and the
+  gate stays `gpt-6-astra`, so the two deep lanes still never substitute each other's model.
+- Tests that pinned `xhigh` for deep-high (`fallback-chains`, `openai-categories`, `openai-lane`, `gating`, `resolve-category`)
+  now expect `high`.
+
 ## 2026-09-30 - The foreground task wait is bounded at 900 s (#8759 cluster, senpi#2323)
 
 - `tools/task/foreground-wait.ts` `waitForForegroundTask`: the wait before a foreground child is promoted to background
