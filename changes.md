@@ -1,3 +1,7 @@
+## 2026-10-01 - The macOS tcc-diagnostic QA scenario reads the responsible-process message (#9368)
+
+#9351 changed the permission-denied message to `TCC identity: responsible=<path>[ bundle=<id>], pid=<n>` (or `unresolved (engine executable=...)`), but `script/qa/desktop/macos/tcc.ts` still looked for the old `executable=` text, so the scenario could never pass. Its judgment now lives in `tccIdentityPasses`, which passes only when the denial names the engine itself (compared by real path) as the responsible process, and fails for another responsible process, an unresolved one, or a message with no identity. Five behavior tests cover those cases; with the old parser the two passing cases fail.
+
 ## 2026-10-01 - Windows explicit engine paths must name a .exe, and the exec-bit check stays POSIX-only (#9359)
 
 On Windows, `fs.access(..., X_OK)` only proves a file exists: the platform has no exec bit. The parity test's chmod-0644 "not executable" case was therefore accepted on Windows runners, and doctor went on to spawn it. Status and doctor share `explicitPathDiagnostic`, which now refuses a win32 explicit `engine_path` that does not end in `.exe` (the name the locator and the release asset use) with `not executable (expected a .exe file)`. POSIX keeps the X_OK check. The parity test runs the mode-bit case only on hosts that have mode bits and adds a Windows case that runs on every host, with an executable fixture so only the Windows rule can refuse it.
