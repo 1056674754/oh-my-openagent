@@ -1,14 +1,9 @@
-import { accessSync, constants, existsSync, readFileSync } from "node:fs"
+import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { homedir } from "node:os"
 import {
   desktopEngineReleaseAssetName,
-  findCachedDesktopEngine,
-  getDesktopEngineCandidatePaths,
   getDesktopEngineHost,
-  isQuarantinedFile,
   locateDesktopEngine,
-  type DesktopEngineLocateDiagnostic,
   type DesktopEngineLocatorOptions,
 } from "@oh-my-opencode/senpi-desktop-engine"
 import {
@@ -17,6 +12,7 @@ import {
   DesktopEngineUnavailableError,
   engineChildFactory,
 } from "@oh-my-opencode/senpi-desktop-service"
+import { explicitPathDiagnostic, resolveInstalledEngine } from "./installed-engine"
 
 type Env = Readonly<Record<string, string | undefined>>
 
@@ -74,71 +70,30 @@ export function describeEngineSource(
   env: Env,
   locatorOptions: DesktopEngineLocatorOptions = {},
 ): string {
-  if (enginePath !== undefined) return `found ${enginePath} (explicit)`
-  const options = { ...locatorOptions, runtimeDir: locatorOptions.runtimeDir ?? env.OMO_PACKAGE_DIR ?? "" }
-  const located = locateDesktopEngine(options)
-  if (located.path !== null) {
-    const candidates = getDesktopEngineCandidatePaths(options)
-    const sources = options.runtimeDir ? ["runtime-dir", "sidecar", "package-prebuild", "dev-build"] : ["sidecar", "package-prebuild", "dev-build"]
-    return `found ${located.path} (${sources[candidates.indexOf(located.path)]})`
-  }
-  const { host, reason, cause, code } = located.diagnostic
-  if (reason === "no-release-asset") return `No senpi-desktop-engine is built for ${host}`
   const version = omoReleaseVersion(env)
-  if (version !== undefined && code !== "quarantined") {
-    const cached = findCachedDesktopEngine({
-      host, version, cacheDir: join(env.HOME ?? homedir(), ".omo", "cache", "senpi-desktop-engine"),
-    })
-    if (cached.path !== null) return `found ${cached.path} (cache, omo v${version})`
-    const asset = desktopEngineReleaseAssetName(host)
-    if (asset !== null) return `would download ${asset} from omo v${version} on first use`
+  const resolved = resolveInstalledEngine(enginePath, env, version, locatorOptions)
+  if ("path" in resolved) {
+    const release = resolved.source === "cache" ? `, omo v${version}` : ""
+    return `found ${resolved.path} (${resolved.source}${release})`
   }
-  return `native-unavailable for ${host}: ${cause}`
+  if ("diagnostic" in resolved) {
+    return resolved.diagnostic.reason === "no-release-asset"
+      ? resolved.diagnostic.message
+      : `${resolved.diagnostic.message} ${resolved.diagnostic.cause}`
+  }
+  const asset = desktopEngineReleaseAssetName(resolved.notInstalled.host)
+  return version !== undefined && asset !== null
+    ? `would download ${asset} from omo v${version} on first use`
+    : `native-unavailable for ${resolved.notInstalled.host}: ${resolved.notInstalled.cause}`
 }
 
 function explicitEngineChild(enginePath: string): ChildFactory {
   const host = getDesktopEngineHost()
-  const diagnostic = explicitPathDiagnostic(enginePath, host)
+  const diagnostic = explicitPathDiagnostic(enginePath, host, process.platform)
   if (diagnostic !== undefined) {
     return () => {
       throw new DesktopEngineUnavailableError(diagnostic)
     }
   }
   return engineChildFactory(enginePath)
-}
-
-function explicitPathDiagnostic(
-  enginePath: string,
-  host: string,
-): DesktopEngineLocateDiagnostic | undefined {
-  if (!existsSync(enginePath)) {
-    return {
-      code: "native-unavailable",
-      host,
-      attemptedPaths: [enginePath],
-      message: `No senpi-desktop-engine binary is available for ${host}.`,
-      cause: `${enginePath}: missing`,
-    }
-  }
-  if (isQuarantinedFile(enginePath)) {
-    return {
-      code: "quarantined",
-      host,
-      attemptedPaths: [enginePath],
-      message: `The senpi-desktop-engine binary for ${host} is quarantined by macOS Gatekeeper.`,
-      cause: `${enginePath}: blocked because com.apple.quarantine is present`,
-    }
-  }
-  try {
-    accessSync(enginePath, constants.X_OK)
-    return undefined
-  } catch {
-    return {
-      code: "native-unavailable",
-      host,
-      attemptedPaths: [enginePath],
-      message: `No senpi-desktop-engine binary is available for ${host}.`,
-      cause: `${enginePath}: not executable (chmod +x)`,
-    }
-  }
 }
