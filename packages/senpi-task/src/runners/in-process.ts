@@ -26,6 +26,7 @@ export type {
   ChildSession,
   ChildSessionEvent,
   ChildSessionListener,
+  QueuedInputDisposition,
   RunnerFailure,
   RunnerOutcome,
 } from "./in-process/child-handle"
