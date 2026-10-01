@@ -23,6 +23,7 @@ export async function permissionSession(options: {
   const { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager } = await import("@code-yeongyu/senpi")
   const home = await mkdtemp(join(tmpdir(), "computer-permission-"))
   const events: Array<{ name: string; data: unknown }> = []
+  const extensionErrors: unknown[] = []
   const methods: string[] = []
   const settingsManager = SettingsManager.inMemory({})
   const component = createComputerUseComponent({
@@ -68,23 +69,36 @@ export async function permissionSession(options: {
     resourceLoader,
     sessionManager: SessionManager.inMemory(home),
   })
-  await session.bindExtensions({ mode: "rpc" })
-  const runner = session.extensionRunner
-  if (runner === undefined) throw new Error("The real session did not bind its extension runner")
-  const off = runner.onRpcEvent((event) => {
-    if (event.name === "omo.computer.permission_required" || event.name === "computer.permission_required") events.push(event)
+  await session.bindExtensions({
+    mode: "rpc",
+    onError: error => { extensionErrors.push(error) },
   })
+  const observe = () => {
+    const runner = session.extensionRunner
+    if (runner === undefined) throw new Error("The real session did not bind its extension runner")
+    return runner.onRpcEvent((event) => {
+      if (event.name === "omo.computer.permission_required" || event.name === "computer.permission_required") events.push(event)
+    })
+  }
+  let off = observe()
   session.setActiveToolsByName(["computer", "computer_actions", "eval"])
   return {
     home,
     session,
     events,
+    extensionErrors,
     methods,
     execute: (name: string, params: unknown) =>
       session.executeTool(name, params, { signal: AbortSignal.timeout(60_000) }),
+    async reload() {
+      off()
+      await session.reload()
+      off = observe()
+      session.setActiveToolsByName(["computer", "computer_actions", "eval"])
+    },
     async close() {
       off()
-      await runner.emit({ type: "session_shutdown", reason: "quit" })
+      await session.extensionRunner?.emit({ type: "session_shutdown", reason: "quit" })
       session.dispose()
       await rm(home, { recursive: true, force: true })
     },

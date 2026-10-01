@@ -139,4 +139,34 @@ describe("computer permission events through the real session", () => {
       await fixture.close()
     }
   }, 120_000)
+
+  test("keeps a denied permission latched across reload after its marker write fails", async () => {
+    // given
+    const fixture = await permissionSession()
+    const root = fixture.session.sessionId
+    const marker = spyOn(fixture.session.sessionManager, "appendCustomEntry").mockImplementation(() => {
+      throw new Error("Test session journal is read-only")
+    })
+    try {
+      const first = await fixture.execute("computer", capture)
+      marker.mockRestore()
+      // when
+      await fixture.reload()
+      const second = await fixture.execute("computer", capture)
+      // then
+      expect(fixture.session.sessionId).toBe(root)
+      expect(fixture.extensionErrors).toEqual([])
+      expect(fixture.methods.filter(method => method === "capture")).toHaveLength(2)
+      for (const result of [first, second]) {
+        expect(result).toMatchObject({ details: { value: { code: "COMPUTER_PERMISSION_REQUIRED" } } })
+      }
+      expect(fixture.events).toEqual([{
+        name: "omo.computer.permission_required",
+        data: { session_id: root, permission: "screen_recording", app: "Test App" },
+      }])
+    } finally {
+      marker.mockRestore()
+      await fixture.close()
+    }
+  }, 120_000)
 })

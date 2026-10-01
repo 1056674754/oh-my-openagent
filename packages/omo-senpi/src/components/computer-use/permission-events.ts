@@ -5,6 +5,7 @@ import { computerUseSessionId } from "../telemetry/omo-native-computer-use"
 
 export const TASK_CHILD_EXTENSION_EVENT = "omo.task.child_extension_event"
 const ROOT_PERMISSION_EVENT = "omo.computer.permission_required"
+const PERMISSION_LATCHES = Symbol.for("omo.computer.permissionLatches")
 const forwardedSchema = z.object({
   parent_session_id: z.string(),
   root_session_id: z.string(),
@@ -18,7 +19,12 @@ const markerSchema = z.object({
 
 /** Root identity belongs to session_start, never to a shared tool's in-process child context. */
 export function wireComputerPermissionEvents(pi: SenpiExtensionAPI, env: NodeJS.ProcessEnv, logger: ComponentLogger) {
-  const seen = new Map<string, Set<ChildExtensionEvent["permission"]>>()
+  // Uncached extension reloads must retain already-emitted permissions even if journaling failed.
+  const registry: typeof globalThis & {
+    [PERMISSION_LATCHES]?: Map<string, Set<ChildExtensionEvent["permission"]>>
+  } = globalThis
+  const seen = registry[PERMISSION_LATCHES] ?? new Map<string, Set<ChildExtensionEvent["permission"]>>()
+  registry[PERMISSION_LATCHES] = seen
   let sessionId: string | undefined
   let unsubscribe: (() => void) | undefined
   const report = (permission: Omit<ChildExtensionEvent, "type">): void => {
@@ -54,7 +60,7 @@ export function wireComputerPermissionEvents(pi: SenpiExtensionAPI, env: NodeJS.
         }
       }
     }
-    seen.set(sessionId, permissions)
+    if (permissions.size > 0) seen.set(sessionId, permissions)
     unsubscribe?.()
     unsubscribe = pi.events?.on(TASK_CHILD_EXTENSION_EVENT, (value) => {
       const parsed = forwardedSchema.safeParse(value)
