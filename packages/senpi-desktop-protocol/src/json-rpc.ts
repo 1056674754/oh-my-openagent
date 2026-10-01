@@ -18,7 +18,7 @@ export interface JsonRpcRequest<P = unknown> {
 /** Why the engine answered a request with `-32601`. */
 export type MethodRejection = "unknown" | "hostOnly" | "testOnly";
 
-/** Error data carried by every `ErrorCode` failure. */
+/** The macOS permission a `PermissionDenied` error is missing, the Settings pane that grants it, the app to enable, and whether that app must be relaunched. */
 export interface PermissionDeniedData {
 	readonly permission: "screen_recording" | "accessibility";
 	readonly settingsUrl: string;

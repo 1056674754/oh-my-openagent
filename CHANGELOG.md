@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+Memory recall also matches Chinese characters and Japanese kanji one by one, so a question worded differently from the note can still find it; a question without any such character gets the same candidates as before.
+
+Memory recall can widen its own searches with synonyms, keywords in your other languages and related terms when you set `memory.recall.query_expansion` to `true`; an added term counts for less than the same match on one of the query's own words, a note that holds every word of the query stays first, and with the setting off, the default, nothing changes.
+
+### Changed
+
+Geeky · Heavy and the `deep-high` category now run GPT-6 Astra at high reasoning instead of xhigh. Geeky · Normal now starts on GPT-6.1 Sol Fast at medium; without the Fast tier it uses plain GPT-6.1 Sol at medium, and Copilot or OpenCode users still get GPT-5.6 Sol at medium. `deep-low` keeps GPT-6.1 Sol at medium. ([#9372](https://github.com/code-yeongyu/oh-my-openagent/issues/9372))
+
+When a delegated task stops because its model hit a usage limit, the result now says so, says when no other model in the category's chain could take over (as on `deep-high`, which runs GPT-6 Astra only), and how to recover, instead of ending on the provider's raw error. ([#9372](https://github.com/code-yeongyu/oh-my-openagent/issues/9372))
+
+### Fixed
+
+Standalone release binaries now run JavaScript, Python, a real file read and cell listing on all nine natively executable targets, including Alpine musl. Seven legs run that smoke before their binary is uploaded; the linux-arm64 and linux-arm64-musl smokes run after the build, in parallel with the npm platform publish, and a failure there fails the platform release workflow's result. All twelve target manifests preserve the same derived codemode sidecars, and required wasm assets fail packaging if missing. ([#9291](https://github.com/code-yeongyu/oh-my-openagent/issues/9291))
+
+Piping the recommended installer to `sh` or `dash` now hands the script to Bash instead of failing on Bash syntax. If Bash is unavailable, the installer prints the exact `curl ... | bash` command to use and exits cleanly. ([#9325](https://github.com/code-yeongyu/oh-my-openagent/issues/9325))
+
 ## [5.1.7] - 2026-09-30
 
 **Computer use on macOS says what it needs and where its engine comes from.** A downloaded install trusts the engine shipped inside its own app, a missing Screen Recording or Accessibility grant opens the right System Settings pane, and `/computer status` and `omo doctor` show which engine you have before it starts. This release runs on the senpi 2026.9.30 engine, like 5.1.6.
@@ -52,6 +70,8 @@ A new `accept-edits` permission preset lets the agent read and edit files in the
 Chat bridges can ask the engine for a chat prompt surface, which drops the routing line, the handoff block and todo lines from replies meant for people in a conversation. Terminal and app prompts stay as they are. ([senpi#2398](https://github.com/code-yeongyu/senpi/issues/2398))
 
 ### Changed
+
+The recommended `curl` installer now offers `Remove the other omo install at <path>? [y/N]` when it verifies a second installation. Non-interactive runs keep both unless `--remove-other-installs` is explicit, and `omo doctor` prints the exact Bun, npm, or standalone removal command for the non-active install. ([#9324](https://github.com/code-yeongyu/oh-my-openagent/issues/9324))
 
 The engine's recommended OpenAI model is GPT-6.1 Sol at medium, one slot below GPT-6 Astra. Models you listed yourself in `recommendedModels` stay as you set them. ([senpi#2390](https://github.com/code-yeongyu/senpi/issues/2390))
 

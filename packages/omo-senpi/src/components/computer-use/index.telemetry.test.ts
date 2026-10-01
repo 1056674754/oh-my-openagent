@@ -144,7 +144,7 @@ describe("computer-use component telemetry", () => {
       write.mockRestore()
     }
     expect(printed).toEqual([`${messages[0]}\n`])
-    expect(messages.join("\n")).toContain("engine: not started (found /task-3/engine (explicit))")
+    expect(messages.join("\n")).toContain("/task-3/engine: missing")
     expect(starts).toBe(0)
   })
 

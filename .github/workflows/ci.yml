@@ -355,7 +355,7 @@ jobs:
         run: bun run test:codex
 
 
-      - name: Run omo-codex component checks
+      - name: Run omo-codex component checks and tests
         if: needs.ci-mode.outputs.run_heavy == 'true' && matrix.suite == 'full' && (matrix.os == 'ubuntu-latest' || needs.ci-mode.outputs.full_matrix == 'true')
         shell: bash
         run: |
@@ -365,6 +365,12 @@ jobs:
             if jq -e '.scripts.check' "${component}package.json" > /dev/null 2>&1; then
               echo "::group::Component check: ${component}"
               npm --prefix "$component" run check || status=1
+              echo "::endgroup::"
+            fi
+            # ulw-loop's suite already runs inside test:codex above.
+            if [ "$(basename "$component")" != "ulw-loop" ] && jq -e '.scripts.test' "${component}package.json" > /dev/null 2>&1; then
+              echo "::group::Component test: ${component}"
+              npm --prefix "$component" test || status=1
               echo "::endgroup::"
             fi
           done

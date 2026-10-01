@@ -58,7 +58,7 @@ describe("omo release version for engine acquisition", () => {
   test.each(["linux", "win32"])("#given no release engine for %s-arm64 #when first use starts #then the diagnostic names the unsupported host", (platform) => {
     const root = packageDir({})
     const options = { platform, arch: "arm64", execDir: root, packageDir: root, repoRoot: root, runtimeDir: "" }
-    expect(describeEngineSource(undefined, {}, options)).toBe(`No senpi-desktop-engine is built for ${platform}-arm64`)
+    expect(describeEngineSource(undefined, {}, options)).toBe(`No senpi-desktop-engine is built for ${platform}-arm64; computer use is unavailable on this host.`)
     const start = defaultEngineChild({}, options)(undefined)
     try {
       start()
