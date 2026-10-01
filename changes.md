@@ -17,6 +17,12 @@ v0.99.1 sync, so `provider-map.json` gains the new builtin providers `meta` (OAu
 `senpi-task` runners follow the upstream disposition and `TranscriptContext` API. It also brings the compiled-engine
 `bun` phantom-turn fix (#9362, senpi#2494) and per-session permission presets (senpi#2461).
 
+
+## 2026-10-01 - Repeat macOS permission denials name the earlier pane (omo-desktop-app#1437)
+
+macOS permission guidance now says the privacy pane has been opened only when the current denial opened it. Repeat denials refer to the pane opened earlier, or tell the user to open it when the initial attempt failed, while retaining the turn-on and fully quit/relaunch instructions and the responsible-process TCC identity.
+
+
 ## 2026-10-01 - Keep child tool parity stable on Windows (#9274, #6709)
 
 The builtin tool parity regression now compares the in-process child loader directly with the `DefaultResourceLoader` policy used by process children instead of paying for two full Windows CLI cold starts. Both loaders expose the same platform-specific builtin registrations, including `web_search`; the existing policy tests continue to cover the shared parent and session-default tools that complete the child surface.

@@ -32,12 +32,21 @@ struct Settings {
 }
 
 impl Settings {
-    fn open_settings_once(&self, permission: TccPermission, opener: impl FnOnce(&str) -> bool) -> bool {
+    fn open_settings_once(
+        &self,
+        permission: TccPermission,
+        opener: impl FnOnce(&str) -> bool,
+    ) -> (bool, bool) {
         let opened = match permission {
             TccPermission::ScreenRecording => &self.screen_recording,
             TccPermission::Accessibility => &self.accessibility,
         };
-        *opened.get_or_init(|| opener(settings_url(permission)))
+        let mut opened_now = false;
+        let opened = *opened.get_or_init(|| {
+            opened_now = true;
+            opener(settings_url(permission))
+        });
+        (opened, opened_now)
     }
 }
 
@@ -64,18 +73,19 @@ fn open_settings(_: &str) -> bool {
 }
 
 pub(crate) fn permission_denied(permission: TccPermission) -> DesktopError {
-    let opened = SETTINGS.open_settings_once(permission, open_settings);
-    denial(permission, host_app_name(), opened)
+    let (opened, opened_now) = SETTINGS.open_settings_once(permission, open_settings);
+    denial(permission, host_app_name(), opened, opened_now)
 }
 
-fn denial(permission: TccPermission, app: String, opened: bool) -> DesktopError {
-    denial_with_identity(permission, app, opened, crate::responsible::current)
+fn denial(permission: TccPermission, app: String, opened: bool, opened_now: bool) -> DesktopError {
+    denial_with_identity(permission, app, opened, opened_now, crate::responsible::current)
 }
 
 fn denial_with_identity(
     permission: TccPermission,
     app: String,
     opened: bool,
+    opened_now: bool,
     lookup: impl FnOnce() -> Option<crate::responsible::ResponsibleProcess>,
 ) -> DesktopError {
     let pane = match permission {
@@ -84,10 +94,17 @@ fn denial_with_identity(
     };
     let url = settings_url(permission);
     let identity = crate::responsible::suffix_with(lookup);
-    let opening = if opened { "has been opened" } else { "could not be opened automatically; open it" };
+    let opening = match (opened_now, opened) {
+        (true, true) => format!("System Settings > Privacy & Security > {pane} has been opened"),
+        (true, false) => format!(
+            "System Settings > Privacy & Security > {pane} could not be opened automatically; open it"
+        ),
+        (false, true) => format!("In System Settings > Privacy & Security > {pane}, opened earlier"),
+        (false, false) => format!("Open System Settings > Privacy & Security > {pane}"),
+    };
     let message = format!(
-        "macOS {pane} is not granted for {app}. System Settings > Privacy & Security > {pane} \
-         {opening} ({url}): enable \"{app}\", then fully quit and relaunch {app} before retrying. \
+        "macOS {pane} is not granted for {app}. {opening} ({url}): turn on \"{app}\", \
+         then fully quit and relaunch {app} before retrying. \
          (TCC identity: {identity})"
     );
     DesktopError::permission_denied_with(
@@ -117,7 +134,7 @@ mod tests {
         let opener = |url: &str| { opened.borrow_mut().push(url.to_owned()); true };
         for permission in [TccPermission::ScreenRecording, TccPermission::ScreenRecording,
             TccPermission::Accessibility, TccPermission::Accessibility] {
-            assert!(settings.open_settings_once(permission, opener));
+            assert!(settings.open_settings_once(permission, opener).0);
         }
         assert_eq!(*opened.borrow(), [
             "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
@@ -128,8 +145,8 @@ mod tests {
     #[test]
     fn failed_open_is_not_retried_and_keeps_its_failure_state() {
         let settings = Settings::default();
-        assert!(!settings.open_settings_once(TccPermission::Accessibility, |_| false));
-        assert!(!settings.open_settings_once(TccPermission::Accessibility, |_| panic!("retry")));
+        assert!(!settings.open_settings_once(TccPermission::Accessibility, |_| false).0);
+        assert!(!settings.open_settings_once(TccPermission::Accessibility, |_| panic!("retry")).0);
     }
 
     #[test]
@@ -138,18 +155,36 @@ mod tests {
             assert_eq!(launcher_name(value), LAUNCHER);
         }
         assert_eq!(launcher_name(Some("QA App".to_owned())), "QA App");
-        let error = denial(TccPermission::ScreenRecording, launcher_name(None), true);
+        let error = denial(TccPermission::ScreenRecording, launcher_name(None), true, true);
         assert_eq!(error.permission.unwrap().app, LAUNCHER);
     }
 
     #[test]
     fn accessibility_error_carries_the_settings_contract() {
-        let error = denial(TccPermission::Accessibility, "QA App".to_owned(), true);
+        let error = denial(TccPermission::Accessibility, "QA App".to_owned(), true, true);
         let data = error.permission.unwrap();
         assert_eq!(data.permission, TccPermission::Accessibility);
         assert_eq!(data.settings_url,
             "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility");
         assert_eq!(data.app, "QA App");
         assert!(data.relaunch_required);
+    }
+
+    #[test]
+    fn repeat_guidance_describes_the_pane_opened_earlier_not_a_new_open() {
+        let first = denial(TccPermission::ScreenRecording, "QA App".to_owned(), true, true);
+        let repeated = denial(TccPermission::ScreenRecording, "QA App".to_owned(), true, false);
+        assert!(first.message.contains("has been opened"));
+        assert!(repeated.message.contains("opened earlier"));
+        assert!(!repeated.message.contains("has been opened"));
+    }
+
+    #[test]
+    fn repeat_guidance_does_not_claim_a_failed_pane_was_opened() {
+        let first = denial(TccPermission::Accessibility, "QA App".to_owned(), false, true);
+        let repeated = denial(TccPermission::Accessibility, "QA App".to_owned(), false, false);
+        assert!(first.message.contains("could not be opened automatically"));
+        assert!(repeated.message.contains("Open System Settings"));
+        assert!(!repeated.message.contains("opened earlier"));
     }
 }
