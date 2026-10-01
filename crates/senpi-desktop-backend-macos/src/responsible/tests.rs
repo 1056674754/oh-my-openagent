@@ -4,7 +4,7 @@ use super::*;
 fn resolves_self_without_replacing_it_with_the_parent() {
     let identity = resolve_with(
         41,
-        |pid| Some(pid),
+        Some,
         |pid| { assert_eq!(pid, 41); Some(PathBuf::from("/tmp/engine")) },
         |_| None,
     ).unwrap();
