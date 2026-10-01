@@ -191,7 +191,14 @@ export async function runKillCheck(senpiBin) {
   try {
     const running = await waitForRecord(stateDir, (r) => r.name === "pk" && runningRpcChild(r), 40_000)
     if (running === undefined) {
-      return { check: "kill_marks_error_killed_true", verdict: "FAIL", reason: "no running rpc child appeared to kill" }
+      const seen = readRecords(stateDir).find((r) => r.name === "pk")
+      const seenMessage = typeof seen?.error_message === "string" ? seen.error_message : ""
+      return {
+        check: "kill_marks_error_killed_true",
+        verdict: "FAIL",
+        reason: "no running rpc child appeared to kill",
+        facts: { recordSeen: seen !== undefined, status: seen?.status, pid: seen?.pid, execution_mode: seen?.execution_mode, error_message: seenMessage, error_message_lines: seenMessage.split("\n") },
+      }
     }
     try {
       process.kill(running.pid, "SIGKILL")
