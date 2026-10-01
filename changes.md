@@ -1,3 +1,11 @@
+## 2026-10-01 - Keep child tool parity stable on Windows (#9274, #6709)
+
+The builtin tool parity regression now compares the in-process child loader directly with the `DefaultResourceLoader` policy used by process children instead of paying for two full Windows CLI cold starts. Both loaders expose the same platform-specific builtin registrations, including `web_search`; the existing policy tests continue to cover the shared parent and session-default tools that complete the child surface.
+
+## 2026-09-30 - In-process task children receive senpi builtin tools (#9274, #6709)
+
+The default in-process task runner now loads and binds senpi's builtin extensions without loading any parent, user or project extension paths. Its child tool payload matches process mode for the same category policy, including `web_search`, while existing allow/deny rules and the parent-only workflow, team and ask-user surfaces remain intact. The regression drives both runners through a deterministic local provider; it recorded 11 tools in-process versus 27 in process mode before the fix and 27 in both modes after it.
+
 ## 2026-10-01 - The curl installer hands pipes from sh to Bash (#9325)
 
 `install.sh` keeps its Bash implementation, but its first block now parses as POSIX sh. When a user pipes the script to `sh` or `dash`, that block writes the Bash body from a quoted here-document to a private temp file and runs it with Bash, preserving arguments and the exit status. Sourcing the script from Bash, as the other-install tests do, still only defines the installer functions. If Bash is unavailable, it exits before any Bash syntax is parsed and prints the single command that uses Bash explicitly. Direct `| bash` installs are unchanged. Tests run the preamble through `sh` and `dash`, prove the complete buffered body and arguments reach Bash, and retain a direct Bash syntax check.
