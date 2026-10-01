@@ -68,35 +68,34 @@ function isWebPath(path) {
   )
 }
 
-// Files that only document or describe the project. They change no code a test
-// loads, so they alone never require the Windows and macOS legs. Anything under
-// packages/*/src is runtime regardless of its name (prompts and skills ship
-// from there).
-const documentationBasename =
-  /^(?:readme|changelog|changes|agents|claude|contributing|license|code_of_conduct|security|roadmap|third-party-notices|cla)(?:\.[0-9a-z-]+)*$/i
+// The ONLY paths that may skip the Windows and macOS legs: an explicit
+// allowlist of prose and repository metadata no test loads. Anything not
+// matched here, including a new folder or an unknown extension, is runtime.
+// Nothing under packages/*/src is ever non-runtime: prompts and skills ship
+// from there.
 const packageSourcePath = /^packages\/[^/]+\/src\//
+const topLevelProse = /^[^/]+\.mdx?$/i
+const proseBasename =
+  /^(?:readme|changelog|changes|agents|claude|contributing|code_of_conduct|security|roadmap|third-party-notices|cla)(?:\.[a-z]{2}(?:-[a-z]{2})?)?\.mdx?$|^license(?:\.md|\.txt)?$/i
+const repositoryMetadata = [
+  /^\.github\/workflows\/(?!ci\.yml$)[^/]+\.ya?ml$/,
+  /^\.github\/ISSUE_TEMPLATE\/[^/]+\.ya?ml$/,
+  /^\.github\/assets\/[^/]+\.(?:png|jpe?g|gif|svg|webp)$/i,
+  /^\.github\/FUNDING\.yml$/,
+  /^\.github\/pull_request_template\.md$/,
+]
 
-function isDocumentationPath(path) {
+function isProsePath(path) {
   if (packageSourcePath.test(path)) return false
-  const basename = path.slice(path.lastIndexOf("/") + 1)
-  if (documentationBasename.test(basename)) return true
-  // Top-level prose (README translations and similar) is documentation too.
-  return !path.includes("/") && /\.mdx?$/i.test(path)
-}
-
-// Repository metadata that no test loads: other workflows, issue templates and
-// similar. ci.yml is platform-sensitive and .github/scripts runs inside the test
-// legs, so both stay runtime.
-function isRepositoryMetadataPath(path) {
-  if (!path.startsWith(".github/")) return false
-  return !path.startsWith(".github/scripts/") && path !== ".github/workflows/ci.yml"
+  if (topLevelProse.test(path)) return true
+  return proseBasename.test(path.slice(path.lastIndexOf("/") + 1))
 }
 
 // A runtime-touching path can change what a test observes on any operating
-// system, so the change must run every OS leg. It fails closed: a path is
-// runtime unless it is clearly web, documentation, or repository metadata.
+// system, so the change must run every OS leg.
 export function isRuntimePath(path) {
-  return !isWebPath(path) && !isDocumentationPath(path) && !isRepositoryMetadataPath(path)
+  if (isWebPath(path) || isProsePath(path)) return false
+  return !repositoryMetadata.some((pattern) => pattern.test(path))
 }
 
 function isPlatformSensitivePath(path) {

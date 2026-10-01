@@ -116,6 +116,11 @@ describe("full-matrix classification", () => {
       ["the lockfile", "bun.lock"],
       ["a root bunfig", "bunfig.root.toml"],
       ["the root test preload", "test-setup.ts"],
+      ["an unrecognized top-level folder", "newtool/config.json"],
+      ["an unusual extension at the root", "pipeline.weird"],
+      ["a script named like a doc", "script/agents.ts"],
+      ["a doc-like name with an unknown extension", "packages/utils/README.rst"],
+      ["an unlisted .github file", ".github/actions/setup/action.yml"],
     ])("#then %s runs every OS leg without a label", (_name, changedPath) => {
       // given / when
       const mode = classify({
