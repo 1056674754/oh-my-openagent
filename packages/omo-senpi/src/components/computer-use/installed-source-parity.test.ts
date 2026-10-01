@@ -64,7 +64,7 @@ createInterface({ input: process.stdin }).on("line", line => {
       const report = await computerUseDoctorReport({
         cwd: root, env, version, packageRoot, platform: "linux", arch: "x64",
         launchEngine: (path, args, childEnv) => spawn(originalExec, [path, ...args], {
-          stdio: "pipe", env: childEnv,
+          stdio: "pipe", detached: true, env: childEnv,
         }),
       })
       expect(report.kind).toBe("ready")

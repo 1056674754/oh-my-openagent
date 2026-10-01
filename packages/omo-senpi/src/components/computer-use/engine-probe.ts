@@ -26,7 +26,7 @@ export type EngineProbeResult =
       readonly message: string
     }
 
-/** Starts the engine at `enginePath` with `args`; the default executes it as a native binary. */
+/** Launchers must create a detached process group on POSIX so timeout cleanup owns the whole tree. */
 export type EngineLauncher = (
   enginePath: string,
   args: readonly string[],
@@ -87,7 +87,7 @@ function validateProbe(hello: unknown, capabilities: unknown, enginePath: string
 }
 
 export const launchEngineBinary: EngineLauncher = (enginePath, args, env) =>
-  spawn(enginePath, [...args], { stdio: "pipe", windowsHide: true, env })
+  spawn(enginePath, [...args], { stdio: "pipe", windowsHide: true, detached: true, env })
 
 export function probeComputerUseEngine(
   enginePath: string,
@@ -106,8 +106,28 @@ export function probeComputerUseEngine(
       child.stdin.end()
     }
     const timer = setTimeout(() => {
-      settle({ ok: false, code: "timeout", message: `desktop engine probe timed out after ${timeoutMs} ms at ${enginePath}` })
-      child.kill("SIGKILL")
+      const result: EngineProbeResult = settled ?? {
+        ok: false, code: "timeout", message: `desktop engine probe timed out after ${timeoutMs} ms at ${enginePath}`,
+      }
+      settle(result)
+      resolveProbe(result)
+      lines.close()
+      child.stdin.destroy()
+      child.stdout.destroy()
+      child.stderr.destroy()
+      child.unref()
+      if (child.pid === undefined) return
+      if (process.platform === "win32") {
+        const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true })
+        killer.once("error", () => child.kill("SIGKILL"))
+        killer.unref()
+      } else {
+        try {
+          process.kill(-child.pid, "SIGKILL")
+        } catch (error) {
+          if (!(error instanceof Error) || !("code" in error) || error.code !== "ESRCH") throw error
+        }
+      }
     }, timeoutMs)
 
     child.stderr.setEncoding("utf8")
@@ -120,7 +140,7 @@ export function probeComputerUseEngine(
     child.on("error", (error) => {
       settle({ ok: false, code: "handshake-failed", message: `desktop engine spawn failed at ${enginePath}: ${error.message}` })
     })
-    createInterface({ input: child.stdout }).on("line", (line) => {
+    const lines = createInterface({ input: child.stdout }).on("line", (line) => {
       let value: unknown
       try {
         value = JSON.parse(line)
@@ -157,4 +177,3 @@ export function probeComputerUseEngine(
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "capabilities", params: {} })}\n`)
   })
 }
-

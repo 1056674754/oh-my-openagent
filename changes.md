@@ -6,6 +6,8 @@ and status retains the location after startup or failure. Before activation, sta
 uses the existing bounded hello/capabilities probe on an installed engine: no
 acquisition, session opening, stop listener, input or permission prompt. Absent
 engines and failed probes report unknown permissions rather than claiming a grant.
+The probe deadline resolves independently of inherited pipe EOF and terminates
+the engine process tree, so a silent wrapper cannot leave status or doctor hanging.
 
 ## 2026-10-01 - Preserve unsupported computer-use host diagnostics after first use (#9348)
 
