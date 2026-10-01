@@ -148,6 +148,14 @@ and pid. Shell-launched engines report themselves; application-launched engines 
 responsible application. Failed resolution is explicitly unresolved and labels the engine path
 only as diagnostic context, never as a guessed TCC identity.
 
+## 2026-10-01 - Tokenize SQL parameters without changing quoted text (#9331)
+
+The statement-free SQLite binder and extension statement guard share a tokenizer for
+strings, quoted identifiers and comments. Literal question marks remain unchanged and
+do not consume parameters. Row queries keep trailing line comments separate from their
+generated wrapper. Regression coverage exercises each quote/comment form through the
+real store worker, including escaped quotes and identifiers containing a question mark.
+
 ## 2026-10-01 - Refuse uncloneable extension arguments before posting (#9331)
 
 Extension calls snapshot their arguments before crossing the worker boundary and return
