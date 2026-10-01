@@ -197,7 +197,20 @@ export async function runKillCheck(senpiBin) {
         check: "kill_marks_error_killed_true",
         verdict: "FAIL",
         reason: "no running rpc child appeared to kill",
-        facts: { recordSeen: seen !== undefined, status: seen?.status, pid: seen?.pid, execution_mode: seen?.execution_mode, error_message: seenMessage, error_message_lines: seenMessage.split("\n") },
+        facts: {
+          recordSeen: seen !== undefined,
+          status: seen?.status,
+          pid: seen?.pid,
+          execution_mode: seen?.execution_mode,
+          runner_kind: seen?.runner_kind,
+          host_session: seen?.host_session !== undefined,
+          residency_state: seen?.residency_state,
+          created_at: seen?.created_at,
+          updated_at: seen?.updated_at,
+          checked_at: new Date().toISOString(),
+          error_message: seenMessage,
+          error_message_lines: seenMessage.split("\n"),
+        },
       }
     }
     try {
