@@ -29,7 +29,9 @@ omo-senpi plugin payload produced by `bun run build:omo-native` (gitignored, nev
     `OMO_SIGNAL_GRACE_MS` (default 10s), then re-raises an ignored signal. It waits for `SIGINT`
     without forwarding it twice. Never use `spawnSync` for these long-lived handoffs.
   - `bun-bin-shim.js` — `ensureBunBinShim`: keeps the user-facing bun-global bin an sh shim that
-    execs bun directly (POSIX only, self-healing across `bun add -g` updates, fail-open)
+    execs bun directly (POSIX only, fail-open). Every launch repairs it, under node or bun, and so
+    does postinstall (`bin/senpi-patch.mjs`), which bun runs on itself right after `bun add -g`
+    relinks the bin when node is not on PATH (#9293)
   - `doctor.js` — diagnostics plus stale-orphan detection: `classifyEngineProcesses` splits live
     engines into stale (interactive, PPID 1), attached and managed (`--mode`), and
     `reapStaleEngines` terminates ONLY explicitly named pids that are still stale at request time.
