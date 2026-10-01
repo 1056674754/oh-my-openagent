@@ -1,3 +1,7 @@
+## 2026-10-01 - Adopt senpi 2026.10.1-3
+
+Every `@code-yeongyu/senpi` pin moves from 2026.10.1-2 to 2026.10.1-3: the root devDependency, `omo-native`, the `omo-senpi` and `senpi-task` peer and dev pins (with their `senpi-tui` and `senpi-ai` aliases), the pin tests and the engine named in `senpi-task`'s coverage test. The engine carries the three desktop permission fixes (senpi#2511, #2512, #2513), event-driven Python readiness for cold Windows starts, and the tool-search, thinking-format and Claude-subscription fixes listed in CHANGELOG.
+
 ## 2026-10-01 - The copy-tree self-destination test uses the OS temp dir on Windows
 
 `packages/isolation-core/src/backends/copy-tree.test.ts` built its scratch root from `process.env.TMPDIR ?? "/tmp"`, a POSIX-only fallback. Windows runners do not set `TMPDIR`, so the path became `\tmp\self-copy-XXXXXX` and `mkdtemp` failed with `ENOENT`, which turned the required `test (windows-latest, 2/2)` job red on `dev` after #9388 changed which files share that shard's workers. The test passed before only when an earlier test in the same worker had left `TMPDIR` set. It now uses `os.tmpdir()`, which resolves on every platform. Test-only; no product change. The worker env leak that made it pass is tracked separately.
