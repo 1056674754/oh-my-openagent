@@ -61,6 +61,11 @@ export class StoreExtensions {
     }
   }
 
+  /** Whether this exact registration is the one calls for its name now use. */
+  holds(descriptor: StoreExtensionRegistration): boolean {
+    return this.registered.get(descriptor.name)?.descriptor === descriptor
+  }
+
   private async ensure(descriptor: StoreExtensionRegistration, now: number): Promise<number> {
     const { name, migrations } = descriptor
     for (;;) {

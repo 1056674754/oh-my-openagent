@@ -120,7 +120,8 @@ async function dispatch(op: string, args: unknown): Promise<unknown> {
   switch (op) {
     case "extension_register": {
       const request = args as { readonly extension: StoreExtensionRegistration; readonly now: number }
-      return await extensions?.register(request.extension, request.now)
+      const result = await extensions?.register(request.extension, request.now)
+      return { result, retained: extensions?.holds(request.extension) === true }
     }
     case "extension_call": {
       const request = args as { readonly name: string; readonly op: string; readonly args: unknown; readonly now: number }

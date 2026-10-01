@@ -6,7 +6,7 @@ import { Worker } from "node:worker_threads"
 import type { BindingRecord, CompletionOutcome, OutboxRow, RelayOutcome } from "./bindings"
 import { GATEWAY_BUSY_TIMEOUT_MS, GATEWAY_LOCK_WAIT_MAX_MS } from "./constants"
 import type { GatewayResolve } from "./engine"
-import type { StoreExtensionApi, StoreExtensionResult } from "./store-extensions"
+import type { StoreExtensionApi, StoreExtensionRefusal, StoreExtensionRegistration, StoreExtensionResult } from "./store-extensions"
 export type { StoreExtensionApi, StoreExtensionOperation, StoreExtensionRefusal, StoreExtensionRefusalCode, StoreExtensionRegistration, StoreExtensionResult, StoreExtensionTransaction } from "./store-extensions"
 import type {
   AnswerClaim,
@@ -127,6 +127,9 @@ export type GatewayStore = StoreExtensionApi & {
   readonly dispose: () => Promise<void>
 }
 
+/** The worker's registration reply: the caller's result, and whether calls for that name now use this registration. */
+type ExtensionRegisterReply = { readonly result: StoreExtensionResult<{ readonly version: number }>; readonly retained: boolean }
+
 type Pending = { readonly worker: Worker; readonly resolve: (value: unknown) => void; readonly reject: (error: Error) => void }
 
 type WorkerMessage =
@@ -163,6 +166,8 @@ export function createGatewayStore(options: GatewayStoreOptions): GatewayStore {
   let nextId = 1
   let disposed = false
   let resolveTarget = options.resolveTarget
+  /** The registrations the current worker holds, restored on the next worker after one exits. */
+  const registrations = new Map<string, StoreExtensionRegistration>()
 
   const resolveExtensionTarget: GatewayResolve = async (address, request) => {
     if (resolveTarget === undefined) {
@@ -237,7 +242,15 @@ export function createGatewayStore(options: GatewayStoreOptions): GatewayStore {
       failAll(spawned, new Error(`the gateway store worker exited (${code})`))
     })
     options._test?.onWorkerStarted?.(spawned)
-    const attempt = post("init", { config, now: now() }) as Promise<{ readonly self: ProcessIdentity; readonly legacy_migrated: number }>
+    const attempt = (post("init", { config, now: now() }) as Promise<{ readonly self: ProcessIdentity; readonly legacy_migrated: number }>).then(async (value) => {
+      // A fresh worker holds no extension registrations: restore the ones its predecessor held
+      // before any call reaches it, keeping only those the new worker holds in turn.
+      for (const [name, extension] of registrations) {
+        const reply = (await post("extension_register", { extension, now: now() })) as ExtensionRegisterReply
+        if (!reply.retained) registrations.delete(name)
+      }
+      return value
+    })
     opened = attempt
     // A failed open is not cached: every caller of this attempt sees its error, and the next call
     // opens again (a lock held during the first open, a migration that hit the lock-wait bound).
@@ -255,19 +268,35 @@ export function createGatewayStore(options: GatewayStoreOptions): GatewayStore {
     return (await post(op, args)) as T
   }
 
+  /** A newer core schema refuses extension requests as data; anything else stays an error. */
+  function schemaTooNew(error: unknown): StoreExtensionRefusal {
+    if (error instanceof Error && "code" in error && error.code === "gateway_schema_too_new") {
+      return { kind: "refused", code: "gateway_schema_too_new", message: error.message }
+    }
+    throw error
+  }
+
   async function extensionRequest<T>(op: string, args: unknown): Promise<StoreExtensionResult<T>> {
     try {
       return await call(op, args)
     } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "gateway_schema_too_new") {
-        return { kind: "refused", code: "gateway_schema_too_new", message: error.message }
-      }
-      throw error
+      return schemaTooNew(error)
     }
   }
 
+  async function registerExtension(extension: StoreExtensionRegistration): Promise<StoreExtensionResult<{ readonly version: number }>> {
+    let reply: ExtensionRegisterReply
+    try {
+      reply = await call("extension_register", { extension, now: now() })
+    } catch (error) {
+      return schemaTooNew(error)
+    }
+    if (reply.retained) registrations.set(extension.name, structuredClone(extension))
+    return reply.result
+  }
+
   return {
-    registerStoreExtension: (extension) => extensionRequest("extension_register", { extension, now: now() }),
+    registerStoreExtension: registerExtension,
     extensionCall: async (name, op, args) => {
       let cloned: unknown
       try {
