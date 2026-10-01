@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Memory recall also matches Chinese characters and Japanese kanji one by one, so a question worded differently from the note can still find it; a question without any such character gets the same candidates as before.
 
+Memory recall can widen its own searches with synonyms, keywords in your other languages and related terms when you set `memory.recall.query_expansion` to `true`; an added term counts for less than the same match on one of the query's own words, a note that holds every word of the query stays first, and with the setting off, the default, nothing changes.
+
 ## [5.1.7] - 2026-09-30
 
 **Computer use on macOS says what it needs and where its engine comes from.** A downloaded install trusts the engine shipped inside its own app, a missing Screen Recording or Accessibility grant opens the right System Settings pane, and `/computer status` and `omo doctor` show which engine you have before it starts. This release runs on the senpi 2026.9.30 engine, like 5.1.6.
@@ -56,6 +58,8 @@ A new `accept-edits` permission preset lets the agent read and edit files in the
 Chat bridges can ask the engine for a chat prompt surface, which drops the routing line, the handoff block and todo lines from replies meant for people in a conversation. Terminal and app prompts stay as they are. ([senpi#2398](https://github.com/code-yeongyu/senpi/issues/2398))
 
 ### Changed
+
+The recommended `curl` installer now offers `Remove the other omo install at <path>? [y/N]` when it verifies a second installation. Non-interactive runs keep both unless `--remove-other-installs` is explicit, and `omo doctor` prints the exact Bun, npm, or standalone removal command for the non-active install. ([#9324](https://github.com/code-yeongyu/oh-my-openagent/issues/9324))
 
 The engine's recommended OpenAI model is GPT-6.1 Sol at medium, one slot below GPT-6 Astra. Models you listed yourself in `recommendedModels` stay as you set them. ([senpi#2390](https://github.com/code-yeongyu/senpi/issues/2390))
 

@@ -2,13 +2,44 @@
 
 The builtin tool parity regression now compares the in-process child loader directly with the `DefaultResourceLoader` policy used by process children instead of paying for two full Windows CLI cold starts. Both loaders expose the same platform-specific builtin registrations, including `web_search`; the existing policy tests continue to cover the shared parent and session-default tools that complete the child surface.
 
+## 2026-09-30 - In-process task children receive senpi builtin tools (#9274, #6709)
+
+The default in-process task runner now loads and binds senpi's builtin extensions without loading any parent, user or project extension paths. Its child tool payload matches process mode for the same category policy, including `web_search`, while existing allow/deny rules and the parent-only workflow, team and ask-user surfaces remain intact. The regression drives both runners through a deterministic local provider; it recorded 11 tools in-process versus 27 in process mode before the fix and 27 in both modes after it.
+
+## 2026-09-30 - The recommended installer offers to remove a second omo install (#9324)
+
+After installing the standalone launcher, `install.sh` now verifies other `omo` entries on PATH against their package manifest or the previous standalone receipt. A terminal run asks `Remove the other omo install at <path>? [y/N]`; `--remove-other-installs` gives non-interactive runs an explicit opt-in, while piped and CI runs otherwise delete nothing and print the exact command. Removal is scoped to the verified global package and shim or the one receipt-owned launcher, and a failure leaves the new launcher working with remediation text. `omo doctor` now formats the non-active install's command with its detected Bun root, npm prefix, or quoted standalone path. The installer-channel behavior change is covered in throwaway HOME/prefix fixtures for acceptance, decline, failed-removal and look-alike safety cases.
+
+## 2026-10-01 - Validate computer-use status sources and passively report permissions (#9349)
+
+Status and doctor share installed-engine source selection and explicit-path validation.
+Missing, non-executable and quarantined overrides are no longer reported as found,
+and status retains the location after startup or failure. Before activation, status
+uses the existing bounded hello/capabilities probe on an installed engine: no
+acquisition, session opening, stop listener, input or permission prompt. Absent
+engines and failed probes report unknown permissions rather than claiming a grant.
+The probe deadline resolves independently of inherited pipe EOF and terminates
+the engine process tree, so a silent wrapper cannot leave status or doctor hanging.
+
+## 2026-10-01 - Preserve unsupported computer-use host diagnostics after first use (#9348)
+
+`/computer status` retains the installed-engine diagnostic after activation fails as
+native-unavailable. Unsupported linux-arm64 and win32-arm64 hosts continue naming
+the missing release build instead of losing the explanation after first use.
+Component regressions exercise the real activation failure and confirm status
+does not start another child or acquire an engine.
+
 ## 2026-10-01 - the stop-path failure and permission-denied data types describe what they carry (#9338)
 
 Two type comments copied during the computer-use permission work described the wrong data. `StopPathFailure` (`crates/senpi-desktop-safety/src/supervisor.rs`) now says it records why the global stop-chord listener failed to start, which the gate uses to turn an Accessibility miss into a permission error instead of a missing stop path. `PermissionDeniedData` (`packages/senpi-desktop-protocol/src/json-rpc.ts`) now says it carries the missing macOS permission, the Settings pane that grants it, the app to enable and whether that app must be relaunched. These are comment-only changes; the generated extension bundles were refreshed because they embed the protocol package's doc comment.
 
-## 2026-09-30 - In-process task children receive senpi builtin tools (#9274, #6709)
+## 2026-10-01 - Permission errors name the macOS TCC responsible process (#9345)
 
-The default in-process task runner now loads and binds senpi's builtin extensions without loading any parent, user or project extension paths. Its child tool payload matches process mode for the same category policy, including `web_search`, while existing allow/deny rules and the parent-only workflow, team and ask-user surfaces remain intact. The regression drives both runners through a deterministic local provider; it recorded 11 tools in-process versus 27 in process mode before the fix and 27 in both modes after it.
+Screen Recording and Accessibility denial diagnostics resolve the responsible process with the
+macOS responsibility API and report its executable path, optional application bundle identifier,
+and pid. Shell-launched engines report themselves; application-launched engines report the
+responsible application. Failed resolution is explicitly unresolved and labels the engine path
+only as diagnostic context, never as a guessed TCC identity.
 
 ## 2026-10-01 - ultrawork reuses evidence per target, spawns a new reviewer per round, and scopes defects to the blast radius (#9294)
 

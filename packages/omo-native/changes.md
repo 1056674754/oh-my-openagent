@@ -1,3 +1,16 @@
+## 2026-10-01 - A `bun add -g` update leaves an `omo` that starts without node (#9293)
+
+`bun add -g omo-ai` links `<bun root>/bin/omo` (and `install/global/node_modules/.bin/omo`) back to `bin/omo.js`,
+whose `#!/usr/bin/env node` cannot start where node is not on PATH: a launchd job, cron, a bun-only machine, or node
+only through nvm. The bun launcher shim that avoids node was only written back by a launch under node, so on such a
+machine `omo` failed with `env: node: No such file or directory` (exit 127) after every update and could not repair
+itself. `ensureBunBinShim` (`bin/lib/bun-bin-shim.js`) no longer skips when it runs on bun, and postinstall
+(`bin/senpi-patch.mjs`) calls it first, before the engine preparation. Bun links the bin and then runs a trusted
+postinstall, on bun itself when node is missing, so the shim is back before anything launches `omo`. A launch on bun
+(`bun .../bin/omo.js`, the shim itself) also repairs a stock link it finds, at the cost of the same lstat and small
+read a node launch already pays. Outside a POSIX bun-global install the call is the same no-op as at launch. A blocked
+(untrusted) postinstall still leaves the stock link until the next launch under node or bun.
+
 ## 2026-09-30 - The compiled binary hands a downloaded Claude Code to the engine at startup (#9276)
 
 `compile-entry.ts` calls `applyCachedClaudeCode` (omo-senpi `claude-code/index.ts`) right after
