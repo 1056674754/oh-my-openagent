@@ -3,7 +3,13 @@
 use std::ffi::CStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
+use objc2_core_foundation::{CFBundle, CFString, CFURL, CFURLPathStyle};
+
+/// Larger Info.plist files are not read: the bundle id is diagnostic metadata.
+const MAX_INFO_PLIST_BYTES: u64 = 1024 * 1024;
+/// Reverse-DNS bundle identifiers are short; anything longer is not reported.
+const MAX_BUNDLE_ID_CHARS: usize = 255;
 
 pub(crate) struct ResponsibleProcess {
     pub(crate) pid: libc::pid_t,
@@ -55,18 +61,21 @@ fn executable_path(pid: libc::pid_t) -> Option<PathBuf> {
 
 fn bundle_id(executable: &Path) -> Option<String> {
     let app = executable.ancestors().find(|path| path.extension().is_some_and(|ext| ext == "app"))?;
-    let output = match Command::new("/usr/bin/plutil")
-        .args(["-extract", "CFBundleIdentifier", "raw", "-o", "-"])
-        .arg(app.join("Contents/Info.plist"))
-        .output()
-    {
-        Ok(output) if output.status.success() => output,
-        Ok(_) | Err(_) => return None,
-    };
-    match String::from_utf8(output.stdout) {
-        Ok(id) if !id.trim().is_empty() => Some(id.trim().to_owned()),
-        Ok(_) | Err(_) => None,
+    let plist_len = std::fs::metadata(app.join("Contents/Info.plist")).ok()?.len();
+    if plist_len > MAX_INFO_PLIST_BYTES {
+        return None;
     }
+    let path = CFString::from_str(app.to_str()?);
+    let url = CFURL::with_file_system_path(None, Some(&path), CFURLPathStyle::CFURLPOSIXPathStyle, true)?;
+    // CFBundleGetIdentifier only returns a string-typed CFBundleIdentifier.
+    let id = CFBundle::new(None, Some(&url))?.identifier()?.to_string();
+    valid_bundle_id(&id).then_some(id)
+}
+
+fn valid_bundle_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.chars().count() <= MAX_BUNDLE_ID_CHARS
+        && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
 }
 
 pub(crate) fn current() -> Option<ResponsibleProcess> {
