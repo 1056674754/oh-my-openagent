@@ -30,7 +30,7 @@ export function removeGatewayRoots(): void {
 }
 
 export function tempRoot(prefix: string): string {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), prefix)))
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), prefix)))
   roots.push(root)
   return root
 }

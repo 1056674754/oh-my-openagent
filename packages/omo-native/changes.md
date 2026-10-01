@@ -1,3 +1,14 @@
+## 2026-10-01 - The gateway hook's integrity check and its tests agree on Windows paths (follow-up to #9243)
+
+`verifyGatewayPackage` (`bin/lib/gateway.js`) resolves the package directory and its host entry with
+`realpathSync.native` instead of `realpathSync`. On Windows, `realpathSync` can keep an 8.3 short name
+(`C:\Users\RUNNER~1\...`) while the module loader hands back the long name for the same directory. That made the
+two sides of the containment check spell one directory two ways, which can falsely refuse a valid install reached
+through a short path. `.native` returns the canonical long name on both sides, and on POSIX it changes nothing. The test
+fixtures (`test/gateway.test-support.ts`) create their temp roots with `realpathSync.native` too, so the paths they
+expect match what the hook reports. That fixes the eight Windows-only failures in `test/gateway.test.ts` and
+`test/gateway-integrity.test.ts` on dev.
+
 ## 2026-10-01 - A `bun add -g` update leaves an `omo` that starts without node (#9293)
 
 `bun add -g omo-ai` links `<bun root>/bin/omo` (and `install/global/node_modules/.bin/omo`) back to `bin/omo.js`,
