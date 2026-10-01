@@ -10,6 +10,14 @@ does not start another child or acquire an engine.
 
 Two type comments copied during the computer-use permission work described the wrong data. `StopPathFailure` (`crates/senpi-desktop-safety/src/supervisor.rs`) now says it records why the global stop-chord listener failed to start, which the gate uses to turn an Accessibility miss into a permission error instead of a missing stop path. `PermissionDeniedData` (`packages/senpi-desktop-protocol/src/json-rpc.ts`) now says it carries the missing macOS permission, the Settings pane that grants it, the app to enable and whether that app must be relaunched. These are comment-only changes; the generated extension bundles were refreshed because they embed the protocol package's doc comment.
 
+## 2026-10-01 - Permission errors name the macOS TCC responsible process (#9345)
+
+Screen Recording and Accessibility denial diagnostics resolve the responsible process with the
+macOS responsibility API and report its executable path, optional application bundle identifier,
+and pid. Shell-launched engines report themselves; application-launched engines report the
+responsible application. Failed resolution is explicitly unresolved and labels the engine path
+only as diagnostic context, never as a guessed TCC identity.
+
 ## 2026-10-01 - ultrawork reuses evidence per target, spawns a new reviewer per round, and scopes defects to the blast radius (#9294)
 
 The directive's Constraints bullet ("own every defect met mid-run ... never deferred as a follow-up", from #7674)
