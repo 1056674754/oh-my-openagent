@@ -60,8 +60,31 @@ fn reads_bundle_identifier_from_a_real_plist() {
 
 #[test]
 fn oversized_bundle_identifier_is_not_reported() {
-    let (_dir, executable) = app_with_info_plist(&format!("<string>{}</string>", "a".repeat(1024 * 1024)));
+    let (_dir, executable) = app_with_info_plist(&format!("<string>{}</string>", "a".repeat(300)));
     assert!(bundle_id(&executable).is_none());
+}
+
+#[test]
+fn platform_info_plist_is_never_read() {
+    let (_dir, executable) = app_with_info_plist("<string>org.example.small</string>");
+    let contents = executable.parent().unwrap().parent().unwrap();
+    std::fs::write(contents.join("Info-macos.plist"), format!(
+        r#"<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>{}</string></dict></plist>"#,
+        "b".repeat(1024 * 1024)
+    )).unwrap();
+    assert_eq!(bundle_id(&executable).as_deref(), Some("org.example.small"));
+}
+
+#[test]
+fn reads_at_most_the_plist_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let at_limit = dir.path().join("at-limit");
+    let over_limit = dir.path().join("over-limit");
+    let limit = usize::try_from(MAX_INFO_PLIST_BYTES).unwrap();
+    std::fs::write(&at_limit, vec![b'x'; limit]).unwrap();
+    std::fs::write(&over_limit, vec![b'x'; limit + 1]).unwrap();
+    assert_eq!(read_bounded(&at_limit).map(|bytes| bytes.len()), Some(limit));
+    assert!(read_bounded(&over_limit).is_none());
 }
 
 #[test]
