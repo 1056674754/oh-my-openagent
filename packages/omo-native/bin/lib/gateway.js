@@ -80,8 +80,8 @@ export function verifyGatewayPackage(resolveHostEntry = (specifier) => import.me
   let entry
   let realRoot
   try {
-    entry = realpathSync(fileURLToPath(resolveHostEntry(GATEWAY_HOST_ENTRY)))
-    realRoot = realpathSync(root)
+    entry = realpathSync.native(fileURLToPath(resolveHostEntry(GATEWAY_HOST_ENTRY)))
+    realRoot = realpathSync.native(root)
   } catch (error) {
     return { status: "broken", reason: `cannot load ${GATEWAY_HOST_ENTRY}: ${error instanceof Error ? error.message : String(error)}` }
   }
