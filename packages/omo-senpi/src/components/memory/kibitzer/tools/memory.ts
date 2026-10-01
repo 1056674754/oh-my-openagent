@@ -91,13 +91,14 @@ function readExpansions(params: ExpansionArguments): RecallQueryExpansions | str
   for (const tier of ["synonyms", "keywords", "related"] as const) {
     const terms: unknown = params[tier]
     if (terms === undefined) continue
-    if (!Array.isArray(terms) || terms.length > MEMORY_EXPANSION_BOUNDS.terms) return `${tier} takes at most ${MEMORY_EXPANSION_BOUNDS.terms} terms.`
-    if (terms.some((term) => typeof term !== "string" || term.length === 0 || term.length > MEMORY_EXPANSION_BOUNDS.termChars)) {
+    if (!Array.isArray(terms)) return `${tier} is a list of terms.`
+    if (terms.length > MEMORY_EXPANSION_BOUNDS.terms) return `${tier} takes at most ${MEMORY_EXPANSION_BOUNDS.terms} terms.`
+    if (terms.some((term) => typeof term !== "string" || term.length === 0 || Array.from(term).length > MEMORY_EXPANSION_BOUNDS.termChars)) {
       return `every ${tier} term is text of 1-${MEMORY_EXPANSION_BOUNDS.termChars} characters.`
     }
   }
   const noteLine: unknown = params.note_line
-  if (noteLine !== undefined && (typeof noteLine !== "string" || noteLine.length > MEMORY_EXPANSION_BOUNDS.noteLineChars)) {
+  if (noteLine !== undefined && (typeof noteLine !== "string" || Array.from(noteLine).length > MEMORY_EXPANSION_BOUNDS.noteLineChars)) {
     return `note_line is text of at most ${MEMORY_EXPANSION_BOUNDS.noteLineChars} characters.`
   }
   return {

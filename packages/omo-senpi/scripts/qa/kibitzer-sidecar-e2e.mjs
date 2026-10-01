@@ -46,6 +46,7 @@
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
+import { isDeepStrictEqual } from "node:util"
 
 import { startMockCompletionsServer } from "./mock-completions-server.mjs"
 import {
@@ -106,6 +107,8 @@ const WIDENED_SEARCH = {
   operation: "search",
   query: "locking dependency numbers",
   synonyms: ["helm", "chart", "pin"],
+  keywords: ["버전"],
+  related: ["package"],
   note_line: "Pin every chart version.",
 }
 const ADDED_TERM_FIELDS = ["synonyms", "keywords", "related", "note_line"]
@@ -565,18 +568,22 @@ async function runQueryExpansion({ session, state, identity, router, facts, pare
   const transcript = lineage === undefined ? undefined : childTranscripts(lineage.dir)[0]
   const candidates = candidatePathsOf(messageText(transcript?.users[0]))
   const memoryParameters = router.state.sidecarRequests[0]?.memoryParameters ?? []
-  record("schema-offers-added-terms", ADDED_TERM_FIELDS.every((field) => memoryParameters.includes(field)), `memory parameters=[${memoryParameters.join(",")}]`)
+  record("schema-offers-added-terms", memoryParameters.length > 0 && ADDED_TERM_FIELDS.every((field) => memoryParameters.includes(field)), memoryParameters.length === 0 ? "memory parameters absent" : `memory parameters=[${memoryParameters.join(",")}]`)
   const searchCall = transcript?.assistants.flatMap(toolCallsOf).find((call) => call.name === "memory")
-  record("child-searched-with-added-terms", JSON.stringify(searchCall?.arguments?.synonyms) === JSON.stringify(WIDENED_SEARCH.synonyms), `search=${JSON.stringify(searchCall?.arguments ?? null)}`)
-  record("found-memory-was-never-offered", candidates.includes(MEMORIES.rollout.path) && !candidates.includes(MEMORIES.helm.path), `candidates=${candidates.join(",")}`)
+  record("child-searched-with-added-terms", isDeepStrictEqual(searchCall?.arguments, WIDENED_SEARCH), `search=${JSON.stringify(searchCall?.arguments ?? null)}`)
+  const searchResult = transcript?.entries.find((entry) => entry.type === "message" && entry.message?.role === "toolResult" && entry.message.toolName === "memory" && entry.message.toolCallId === searchCall?.id)?.message
+  const results = searchResult === undefined ? [] : JSON.parse(messageText(searchResult)).results
+  record("widened-search-found-memory", searchResult?.isError !== true && Array.isArray(results) && results.some((hit) => hit.path === MEMORIES.helm.path), `memory result=${searchResult === undefined ? "absent" : messageText(searchResult)}`)
+  record("found-memory-was-never-offered", candidates.length === 1 && candidates[0] === MEMORIES.rollout.path, `candidates=${candidates.join(",")}`)
   record("nudge-accepted", held.nudges.some((nudge) => nudge.path === MEMORIES.helm.path), `held=${JSON.stringify(held)}`)
 
   // The next turn drains the held nudge into the parent transcript.
   await prompt(session, MEMORIES.rollout.prompt)
   const entries = readEntries(state.sessionFile)
-  record("nudge-reached-parent", nudgedPaths(entries).includes(MEMORIES.helm.path) && entries.some(isRecall), `paths=${nudgedPaths(entries).join(",")} recallMessages=${entries.filter(isRecall).length}`)
+  record("nudge-reached-parent", nudgedPaths(entries).includes(MEMORIES.helm.path) && entries.filter(isRecall).some((entry) => (entry.content ?? "").includes(MEMORIES.helm.body)), `paths=${nudgedPaths(entries).join(",")} recallMessages=${entries.filter(isRecall).length}`)
   facts.result = {
     resident: sidecarDirs(identity).length === 1,
+    childSessions: sidecarDirs(identity).length,
     queryExpansion: true,
     memoryParameters,
     candidates,

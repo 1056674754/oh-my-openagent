@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import {
+  OmoMemoryRecallLayerSchema,
   OmoMemorySettingsLayerSchema,
   OmoMemorySettingsSchema,
   type OmoMemorySettings,
@@ -376,6 +377,10 @@ describe("memory.recall.query_expansion", () => {
   })
 
   test("#given a query expansion value that is not a boolean #when parsed #then validation fails", () => {
-    expect(OmoMemorySettingsSchema.safeParse({ recall: { query_expansion: "on" } }).success).toBe(false)
+    const recall = { query_expansion: "on" }
+    expect(OmoMemorySettingsSchema.safeParse({ recall }).success).toBe(false)
+    expect(OmoMemoryRecallLayerSchema.safeParse(recall).success).toBe(false)
+    expect(OmoMemorySettingsLayerSchema.safeParse({ recall }).success).toBe(false)
+    expect(OmoMemorySettingsLayerSchema.safeParse({ agents: { research: { recall } } }).success).toBe(false)
   })
 })
