@@ -13,6 +13,8 @@ const platformSensitiveExactPaths = new Set([
   ".github/workflows/ci.yml",
   "script/ci-fast-path.mjs",
   "bunfig.win2.parallel.toml",
+  "bunfig.win2.parallel.windows.toml",
+  "script/bun-panic-retry.ts",
   "script/root-test-serial-quarantine.ts",
   "packages/openclaw-core/src/reply-listener-process.ts",
 ])

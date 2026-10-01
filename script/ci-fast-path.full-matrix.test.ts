@@ -156,6 +156,8 @@ describe("full-matrix classification", () => {
       ["ci workflow", ".github/workflows/ci.yml"],
       ["classifier itself", "script/ci-fast-path.mjs"],
       ["windows shard bunfig", "bunfig.win2.parallel.toml"],
+      ["windows-only shard-2 remainder bunfig", "bunfig.win2.parallel.windows.toml"],
+      ["windows rpc-host panic retry runner", "script/bun-panic-retry.ts"],
       ["shared serial quarantine", "script/root-test-serial-quarantine.ts"],
       ["reply-listener process identity (win32 branch)", "packages/openclaw-core/src/reply-listener-process.ts"],
     ])("#then %s forces the full matrix", (_name, changedPath) => {

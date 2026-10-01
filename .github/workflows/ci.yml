@@ -242,10 +242,19 @@ jobs:
             -Invocation "shard-2-quarantine" `
             -TestArguments @("test", "packages/senpi-task/src/runners/rpc-process.windows.test.ts", "packages/senpi-task/src/__adversarial__/chaos-bench.test.ts", "packages/omo-codex/src/install/install-codex-legacy-agent-purge.test.ts", "script/codex-installer-version.test.ts", "packages/shared-skills/provenance-gate.test.ts", "packages/omo-codex/src/install/install-codex-mcp-manifest.test.ts", "packages/senpi-task/src/dag/scheduler.test.ts", "packages/omo-native/test/payload.test.ts", "script/build-omo-binary.test.ts", "packages/senpi-task/src/team/member-extension/residency.test.ts", "script/omob-refresh.test.ts", "script/release-version.test.ts", "packages/senpi-task/src/store/record-lock.test.ts", "packages/senpi-task/src/store/record-lock-reap-window.test.ts", "packages/senpi-task/src/runners/rpc-host/durable-json.test.ts")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Bun 1.4.2 and 1.4.3-canary.1 intermittently segfault a test worker in the rpc-host suite
+          # (oven-sh/bun#44390, #9219). It runs in its own required invocation, which
+          # script/bun-panic-retry.ts re-runs once only when Bun itself crashed; a second crash or
+          # any real test failure fails this step. The remainder config excludes the directory.
+          & .github/scripts/windows-ci-telemetry.ps1 `
+            -ArtifactDirectory $telemetryDirectory `
+            -Invocation "shard-2-rpc-host" `
+            -TestArguments @("script/bun-panic-retry.ts", "--config=bunfig.win2.parallel.toml", "test", "--parallel", "./packages/senpi-task/src/runners/rpc-host")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & .github/scripts/windows-ci-telemetry.ps1 `
             -ArtifactDirectory $telemetryDirectory `
             -Invocation "shard-2-remainder" `
-            -TestArguments @("--config=bunfig.win2.parallel.toml", "test", "--parallel")
+            -TestArguments @("--config=bunfig.win2.parallel.windows.toml", "test", "--parallel")
           exit $LASTEXITCODE
 
       - name: Upload Windows post-test telemetry
