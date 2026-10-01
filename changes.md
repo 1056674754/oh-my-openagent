@@ -148,6 +148,18 @@ and pid. Shell-launched engines report themselves; application-launched engines 
 responsible application. Failed resolution is explicitly unresolved and labels the engine path
 only as diagnostic context, never as a guessed TCC identity.
 
+## 2026-10-01 - Store extensions survive a worker restart and share the hourly retention sweep (#9331)
+
+Rebased onto the gateway's failed-open recovery and retention sweep. A store handle whose worker
+exits now registers the extensions the previous worker held on the fresh worker before serving
+the next call, instead of answering `extension_unknown_name`; only registrations that worker
+actually held are restored, so a refused downgrade or reserved name stays unregistered. The
+sweep's hourly schedule is kept per connection, so an extension call joining core operations no
+longer sweeps on every call. The sweep never deletes extension rows or a core row an extension
+can still act on; a foreign key from an extension table to a core table is refused on write,
+so none can cascade. Docs state that an operation's time budget equals the writers' lock-wait
+bound, and the CHANGELOG names `gateway_schema_too_new` for core and extension downgrades.
+
 ## 2026-10-01 - Refuse extension schema downgrades without changing registration (#9331)
 
 An extension whose stored version exceeds the caller's migration count now returns

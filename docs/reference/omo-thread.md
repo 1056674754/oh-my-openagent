@@ -146,7 +146,9 @@ shares the binding's one bucket.
 JavaScript packages register extensions on the `createThreadSdk(...)` result exported by the
 shipped `runtime/thread-sdk/sdk.js`. `createGatewayStore` is an internal source factory, not an
 export of a shipped bundle. Registration is local to the SDK's store handle; each process
-registers the extensions it uses.
+registers the extensions it uses. When the handle's store worker exits and the next call starts
+a fresh one, the handle registers the extensions its previous worker held again before that
+call runs.
 
 ```typescript
 const { createThreadSdk } = await import(`${pluginRoot}/runtime/thread-sdk/sdk.js`)
@@ -214,6 +216,13 @@ authorization and in the schema-effect check, even with a matching prefix.
 Transaction-control SQL, PRAGMAs and attached/temporary databases are refused. Table-valued
 sources such as `json_each` and `pragma_table_info` are not owned objects and are refused.
 This is a store API contract, not a sandbox for untrusted JavaScript modules.
+A foreign key from an extension table to a core table makes every write to that table read the
+core table, so those writes are refused; keep core ids such as `binding_id` as plain values.
+
+The [retention](#retention) sweep deletes only core rows, never rows of an extension's tables,
+and never a core row an extension can still act on through `tx`: an active binding, a closed
+binding that still has outbox rows, completion arms or undelivered messages, or an undelivered
+message. A core id an extension keeps by value can name a row that retention has since pruned.
 
 A thrown operation rolls back extension rows and joined core writes together. Inbox/outbox
 marker writes and removals run only after COMMIT; rollback publishes no marker. Each
@@ -231,7 +240,9 @@ serving core requests after operation refusals on a supported database. Reserved
 views, and forbidden DDL all use `extension_schema_violation`; rejecting a reserved name leaves
 that name unregistered. Lock acquisition uses the core busy timeout and
 30-second total bound, not an unbounded retry. An operation and its pending helpers have the
-same time budget after acquiring the transaction lock. On expiry, the transaction is revoked
+same time budget after acquiring the transaction lock. That budget equals the bound other writers
+wait for the lock, so a writer queued behind an operation that runs out its budget can itself
+receive the retryable `gateway_lock_wait_exceeded`. On expiry, the transaction is revoked
 and rolled back before the next request runs. This bounds asynchronous waits, not synchronous
 JavaScript that blocks the worker's event loop. Using a retained `tx` after the operation
 returns throws a typed error (async helpers reject); an unhandled expired-transaction error
