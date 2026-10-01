@@ -7,6 +7,17 @@
 - The task extension bundle now gives in-process children senpi's builtin-only extension surface while continuing to suppress the parent's path-loaded extensions. The parent tool-capture wrapper stops after omo component registration, so builtin factories senpi loads later are not re-injected as raw custom tools. A mock-provider integration test compares the actual in-process and process child tool payloads and requires `web_search`.
 - `plugin/extensions/omo.js` and `omo-task.js` regenerated on linux/amd64 (node 24, bun 1.4.2) for the senpi-task change; the extension freshness checks pass.
 
+## 2026-10-01 - Geeky lanes: Astra at high, GPT-6.1 Sol Fast leads Geeky · Normal (#9372)
+
+- `src/components/model-profile/builtin-profiles.ts`: `geeky-heavy` runs `gpt-6-astra` at `high` (was `xhigh`). `geeky-normal`
+  leads with `gpt-6.1-sol-fast` (medium, `chatgpt-subscription|openai`), then plain `gpt-6.1-sol` (medium, same lanes), then the
+  unchanged `gpt-5.6-sol` (medium, all four GPT lanes). Plain 6.1 Sol stays behind the Fast tier so a registry without
+  `gpt-6.1-sol-fast` still lands on 6.1 Sol rather than dropping to 5.6 Sol.
+- `scripts/qa/model-profile-e2e-scenarios.mjs`: both geeky-heavy scenarios expect thinking `high`; new `geeky-normal-sol-fast`
+  serves 5.6 Sol, 6.1 Sol and 6.1 Sol Fast and expects the Fast tier at medium.
+- Tests: `index.test.ts` starts a session on each geeky-normal registry shape (Fast served -> Fast medium; Fast absent ->
+  plain 6.1 Sol medium) and geeky-heavy (Astra high); removing the Fast rung fails the Fast case.
+
 ## 2026-09-30 - claude-code: acquire before the auth check, from the provisioned runtime, with progress (#9276)
 
 - `src/components/claude-code/index.ts`: the component now also runs on `input`, which senpi's `prompt()` emits
