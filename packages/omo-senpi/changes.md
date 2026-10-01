@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ## 2026-10-01 - Legacy state lookup requires persisted state
 
 - The task-engine fixture writes a legacy-state marker before composing the
@@ -5,6 +6,15 @@
   empty directories left by an observer no longer redirect new runtime state
   into the project.
 
+||||||| parent of c01d80d5e (fix(computer-use): relay permission events to the root session)
+=======
+## 2026-10-01 - Computer permission events reach the root session from every caller (omo-desktop-app#1437)
+
+- Observe typed engine permission denials before direct tools, computer actions or JavaScript/Python eval can serialize them. Emit `omo.computer.permission_required` on the root session's RPC connection with its own session ID.
+- Forward process and daemon child denials through task ownership, including nested and shared in-process task owners. Deduplicate each permission at the root, preserving the latch across reloads and resetting it for a new root session.
+- Real-session tests exercise direct, code-mode and child callers against a protocol-speaking engine fixture. Transport tests reject malformed and foreign-session records without delivering them to existing agent-event listeners.
+
+>>>>>>> c01d80d5e (fix(computer-use): relay permission events to the root session)
 ## 2026-10-01 - In-process task children honor the caller's settings (#9353)
 
 - `components/task/runtime-context.ts` captures the parent session's project-trust decision, and `engine-runners.ts` passes it to every in-process child, so the child's settings include the project layer exactly when the parent's do. `plugin/extensions/omo-task.js` regenerated on linux/amd64 (node 24, bun 1.4.2) for the senpi-task change.

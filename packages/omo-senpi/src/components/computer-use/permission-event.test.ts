@@ -1,0 +1,106 @@
+import { describe, expect, test } from "bun:test"
+import { capture, input, permissionSession } from "./permission-event.test-support"
+
+describe("computer permission events through the real session", () => {
+  for (const path of ["direct", "cua", "js", "py"] as const) {
+    test(`emits the root permission event before returning a ${path} denial`, async () => {
+      // given
+      const fixture = await permissionSession()
+      try {
+        // when
+        const result = path === "direct" || path === "cua"
+          ? await fixture.execute(path === "direct" ? "computer" : "computer_actions",
+              path === "direct" ? capture : { action: "screenshot" })
+          : await fixture.execute("eval", {
+              language: path,
+              code: path === "js"
+                ? `await tool.computer(${JSON.stringify(capture)}); print("arbitrary output")`
+                : `await tool.computer(${JSON.stringify(capture)})\nprint("arbitrary output")`,
+              summary: "Exercise computer permission denial",
+            })
+        // then
+        expect(result).toBeDefined()
+        expect(fixture.methods).toContain("capture")
+        expect(fixture.events).toEqual([{
+          name: "omo.computer.permission_required",
+          data: {
+            session_id: fixture.session.sessionManager.getSessionId(),
+            permission: "screen_recording",
+            app: "Test App",
+          },
+        }])
+      } finally {
+        await fixture.close()
+      }
+    }, 120_000)
+  }
+
+  test("deduplicates cross-path denials but emits a second permission", async () => {
+    // given
+    const fixture = await permissionSession()
+    try {
+      // when
+      await fixture.execute("computer", capture)
+      await fixture.execute("eval", {
+        language: "js",
+        code: `await tool.computer(${JSON.stringify(capture)})`,
+        summary: "Repeat the same denied capture",
+      })
+      await fixture.execute("computer", input)
+      // then
+      expect(fixture.events).toEqual(["screen_recording", "accessibility"].map((permission) => ({
+        name: "omo.computer.permission_required",
+        data: { session_id: fixture.session.sessionManager.getSessionId(), permission, app: "Test App" },
+      })))
+    } finally {
+      await fixture.close()
+    }
+  }, 120_000)
+
+  for (const error of ["Timeout", "InvalidTarget", "Internal", "StopPathUnavailable"]) {
+    test(`never emits a permission event for ${error} with misleading permission data`, async () => {
+      // given
+      const fixture = await permissionSession({ error })
+      try {
+        // when
+        await fixture.execute("computer", capture)
+        // then
+        expect(fixture.methods).toContain("capture")
+        expect(fixture.events).toEqual([])
+      } finally {
+        await fixture.close()
+      }
+    }, 120_000)
+  }
+
+  for (const engineFailure of ["native-unavailable", "quarantined"] as const) {
+    test(`never emits a permission event for an ${engineFailure} engine`, async () => {
+      // given
+      const fixture = await permissionSession({ engineFailure })
+      try {
+        // when
+        await fixture.execute("computer", capture)
+        // then
+        expect(fixture.events).toEqual([])
+      } finally {
+        await fixture.close()
+      }
+    }, 120_000)
+  }
+
+  test("never emits for an unsupported host or invalid tool arguments", async () => {
+    // given
+    const unsupported = await permissionSession({ platform: "freebsd" })
+    const supported = await permissionSession()
+    try {
+      // when / then
+      await expect(unsupported.execute("computer", capture)).rejects.toThrow()
+      await expect(supported.execute("computer", { action: "invalid" })).rejects.toThrow()
+      expect(unsupported.events).toEqual([])
+      expect(supported.events).toEqual([])
+    } finally {
+      await unsupported.close()
+      await supported.close()
+    }
+  }, 120_000)
+})

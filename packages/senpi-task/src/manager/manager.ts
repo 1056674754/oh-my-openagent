@@ -58,7 +58,7 @@ import { respawnWithWorkpool } from "./workpool-respawn"
 import { NameRegistry } from "./names"
 import { TaskSequence } from "./task-sequence"
 import { createRunStatsTracker, type RunStatsTracker } from "../run-stats"
-import { subscribeTranscriptLog } from "./transcript-log"
+import { subscribeChildFacts } from "./child-facts"
 import type {
   ContinueResult,
   ListScope,
@@ -1038,22 +1038,15 @@ class TaskManagerImpl implements TaskManager {
   }
 
   #subscribeChildFacts(handle: ManagedChildHandle, taskId: string): () => void {
-    const transcript = subscribeTranscriptLog(handle, this.#options.store, taskId)
-    this.#runStats.set(taskId, createRunStatsTracker(this.#now(), this.#now))
-    const stats = handle.subscribe((event) => {
-      if (event.type === "retry_fallback_exhausted") this.#nativeFallbackExhaustions.add(handle)
-      this.#runStats.get(taskId)?.accept(event)
+    return subscribeChildFacts({
+      handle, taskId, store: this.#options.store, now: this.#now,
+      runStats: this.#runStats, fallbackExhaustions: this.#nativeFallbackExhaustions,
+      reopen: () => reopenSelfResumedTurn(this.#selfResumedPorts, taskId, handle),
+      onExtensionEvent: (event) => {
+        const record = this.#tryLoad(taskId)
+        if (record != null && record.host_pid === this.#hostPid) this.#options.onChildExtensionEvent?.(event, record)
+      },
     })
-    const resumed = handle.onSelfResumed?.(() => {
-      this.#runStats.set(taskId, createRunStatsTracker(this.#now(), this.#now))
-      void reopenSelfResumedTurn(this.#selfResumedPorts, taskId, handle).catch((error: unknown) =>
-        log("senpi-task self-resumed turn reopen failed", { taskId, error: String(error) }))
-    })
-    return () => {
-      transcript()
-      stats()
-      resumed?.()
-    }
   }
 
   async #tryRuntimeFallback(input: {
