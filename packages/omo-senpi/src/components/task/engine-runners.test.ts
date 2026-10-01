@@ -49,8 +49,8 @@ function createFakeSession(sessionId = "child-session-1"): { readonly session: C
         settle = { resolve }
       })
     },
-    steer: () => Promise.resolve(),
-    followUp: () => Promise.resolve(),
+    steer: () => Promise.resolve("handled"),
+    followUp: () => Promise.resolve("handled"),
     abort: () => Promise.resolve(),
     subscribe(listener: ChildSessionListener) {
       listeners.add(listener)

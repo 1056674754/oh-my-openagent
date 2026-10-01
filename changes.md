@@ -2,6 +2,15 @@
 
 Windows RPC exits now accept any positive number of Bun's known child-reaper startup advisory lines as advisory-only stderr. An empty stderr remains an external termination, while any other stderr line still proves a crash. This preserves `status: error` with `killed: true` for externally terminated code-1/no-signal children without weakening crash diagnostics.
 
+## 2026-10-01 - Adopt senpi 2026.10.1-2
+
+Every `@code-yeongyu/senpi` pin moves from 2026.9.30 to 2026.10.1-2: the root devDependency, `omo-native`, the `omo-senpi`
+and `senpi-task` peer and dev pins (with their `@earendil-works/pi-tui` -> `@code-yeongyu/senpi-tui` aliases), the pin
+tests, `provider-map.json` and the engine named in `senpi-task`'s category coverage test. The engine carries the upstream
+v0.99.1 sync, so `provider-map.json` gains the new builtin providers `meta` (OAuth login) and `typesafe`, and the
+`senpi-task` runners follow the upstream disposition and `TranscriptContext` API. It also brings the compiled-engine
+`bun` phantom-turn fix (#9362, senpi#2494) and per-session permission presets (senpi#2461).
+
 ## 2026-10-01 - Keep child tool parity stable on Windows (#9274, #6709)
 
 The builtin tool parity regression now compares the in-process child loader directly with the `DefaultResourceLoader` policy used by process children instead of paying for two full Windows CLI cold starts. Both loaders expose the same platform-specific builtin registrations, including `web_search`; the existing policy tests continue to cover the shared parent and session-default tools that complete the child surface.
