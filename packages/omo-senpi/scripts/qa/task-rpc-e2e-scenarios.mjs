@@ -200,11 +200,15 @@ export async function runKillCheck(senpiBin) {
     }
     const errored = await waitForRecord(stateDir, (r) => r.task_id === running.task_id && r.status === "error" && r.killed === true, 15_000)
     const latest = readRecords(stateDir).find((r) => r.task_id === running.task_id)
+    // When the classifier calls the exit a crash, the recorded error_message IS the child's stderr
+    // tail, so keep all of it, untruncated and line by line: the line that broke the kill
+    // classification must be visible, not guessed from a prefix.
+    const errorMessage = typeof latest?.error_message === "string" ? latest.error_message : ""
     return {
       check: "kill_marks_error_killed_true",
       verdict: errored ? "PASS" : "FAIL",
       ...(errored ? {} : { reason: "kill did not yield status=error killed:true" }),
-      facts: { pid: running.pid, killed: errored?.killed ?? false, status: latest?.status, recordedKilled: latest?.killed, error_excerpt: (latest?.error_message ?? "").slice(0, 120) },
+      facts: { pid: running.pid, killed: errored?.killed ?? false, status: latest?.status, recordedKilled: latest?.killed, error_message: errorMessage, error_message_lines: errorMessage.split("\n") },
     }
   } finally {
     await cleanupSenpiHost(parent)

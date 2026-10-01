@@ -182,6 +182,9 @@ test.skipIf(!isWin32)(
 
     // then
     console.log(`WINDOWS_TASK_RPC_E2E ${JSON.stringify(payload)}`)
+    if (killProof?.verdict !== "PASS") {
+      console.log(`WINDOWS_TASK_RPC_E2E_KILL_FACTS ${JSON.stringify(killProof?.facts ?? null)}`)
+    }
     assertDriverChecks(payload)
     expect(payload.wiringFixed).toBe(true)
     expect(route?.verdict).toBe("PASS")
