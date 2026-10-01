@@ -1,3 +1,17 @@
+## 2026-10-01 - Builtin chain rungs name thinking levels their models accept (#9378)
+
+- `category/fallback-chains.ts`: `quick` opencode-go `minimax-m3` / `minimax-m2.7` drop `variant: "max"` (the child now inherits the
+  `quick` lane's `low`); `unspecified-low` `mimo-v2.6-pro`, `qwen3.8-max-preview` and `mimo-v2.5-pro` go from `max` to `high`, the level
+  senpi already clamped them to. Every other rung in this file and in `agents/builtin/fallback-chains.ts` names a level its catalog model
+  accepts. A new header bullet records the deliberate divergence from `model-core`, which keeps `max` for OpenCode.
+- `runners/builtin-chain-thinking-level.test.ts` drives `resolveCategory` -> the child's thinking level and child-local
+  `retry.fallbackChains` into a real senpi `AgentSession` over the real catalog, faking only the logged-in providers: the `quick` child runs
+  `minimax-m3` at `low` (was a silent clamp to `high`); repeated loads of every category an opencode-go plus xiaomi machine serves leave
+  `fallback.log` free of `validation_warning` (four on the pre-fix chains); a user `models[]` entry with an unsupported level still warns once
+  and still runs at an accepted level. The fixture's `assistant`/`streamMessage` helpers are exported for that last case.
+- Pins updated to the new variants: `fallback-chains`, `category-routing-policy`, `unspecified-low-chain`,
+  `in-process-runtime-fallback`, `manager-runtime-fallback`.
+
 ## 2026-10-01 - In-process task children honor the caller's settings (#9353)
 
 - `runners/in-process/runtime-fallback-settings.ts` `createRuntimeFallbackSettings` now takes the caller's settings source (`cwd`, `agentDir`, `projectTrusted`) and gives the child a private in-memory copy of the caller's global and project settings, replacing only the fallback policy: `retry.modelFallback`, `retry.fallbackChains` and `retry.fallbackRevertPolicy` come from the child's own chain, and the child's `maxRetries`/`baseDelayMs` override wins over both caller scopes. Before, the child got an in-memory manager holding only that policy (#6478), so `retry.provider.streamStartTimeoutMs`, `retry.provider.timeoutMs`, `httpIdleTimeoutMs`, `compaction.*` and `thinkingBudgets` fell back to the engine defaults (a 300 s first-event guard and a 300 s request idle timeout). Children now also honor the caller's compaction and thinking settings, matching process children.
