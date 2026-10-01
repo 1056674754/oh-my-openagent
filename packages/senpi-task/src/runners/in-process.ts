@@ -57,6 +57,9 @@ export type ChildSpec = {
   // typed session-create-failed, never a silent inMemory/default-dir fallback.
   readonly sessionDir: string
   readonly agentDir?: string
+  // The parent session's project-trust decision. The child's settings include the project layer
+  // only when the parent trusted it; unknown means untrusted.
+  readonly projectTrusted?: boolean
   readonly authStorage?: CreateAgentSessionOptions["authStorage"]
   readonly modelRegistry?: CreateAgentSessionOptions["modelRegistry"]
   readonly modelRuntime?: CreateAgentSessionOptions["modelRuntime"]

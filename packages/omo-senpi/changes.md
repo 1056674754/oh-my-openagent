@@ -1,3 +1,7 @@
+## 2026-10-01 - In-process task children honor the caller's settings (#9353)
+
+- `components/task/runtime-context.ts` captures the parent session's project-trust decision, and `engine-runners.ts` passes it to every in-process child, so the child's settings include the project layer exactly when the parent's do. `plugin/extensions/omo-task.js` regenerated on linux/amd64 (node 24, bun 1.4.2) for the senpi-task change.
+
 ## 2026-10-01 - Windows RPC kills tolerate repeated Bun startup advisories (#9228)
 
 - The task bundle treats any number of known Bun child-reaper advisory lines as advisory-only stderr for Windows code-1/no-signal exits. Any different stderr line remains a crash diagnostic.
