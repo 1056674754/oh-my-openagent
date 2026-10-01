@@ -46,7 +46,6 @@ export function buildChildKernelTools(
     childToolNames: existingToolNames,
     ...(spec.toolAllowlist === undefined ? {} : { toolAllowlist: spec.toolAllowlist }),
     ...(spec.toolDenylist === undefined ? {} : { toolDenylist: spec.toolDenylist }),
-    ...(spec.includeTaskTools === undefined ? {} : { includeTaskTools: spec.includeTaskTools }),
   }
   if (grant.scope === undefined) {
     const escalating = escalatingHostTools(scopeRequest)
