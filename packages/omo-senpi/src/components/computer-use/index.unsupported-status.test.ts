@@ -21,9 +21,9 @@ test.each(["linux", "win32"])("status preserves %s-arm64 absence after failed fi
   const locator = { platform, arch: "arm64", execDir: root, repoRoot: root, packageDir: root, runtimeDir: "" }
   let starts = 0
   const messages: string[] = []
-  const fetch = spyOn(globalThis, "fetch").mockImplementation(() => {
+  const fetch = spyOn(globalThis, "fetch").mockImplementation(Object.assign(() => {
     throw new Error("status must not download")
-  })
+  }, { preconnect: globalThis.fetch.preconnect }))
   try {
     createComputerUseComponent({
       platform,

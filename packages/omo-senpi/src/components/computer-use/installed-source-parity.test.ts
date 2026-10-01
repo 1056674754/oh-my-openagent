@@ -55,7 +55,9 @@ createInterface({ input: process.stdin }).on("line", line => {
       "[native]": { computer: { enabled: true, ...(source === "explicit" ? { engine_path: engine } : {}) } },
     }))
     const env = { HOME: root, OMO_PACKAGE_DIR: runtimeDir }
-    const fetch = spyOn(globalThis, "fetch").mockImplementation(() => { throw new Error("must not download") })
+    const fetch = spyOn(globalThis, "fetch").mockImplementation(Object.assign(
+      () => { throw new Error("must not download") }, { preconnect: globalThis.fetch.preconnect },
+    ))
     try {
       // The executable's directory is a production source input. Keep this case's candidates isolated.
       process.execPath = join(execDir, "runtime")

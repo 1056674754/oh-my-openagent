@@ -48,7 +48,9 @@ createInterface({ input: process.stdin }).on("line", line => {
   }))
   const pi = new Host()
   let starts = 0
-  const fetch = spyOn(globalThis, "fetch").mockImplementation(() => { throw new Error("status must not fetch") })
+  const fetch = spyOn(globalThis, "fetch").mockImplementation(Object.assign(
+    () => { throw new Error("status must not fetch") }, { preconnect: globalThis.fetch.preconnect },
+  ))
   const messages: string[] = []
   try {
     createComputerUseComponent({
