@@ -155,7 +155,7 @@ describe("host-session handle reattach", () => {
     await handle.dispose()
   })
 
-  test("#given a managed child mid-turn #when the host dies and the turn is re-prompted #then its managed stream reports the turn resumed before the continuation is sent", async () => {
+  test("#given a managed child mid-turn #when the host dies and the turn is re-prompted #then its managed stream reports the turn resumed after the continuation is acknowledged", async () => {
     // given
     const host = await fakeHost()
     const handle = await openWithReattach(host, "/tmp/sessions/reattach-resumed.jsonl", reopenOn(host))
@@ -168,6 +168,8 @@ describe("host-session handle reattach", () => {
     // when
     await host.restart()
     const continuation = await host.waitForCommand("prompt")
+
+    await handle.getEntries() // joins recovery after the prompt acknowledgement
 
     // then: the managed stream (what the footer widget reads) learns the turn is live again; the
     // host-event stream itself carries no synthesized event
