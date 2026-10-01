@@ -179,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn repeated_denials_use_the_real_latch_and_current_call_flag() {
+    fn a_repeat_denial_does_not_reopen_the_settings_pane() {
         let settings = Settings::default();
         let opened = RefCell::new(0);
         drop(settings.permission_denied(TccPermission::ScreenRecording, |_| {
@@ -193,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn repeated_denials_after_failed_opening_do_not_claim_success() {
+    fn a_repeat_denial_does_not_retry_a_failed_pane_opening() {
         let settings = Settings::default();
         let opened = RefCell::new(0);
         drop(settings.permission_denied(TccPermission::Accessibility, |_| {
