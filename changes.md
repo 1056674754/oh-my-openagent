@@ -2,6 +2,10 @@
 
 After installing the standalone launcher, `install.sh` now verifies other `omo` entries on PATH against their package manifest or the previous standalone receipt. A terminal run asks `Remove the other omo install at <path>? [y/N]`; `--remove-other-installs` gives non-interactive runs an explicit opt-in, while piped and CI runs otherwise delete nothing and print the exact command. Removal is scoped to the verified global package and shim or the one receipt-owned launcher, and a failure leaves the new launcher working with remediation text. `omo doctor` now formats the non-active install's command with its detected Bun root, npm prefix, or quoted standalone path. The installer-channel behavior change is covered in throwaway HOME/prefix fixtures for acceptance, decline, failed-removal and look-alike safety cases.
 
+## 2026-10-01 - the stop-path failure and permission-denied data types describe what they carry (#9338)
+
+Two type comments copied during the computer-use permission work described the wrong data. `StopPathFailure` (`crates/senpi-desktop-safety/src/supervisor.rs`) now says it records why the global stop-chord listener failed to start, which the gate uses to turn an Accessibility miss into a permission error instead of a missing stop path. `PermissionDeniedData` (`packages/senpi-desktop-protocol/src/json-rpc.ts`) now says it carries the missing macOS permission, the Settings pane that grants it, the app to enable and whether that app must be relaunched. These are comment-only changes; the generated extension bundles were refreshed because they embed the protocol package's doc comment.
+
 ## 2026-10-01 - ultrawork reuses evidence per target, spawns a new reviewer per round, and scopes defects to the blast radius (#9294)
 
 The directive's Constraints bullet ("own every defect met mid-run ... never deferred as a follow-up", from #7674)
