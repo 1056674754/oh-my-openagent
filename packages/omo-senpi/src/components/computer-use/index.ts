@@ -197,7 +197,7 @@ export function createComputerUseComponent(options: ComputerUseComponentOptions 
               return
             }
             const prelude = available.host.getActiveTools().includes(COMPUTER_TOOL_NAME) ? "active" : "inactive"
-            const status = `${text}\nengine: ${service.engineState}${service.engineState === "not started" ? ` (${describeEngineSource(available.settings.enginePath, options.env ?? process.env, { platform })})` : ""}\nprelude: ${prelude}${skillStatusLine(state.skill)}`
+            const status = `${text}\nengine: ${service.engineState}${service.engineState === "not started" || service.engineState === "native-unavailable" ? ` (${describeEngineSource(available.settings.enginePath, options.env ?? process.env, { platform })})` : ""}\nprelude: ${prelude}${skillStatusLine(state.skill)}`
             commandCtx.ui.notify(status, "info")
             if (commandCtx.hasUI === false) process.stderr.write(`${status}\n`)
           } catch (error) {

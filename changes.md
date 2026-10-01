@@ -1,3 +1,11 @@
+## 2026-10-01 - Preserve unsupported computer-use host diagnostics after first use (#9348)
+
+`/computer status` retains the installed-engine diagnostic after activation fails as
+native-unavailable. Unsupported linux-arm64 and win32-arm64 hosts continue naming
+the missing release build instead of losing the explanation after first use.
+Component regressions exercise the real activation failure and confirm status
+does not start another child or acquire an engine.
+
 ## 2026-10-01 - ultrawork reuses evidence per target, spawns a new reviewer per round, and scopes defects to the blast radius (#9294)
 
 The directive's Constraints bullet ("own every defect met mid-run ... never deferred as a follow-up", from #7674)
