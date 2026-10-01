@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test"
+import { expect, spyOn, test } from "bun:test"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -20,6 +20,9 @@ test.each(["linux", "win32"])("status preserves %s-arm64 absence after failed fi
   const locator = { platform, arch: "arm64", execDir: root, repoRoot: root, packageDir: root, runtimeDir: "" }
   let starts = 0
   const messages: string[] = []
+  const fetch = spyOn(globalThis, "fetch").mockImplementation(() => {
+    throw new Error("status must not download")
+  })
   try {
     createComputerUseComponent({
       platform,
@@ -53,7 +56,9 @@ test.each(["linux", "win32"])("status preserves %s-arm64 absence after failed fi
     expect(messages.at(-1)).toContain(`No senpi-desktop-engine is built for ${platform}-arm64`)
     expect(messages.at(-1)).toContain("engine: native-unavailable")
     expect(starts).toBe(1)
+    expect(fetch).not.toHaveBeenCalled()
   } finally {
+    fetch.mockRestore()
     rmSync(root, { recursive: true, force: true })
   }
 })
