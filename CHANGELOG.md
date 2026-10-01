@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**A packaged install runs Bun itself again when you call `bun` from an eval cell or the bash tool.** Before, it started a second agent and handed back that agent's reply as a passing result. Geeky · Heavy and `deep-high` move to GPT-6 Astra at high, Geeky · Normal to GPT-6.1 Sol Fast at medium, a session opened from the desktop app keeps the permission mode it asked for, and memory recall now matches Chinese and Japanese characters one by one. This release runs on the senpi 2026.10.1-2 engine.
+
 ### Added
 
 A session opened from the desktop app or another multi-session client runs with the permission mode it asked for (full access, accept edits or ask first). Before, the mode was recorded but every session ran with the host default. ([senpi#2461](https://github.com/code-yeongyu/senpi/issues/2461))
@@ -15,9 +17,9 @@ A session opened from the desktop app or another multi-session client runs with 
 
 Ultrafast can be selected explicitly with a model decorator such as `chatgpt-subscription/gpt-6-astra:xhigh:ultrafast`, in `models.json` or per session. Thanks to @audreyt. ([senpi#2412](https://github.com/code-yeongyu/senpi/issues/2412))
 
-Memory recall also matches Chinese characters and Japanese kanji one by one, so a question worded differently from the note can still find it; a question without any such character gets the same candidates as before.
+Memory recall also matches Chinese characters and Japanese kanji one by one, so a question worded differently from the note can still find it; a question without any such character gets the same candidates as before. Thanks to [@ashmoonori-afk](https://github.com/ashmoonori-afk). ([#9341](https://github.com/code-yeongyu/oh-my-openagent/pull/9341))
 
-Memory recall can widen its own searches with synonyms, keywords in your other languages and related terms when you set `memory.recall.query_expansion` to `true`; an added term counts for less than the same match on one of the query's own words, a note that holds every word of the query stays first, and with the setting off, the default, nothing changes.
+Memory recall can widen its own searches with synonyms, keywords in your other languages and related terms when you set `memory.recall.query_expansion` to `true`; an added term counts for less than the same match on one of the query's own words, a note that holds every word of the query stays first, and with the setting off, the default, nothing changes. Thanks to [@ashmoonori-afk](https://github.com/ashmoonori-afk). ([#9342](https://github.com/code-yeongyu/oh-my-openagent/pull/9342))
 
 ### Changed
 
