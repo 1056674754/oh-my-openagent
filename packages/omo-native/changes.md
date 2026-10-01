@@ -42,6 +42,44 @@ cannot repair an asset absent from that payload or enforce a gate on another rel
 
 The engine-sidecar resolver, binary staging fixture, and release smoke workflow.
 
+## 2026-09-30 - The gateway host receives omo's plugin root and the thread SDK URL (#9243)
+
+`runGatewayCommand` and the doctor call into the installed gateway now also pass `pluginRoot`, omo's staged plugin
+payload (`<packageRoot>/plugin`, from `package-paths.js` as doctor resolves it), and `threadSdkUrl`, the `file:` URL of
+`<pluginRoot>/runtime/thread-sdk/sdk.js`, so the gateway neither derives the install from `argv[1]` nor knows the
+payload layout. Both come from the hook's own module URL, so a symlinked install hands over the real install's paths.
+The SDK file ships with the thread SDK (#9222); until then the URL names a file that does not exist yet, and omo does
+not check it, so `omo gateway` behaves as before. `test/gateway.test.ts` covers the command (plain and symlinked
+install) and the doctor call; each case fails with its field removed.
+
+## 2026-09-30 - The gateway hook verifies the installed package before importing it (#9243)
+
+Before `bin/lib/gateway.js` imports `@oh-my-opencode/omo-gateway/host`, `verifyGatewayPackage` finds the package's
+`package.json` on the same resolver search paths the import walks and refuses the package, as `broken` with a reason that
+names its directory, unless the manifest `name` is exactly `@oh-my-opencode/omo-gateway`, it declares
+`omoGateway.hostContract` equal to 1 (the runtime `HOST_CONTRACT_VERSION` check stays), and the host entry the import
+resolves stays inside the package directory once symlinks are resolved on both sides. A refused package never runs:
+`omo gateway` prints the reason and exits 1, the doctor gateway row is `FAIL`. No package directory is still `missing`, and
+nothing changes for an install without the package. `test/gateway-integrity.test.ts` (5 cases) covers a foreign name, a
+missing and a mismatched manifest contract, a host entry symlinked out of the package, and a verified package reached
+through a symlinked package directory; each fails with its check removed.
+
+## 2026-09-30 - `omo gateway` and the doctor gateway rows load a separately installed gateway package (#9243)
+
+`bin/lib/gateway.js` is a hook, not a gateway: `omo gateway <args>` imports `@oh-my-opencode/omo-gateway/host` by bare
+name from omo's own install (the resolution the gateway itself uses for adapter packages), checks its
+`HOST_CONTRACT_VERSION` (1), and calls its `runGatewayCommand` with argv, stdio, env, cwd, the canonical agent dir,
+home and the argv that relaunches `omo gateway connect`. Without the package it prints one line, `omo gateway: the omo
+gateway is not installed: ...`, and exits 1; a package that fails to load or speaks another contract is named as
+such and also exits 1. `omo doctor` adds gateway rows only when the user config (`~/.omo/omo.jsonc` or `omo.json`) sets
+`gateway` at its top level or in `[native]`: one `WARN gateway:` row when the package is missing, `FAIL gateway:` when
+it is broken, otherwise `PASS gateway: installed` followed by the package's own rows, and a package `FAIL` row fails
+doctor. Without a `gateway` section nothing is imported and doctor output is unchanged. The launcher imports the hook
+lazily, so the startup path does not load it. `omo-config-core` accepts `gateway` as an open object in the root, layer
+and harness-block schemas so a config carrying it loads without an unknown-key diagnostic; omo never reads it.
+`test/gateway.test.ts` (9 cases) drives a packaged copy of `bin/` with and without a fixture package installed beside it;
+`omo-config-core` `src/schema/gateway.test.ts` (3 cases) fails on dev.
+
 ## 2026-09-30 - The compiled binary hands a downloaded Claude Code to the engine at startup (#9276)
 
 `compile-entry.ts` calls `applyCachedClaudeCode` (omo-senpi `claude-code/index.ts`) right after
