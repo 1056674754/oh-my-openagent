@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite"
 import { afterEach, expect, test } from "bun:test"
 
 import { OUTBOX_RETENTION_MS, rfc3339 } from "./bindings"
-import { DELIVERY_RETENTION_MS, RETENTION_SWEEP_INTERVAL_MS } from "./constants"
+import { DELIVERY_RETENTION_MS, RETENTION_SWEEP_BATCH, RETENTION_SWEEP_INTERVAL_MS } from "./constants"
 import { gatewayDatabasePath } from "./paths"
 import type { GatewayStore } from "./store"
 import { createGatewayHarness, type GatewayHarness } from "./testing/harness"
@@ -118,6 +118,65 @@ test("#given extension rows and the core rows an extension still acts on #when t
     check.close()
   }
   expect(await core(store, "bindingFor", { platform: "custom", account_id: "bot", chat_id: "idle", thread_id: "@chat" })).toMatchObject({ binding_id: idle.binding_id, status: "active" })
+})
+
+test("#given more expired receipts than one batch, an old detached binding holding the newest key, and an extension's own rows #when extension operations sweep through the joined context #then each call deletes at most one receipt batch, the next call sweeps again at once, the extension's rows stay, and a later binding takes a key above the deleted one", async () => {
+  const h = (harness = createGatewayHarness())
+  h.phantom("target")
+  const t0 = h.clock.now
+  const store = h.store()
+  expect((await store.registerStoreExtension({ name: "alpha", moduleUrl, migrations: [["CREATE TABLE alpha_items (id INTEGER PRIMARY KEY, value TEXT)"]] })).kind).toBe("ok")
+  const binding = await bindSomething(store, t0, "first")
+  await sql(store, "INSERT INTO alpha_items (id, value) VALUES (1, 'kept'), (2, 'also kept')")
+  const total = RETENTION_SWEEP_BATCH + 44
+  const db = new Database(gatewayDatabasePath(h.agentDir))
+  let oldSeq: number
+  try {
+    db.run("PRAGMA busy_timeout = 5000")
+    db.transaction(() => {
+      for (let index = 0; index < total; index++) {
+        db.run("INSERT INTO receipts (principal, operation, idempotency_key, args_hash, status, delivery_id, owner_instance, created_at, updated_at, expires_at) VALUES ('session:A', 'thread_rename', ?, 'h', 'completed', NULL, 'i', ?, ?, ?)", [`k-${index}`, t0, t0, t0 + DAY])
+      }
+    })()
+    insertBinding(db, "bnd-old", "S-old", t0)
+    oldSeq = Number((db.query("SELECT seq FROM bindings WHERE binding_id = 'bnd-old'").get() as { seq: number }).seq)
+  } finally {
+    db.close()
+  }
+  h.clock.now = t0 + OUTBOX_RETENTION_MS + DAY
+  const check = () => {
+    const read = new Database(gatewayDatabasePath(h.agentDir))
+    try {
+      return {
+        expired: Number((read.query("SELECT COUNT(*) AS n FROM receipts WHERE expires_at <= ?").get(h.clock.now) as { n: number }).n),
+        maxSeq: Number((read.query("SELECT MAX(seq) AS n FROM bindings").get() as { n: number }).n),
+        old: read.query("SELECT binding_id FROM bindings WHERE binding_id = 'bnd-old'").all().length,
+      }
+    } finally {
+      read.close()
+    }
+  }
+  const page = async () => {
+    expect(await store.extensionCall("alpha", "core", { op: "outboxPending", request: { binding_id: binding.binding_id } })).toMatchObject({ kind: "ok", value: { kind: "ok" } })
+  }
+  await page()
+  const afterFirst = check()
+  await page()
+  const afterSecond = check()
+  expect({ afterFirst: afterFirst.expired, afterSecond: afterSecond.expired, oldBindingLeft: afterFirst.old }).toEqual({ afterFirst: total - RETENTION_SWEEP_BATCH, afterSecond: 0, oldBindingLeft: 0 })
+  // The deleted binding held the newest key, so only AUTOINCREMENT keeps the next key above it.
+  expect(afterSecond.maxSeq).toBeLessThan(oldSeq)
+  const bound = await core<{ kind: string; binding: { binding_id: string } }>(store, "bind", { principal: "test", binding: { platform: "custom", account_id: "bot", chat_id: "later", session_durable_id: "target", ttl_seconds: null } })
+  expect(bound.kind).toBe("ok")
+  const read = new Database(gatewayDatabasePath(h.agentDir))
+  try {
+    expect({
+      laterSeq: Number((read.query("SELECT seq FROM bindings WHERE binding_id = ?").get(bound.binding.binding_id) as { seq: number }).seq) > oldSeq,
+      alpha_items: read.query("SELECT value FROM alpha_items ORDER BY id").all(),
+    }).toEqual({ laterSeq: true, alpha_items: [{ value: "kept" }, { value: "also kept" }] })
+  } finally {
+    read.close()
+  }
 })
 
 test("#given a sweep that just ran #when an extension operation reads the outbox within the sweep interval #then it does not sweep again until the interval passes", async () => {
