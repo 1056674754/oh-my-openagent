@@ -1,3 +1,7 @@
+## 2026-10-01 - the stop-path failure and permission-denied data types describe what they carry (#9338)
+
+Two type comments copied during the computer-use permission work described the wrong data. `StopPathFailure` (`crates/senpi-desktop-safety/src/supervisor.rs`) now says it records why the global stop-chord listener failed to start, which the gate uses to turn an Accessibility miss into a permission error instead of a missing stop path. `PermissionDeniedData` (`packages/senpi-desktop-protocol/src/json-rpc.ts`) now says it carries the missing macOS permission, the Settings pane that grants it, the app to enable and whether that app must be relaunched. These are comment-only changes; the generated extension bundles were refreshed because they embed the protocol package's doc comment.
+
 ## 2026-10-01 - Permission errors name the macOS TCC responsible process (#9345)
 
 Screen Recording and Accessibility denial diagnostics resolve the responsible process with the
