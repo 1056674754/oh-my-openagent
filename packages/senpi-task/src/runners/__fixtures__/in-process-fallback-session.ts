@@ -126,7 +126,7 @@ function testModel(id: string) {
   }
 }
 
-function assistant(
+export function assistant(
   model: string,
   stopReason: StopReason,
   text: string,
@@ -152,7 +152,7 @@ function assistant(
   }
 }
 
-function streamMessage(message: AssistantMessage): EventStream {
+export function streamMessage(message: AssistantMessage): EventStream {
   const queue: unknown[] = []
   const waiters: Array<(value: IteratorResult<unknown>) => void> = []
   let done = false

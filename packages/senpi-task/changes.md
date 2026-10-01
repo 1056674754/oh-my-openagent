@@ -1,3 +1,17 @@
+## 2026-10-01 - Builtin chain rungs name thinking levels their models accept (#9378)
+
+- `category/fallback-chains.ts`: `quick` opencode-go `minimax-m3` / `minimax-m2.7` drop `variant: "max"` (the child now inherits the
+  `quick` lane's `low`); `unspecified-low` `mimo-v2.6-pro`, `qwen3.8-max-preview` and `mimo-v2.5-pro` go from `max` to `high`, the level
+  senpi already clamped them to. Every other rung in this file and in `agents/builtin/fallback-chains.ts` names a level its catalog model
+  accepts. A new header bullet records the deliberate divergence from `model-core`, which keeps `max` for OpenCode.
+- `runners/builtin-chain-thinking-level.test.ts` drives `resolveCategory` -> the child's thinking level and child-local
+  `retry.fallbackChains` into a real senpi `AgentSession` over the real catalog, faking only the logged-in providers: the `quick` child runs
+  `minimax-m3` at `low` (was a silent clamp to `high`); repeated loads of every category an opencode-go plus xiaomi machine serves leave
+  `fallback.log` free of `validation_warning` (four on the pre-fix chains); a user `models[]` entry with an unsupported level still warns once
+  and still runs at an accepted level. The fixture's `assistant`/`streamMessage` helpers are exported for that last case.
+- Pins updated to the new variants: `fallback-chains`, `category-routing-policy`, `unspecified-low-chain`,
+  `in-process-runtime-fallback`, `manager-runtime-fallback`.
+
 ## 2026-10-01 - Repeated Bun Windows advisories remain external termination output (#9228)
 
 - `runners/rpc/exit-mapping.ts` accepts any positive number of known Bun child-reaper startup advisory lines in the Windows exit-code-1/no-signal case. A different stderr line still classifies the child as crashed.
