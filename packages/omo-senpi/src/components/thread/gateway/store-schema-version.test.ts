@@ -19,12 +19,18 @@ test("#given a newer core schema #when an older supported version opens it #then
   const futureVersion = GATEWAY_MIGRATIONS.length + 1
   db.exec(`PRAGMA user_version = ${futureVersion}; INSERT INTO gateway_meta VALUES ('future-fixture', 'keep')`)
   db.close()
-  const store = h.store()
+  const exits: Promise<unknown>[] = []
+  const store = h.store({ _test: { onWorkerStarted: (worker) => exits.push(new Promise((resolve) => worker.once("exit", resolve))) } })
   expect(await store.registerStoreExtension({ name: "alpha", moduleUrl: new URL("./testing/store-extension.mjs", import.meta.url).href, migrations: [] })).toMatchObject({ kind: "refused", code: "gateway_schema_too_new" })
   expect(await store.extensionCall("alpha", "rows", { name: "alpha" })).toMatchObject({ kind: "refused", code: "gateway_schema_too_new" })
   const listed = await settled(store.list())
   expect({ value: listed.value, error: listed.error }).toMatchObject({ value: undefined, error: { code: "gateway_schema_too_new" } })
-  const check = new Database(path, { readonly: true })
+  // Every refused open terminates its worker. Once they have all exited, the last connection has
+  // removed the WAL sidecars a read-only connection would need; a plain connection that only
+  // reads writes nothing.
+  await Promise.all(exits)
+  expect(exits).toHaveLength(3)
+  const check = new Database(path)
   try {
     expect(check.query("PRAGMA user_version").get()).toEqual({ user_version: futureVersion })
     expect(check.query("SELECT value FROM gateway_meta WHERE key='future-fixture'").get()).toEqual({ value: "keep" })

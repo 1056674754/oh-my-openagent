@@ -76,7 +76,7 @@ test("#given binding CAS and validation #when using joined helpers #then invalid
 test("#given pending outbox rows #when paging and acking under the extension lock #then bounds and rollback hold without marker changes", async () => {
   const { h, store } = await setup()
   const binding = await bind(store)
-  for (let i = 0; i < 3; i++) expect((await store.report({ now: h.clock.now, receipt: null, session_durable_id: "target", binding_id: binding.binding_id, event: "report", text: `report-${i}`, ui_request_id: null, ui_request_kind: null })).kind).toBe("ok")
+  for (let i = 0; i < 3; i++) expect((await store.report({ now: h.clock.now, receipt: null, origin_delivery_ids: [], session_durable_id: "target", binding_id: binding.binding_id, event: "report", text: `report-${i}`, ui_request_id: null, ui_request_kind: null })).kind).toBe("ok")
   const marker = readFileSync(gatewayOutboxMarkerPath(h.agentDir), "utf8")
   const page = await core<RelayResult<OutboxPage>>(store, "outboxPending", { binding_id: binding.binding_id, limit: 1 })
   if (page.kind !== "ok") throw new Error(JSON.stringify(page))

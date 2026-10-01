@@ -9,7 +9,7 @@ import type { GatewayResolve } from "./engine"
 /** Raw store clients use the same live-and-disk address book as the thread SDK. */
 export function createExtensionResolver(agentDir: string): GatewayResolve {
   const host = createLiveThreadSurface(undefined, { env: { ...process.env, OMO_CODING_AGENT_DIR: agentDir } })
-  const surface: ThreadToolSurfaceOptions = {
+  const surface: Omit<ThreadToolSurfaceOptions, "store"> = {
     host,
     stateDirectory: agentDir,
     sessionsDirectory: () => join(agentDir, "sessions"),

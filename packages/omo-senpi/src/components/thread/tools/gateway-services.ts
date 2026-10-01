@@ -31,7 +31,7 @@ export type GatewayServices = {
  * one that answers even when nothing is live): a target no endpoint lists resolves from disk
  * (`sendAddressBook`) and is queued offline.
  */
-export function createGatewayResolver(options: ThreadToolSurfaceOptions, view: () => Promise<ThreadHostView>): GatewayResolve {
+export function createGatewayResolver(options: Omit<ThreadToolSurfaceOptions, "store">, view: () => Promise<ThreadHostView>): GatewayResolve {
   return async (address, request) => {
     const current = await sendView(options, address, view)
     return await resolveFromEntries(() => toGatewayAddressEntries(sendAddressBook(options, current, address, request.all_scope)), options.callerWorkspaceRoot)(address, request)
