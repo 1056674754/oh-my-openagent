@@ -109,7 +109,6 @@ describe("InProcessRunner child system prompt", () => {
     await handle.waitForIdle()
 
     // then
-    await captured?.resourceLoader?.reload()
     expect(captured?.resourceLoader?.getSystemPrompt()).toBe("# Kibitzer\n\nYou judge turns.")
   })
 

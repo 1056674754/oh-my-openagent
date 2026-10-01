@@ -32,32 +32,32 @@ describe("shared parent tool family filter", () => {
     expect(isTaskOrTeamFamilyTool("taskmaster")).toBe(false)
   })
 
-  test("#given shared task, team, workflow, and ui-only entries #when filtered #then process-child task tools remain while lead-only and ui-only tools are removed", () => {
-    const shared = [makeTool("grep"), makeTool("task_create"), makeTool("workpool"), makeTool("team_create"), makeTool("workflow"), makeTool("render_widget")]
+  test("#given shared tools with family and ui-only entries #when filtered #then family and ui-only removed", () => {
+    const shared = [makeTool("grep"), makeTool("task_create"), makeTool("team_create"), makeTool("render_widget")]
 
-    const filtered = filterSharedParentTools(shared, { uiOnlyToolNames: ["render_widget"], includeTaskTools: true })
+    const filtered = filterSharedParentTools(shared, { uiOnlyToolNames: ["render_widget"] })
 
-    expect(filtered.map((tool) => tool.name)).toEqual(["grep", "task_create", "workpool"])
+    expect(filtered.map((tool) => tool.name)).toEqual(["grep"])
   })
 
-  test("#given task tools in shared and member-scoped sets #when merged #then both remain available", () => {
+  test("#given family tool in shared and in member-scoped #when merged #then only member-scoped family crosses the exclusion", () => {
     const shared = [makeTool("grep"), makeTool("task")]
     const memberScoped = [makeTool("task_send")]
 
-    const merged = mergeChildCustomTools(shared, memberScoped, { includeTaskTools: true })
+    const merged = mergeChildCustomTools(shared, memberScoped)
 
-    expect(merged.map((tool) => tool.name)).toEqual(["grep", "task", "task_send"])
+    expect(merged.map((tool) => tool.name)).toEqual(["grep", "task_send"])
     for (const tool of merged) {
       expect(typeof tool.execute).toBe("function")
     }
   })
 
-  test("#given no member-scoped tools #when merged #then process-child task tools remain in the shared set", () => {
+  test("#given no member-scoped tools #when merged #then result is only the filtered shared set", () => {
     const shared = [makeTool("glob"), makeTool("task_update")]
 
-    const merged = mergeChildCustomTools(shared, undefined, { includeTaskTools: true })
+    const merged = mergeChildCustomTools(shared, undefined)
 
-    expect(merged.map((tool) => tool.name)).toEqual(["glob", "task_update"])
+    expect(merged.map((tool) => tool.name)).toEqual(["glob"])
   })
 
   test("#given x_search and thread_create search-exposed tools #when filtered #then only x_search is direct and copied", () => {
