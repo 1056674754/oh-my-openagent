@@ -1,3 +1,7 @@
+## 2026-10-01 - In-process task children honor the caller's settings (#9353)
+
+- `components/task/runtime-context.ts` captures the parent session's project-trust decision, and `engine-runners.ts` passes it to every in-process child, so the child's settings include the project layer exactly when the parent's do. `plugin/extensions/omo-task.js` regenerated on linux/amd64 (node 24, bun 1.4.2) for the senpi-task change.
+
 ## 2026-10-01 - Windows task-child parity regression (#9274, #6709)
 
 - The parity regression now reloads the in-process child loader beside the process child's builtin loader policy and pins equal platform-specific builtin names plus `web_search`, avoiding Windows CLI cold starts while the existing surface tests retain shared-parent and session-default coverage.

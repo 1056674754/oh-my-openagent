@@ -2,6 +2,7 @@ import type { CreateAgentSessionOptions, SessionManager, ToolDefinition } from "
 
 import { BUILTIN_AGENTS, CURATED_READONLY_AGENT_NAMES } from "../../agents/builtin"
 import type { KernelToolBindingRegistry } from "../../kernel-tools/bindings"
+import { senpiBarrel } from "../../lazy/senpi-barrel"
 import { isWorkpoolYieldTool } from "../../workpool/worker-tool-identity"
 import type { ChildSpec } from "../in-process"
 import { createChildResourceLoader } from "./child-loader"
@@ -118,7 +119,12 @@ export function buildChildSessionOptions(input: BuildChildSessionOptionsInput): 
   const customTools = curated
     ? [...mergedCustomTools.filter((tool) => tool.name !== "bash" && (toolAllowlist?.includes(tool.name) || isWorkpoolYieldTool(tool))), createCuratedReadonlyBashTool(spec.cwd)]
     : [...mergedCustomTools, ...kernelTools]
-  const settingsManager = createRuntimeFallbackSettings(spec.selectedModel, spec.fallbackModels, spec.retry)
+  const caller = {
+    cwd: spec.cwd,
+    agentDir: spec.agentDir ?? senpiBarrel().getAgentDir(),
+    projectTrusted: spec.projectTrusted ?? false,
+  }
+  const settingsManager = createRuntimeFallbackSettings(caller, spec.selectedModel, spec.fallbackModels, spec.retry)
   return {
     cwd: spec.cwd,
     sessionManager,

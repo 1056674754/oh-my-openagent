@@ -93,7 +93,10 @@ function buildInProcessRunner(build: RunnerBuildContext): ManagedRunner {
     depthPolicy: { maxDepth: Math.max(build.settings.max_depth + 1, 1) },
     ...(build.kernelToolBindings === undefined ? {} : { kernelToolBindings: build.kernelToolBindings }),
   })
-  const context = createParentRegistrySessionContext(() => build.runtime.modelRegistry())
+  const context = createParentRegistrySessionContext(
+    () => build.runtime.modelRegistry(),
+    () => build.runtime.projectTrusted(),
+  )
   return createInProcessManagedRunner(inProcess, context)
 }
 
