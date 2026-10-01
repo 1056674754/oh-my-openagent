@@ -148,6 +148,14 @@ and pid. Shell-launched engines report themselves; application-launched engines 
 responsible application. Failed resolution is explicitly unresolved and labels the engine path
 only as diagnostic context, never as a guessed TCC identity.
 
+## 2026-10-01 - Exercise direct extension guards and document transaction behavior (#9331)
+
+Direct SQLite authorization tests assert the trigger/view create decisions without the
+statement lexer or schema-diff guard masking them. Caught constraint errors must roll back
+prior writes, and table-valued sources remain refused. The SDK smoke uses a real disk-session
+record and exercises clone recovery, shared target resolution and schema-version refusal.
+The reference documents the shipped SDK entry point, owned DDL, deadlines and commit effects.
+
 ## 2026-10-01 - Refuse unsupported newer gateway schemas (#9331)
 
 Core schema reads reject versions newer than this binary supports before migration or
