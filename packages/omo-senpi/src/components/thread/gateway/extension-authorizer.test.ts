@@ -1,37 +1,25 @@
+import { Database } from "bun:sqlite"
 import { afterEach, expect, test } from "bun:test"
-import { constants, DatabaseSync } from "node:sqlite"
 
-import { ExtensionSchemaViolation, extensionSql } from "./extension-sql"
 import { gatewayDatabasePath } from "./paths"
-import { Sql } from "./sql"
 import { createGatewayHarness, type GatewayHarness } from "./testing/harness"
 
 let harness: GatewayHarness | undefined
 afterEach(async () => { await harness?.dispose(); harness = undefined })
 
-test.each([
-  ["trigger", constants.SQLITE_CREATE_TRIGGER, "CREATE TRIGGER alpha_hook AFTER INSERT ON alpha_items BEGIN SELECT 1; END"],
-  ["view", constants.SQLITE_CREATE_VIEW, "CREATE VIEW alpha_view AS SELECT id FROM alpha_items"],
-] as const)("#given direct SQLite %s creation #when authorizing #then its specific create action is denied", async (_kind, action, statement) => {
+// Security contract: SQLite's authorizer denies an extension's view creation by itself. A view is
+// one statement, so it passes the single-statement guard and reaches the authorizer; the message
+// is the authorizer's own, which the later schema-diff guard cannot produce. (A trigger body always
+// carries an inner `;`, so the single-statement guard refuses every trigger before SQLite runs.)
+test("#given a single-statement view creation #when an extension runs it #then SQLite's authorizer denies the create itself", async () => {
   const h = (harness = createGatewayHarness())
   const store = h.store()
   await store.registerStoreExtension({ name: "alpha", moduleUrl: new URL("./testing/store-extension.mjs", import.meta.url).href, migrations: [["CREATE TABLE alpha_items (id INTEGER)"]] })
-  const db = new DatabaseSync(gatewayDatabasePath(h.agentDir))
-  const decisions: { action: number; decision: number }[] = []
-  const sql = new Sql({
-    exec: db.exec.bind(db),
-    function: db.function.bind(db),
-    close: db.close.bind(db),
-    setAuthorizer: (authorize) => db.setAuthorizer(authorize === null ? null : (...args) => {
-      const decision = authorize(...args)
-      decisions.push({ action: args[0], decision })
-      return decision
-    }),
-  })
+  expect(await store.extensionCall("alpha", "sql", { sql: "CREATE VIEW alpha_view AS SELECT id FROM alpha_items" }))
+    .toEqual({ kind: "refused", code: "extension_schema_violation", message: "Extension alpha does not own alpha_view." })
+  const db = new Database(gatewayDatabasePath(h.agentDir), { readonly: true })
   try {
-    // Drive SQLite directly: neither the lexical guard nor the schema-diff guard runs here.
-    expect(() => extensionSql(sql, "alpha", () => sql.exec(statement))).toThrow(ExtensionSchemaViolation)
-    expect(decisions.filter((entry) => entry.action === action).map((entry) => entry.decision)).toEqual([constants.SQLITE_DENY])
+    expect(db.query("SELECT name FROM sqlite_schema WHERE type = 'view'").all()).toEqual([])
   } finally { db.close() }
   expect(await store.list()).toEqual([])
 })

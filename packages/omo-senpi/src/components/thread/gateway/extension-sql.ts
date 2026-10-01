@@ -1,6 +1,28 @@
-import { constants } from "node:sqlite"
-
 import type { Sql, SqlRow } from "./sql"
+
+/**
+ * SQLite's authorizer result and action codes, from sqlite3.h. They are fixed by SQLite's C API,
+ * so they are spelled out here: only the store worker may load `node:sqlite`, and only lazily.
+ */
+const constants = {
+  SQLITE_OK: 0,
+  SQLITE_DENY: 1,
+  SQLITE_CREATE_INDEX: 1,
+  SQLITE_CREATE_TABLE: 2,
+  SQLITE_CREATE_TRIGGER: 7,
+  SQLITE_CREATE_VIEW: 8,
+  SQLITE_DELETE: 9,
+  SQLITE_DROP_INDEX: 10,
+  SQLITE_DROP_TABLE: 11,
+  SQLITE_INSERT: 18,
+  SQLITE_READ: 20,
+  SQLITE_SELECT: 21,
+  SQLITE_UPDATE: 23,
+  SQLITE_ALTER_TABLE: 26,
+  SQLITE_REINDEX: 27,
+  SQLITE_FUNCTION: 31,
+  SQLITE_RECURSIVE: 33,
+} as const
 
 export class ExtensionSchemaViolation extends Error {
   readonly code = "extension_schema_violation"

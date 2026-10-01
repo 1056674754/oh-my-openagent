@@ -1,10 +1,9 @@
 import { Database } from "bun:sqlite"
 import { afterEach, expect, test } from "bun:test"
-import { DatabaseSync } from "node:sqlite"
 
-import { checkExtensionSchema, ExtensionSchemaViolation, extensionSchema } from "./extension-sql"
+import { checkExtensionSchema, ExtensionSchemaViolation, sqliteName } from "./extension-sql"
 import { gatewayDatabasePath } from "./paths"
-import { Sql } from "./sql"
+import { Sql, type SqlRow } from "./sql"
 import { createGatewayHarness, type GatewayHarness } from "./testing/harness"
 
 let harness: GatewayHarness | undefined
@@ -122,15 +121,23 @@ test.each([
   const h = (harness = createGatewayHarness())
   const store = h.store()
   await store.registerStoreExtension(registration("alpha"))
-  const db = new DatabaseSync(gatewayDatabasePath(h.agentDir))
-  const sql = new Sql(db)
-  sql.exec("BEGIN IMMEDIATE")
+  // SQLite itself creates the object, through bun:sqlite: no extension statement guard runs.
+  const db = new Database(gatewayDatabasePath(h.agentDir))
+  const schema = () => ({
+    objects: db.query("SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY type, name").all() as SqlRow[],
+    owners: new Map((db.query("SELECT type, name, owner FROM extension_objects").all() as { type: string; name: string; owner: string | null }[])
+      .map((row) => [`${row.type}:${sqliteName(row.name)}`, row.owner])),
+  })
+  // The guard must refuse before it records ownership, so its store connection is never reached.
+  const unreached = (): never => { throw new Error("the schema diff guard wrote after a forbidden schema effect") }
+  const sql = new Sql({ exec: unreached, setAuthorizer: unreached, function: () => undefined, close: () => undefined })
+  db.exec("BEGIN IMMEDIATE")
   try {
-    const before = extensionSchema(sql)
-    sql.exec(statement)
-    expect(() => checkExtensionSchema(sql, "alpha", before, extensionSchema(sql))).toThrow(ExtensionSchemaViolation)
+    const before = schema()
+    db.exec(statement)
+    expect(() => checkExtensionSchema(sql, "alpha", before, schema())).toThrow(ExtensionSchemaViolation)
   } finally {
-    sql.exec("ROLLBACK")
+    db.exec("ROLLBACK")
     db.close()
   }
   expect(await store.list()).toEqual([])
