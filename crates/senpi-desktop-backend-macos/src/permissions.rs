@@ -95,6 +95,10 @@ fn denial(permission: TccPermission, app: String, opened: bool) -> DesktopError 
 }
 
 #[cfg(test)]
+#[path = "permissions/identity_tests.rs"]
+mod identity_tests;
+
+#[cfg(test)]
 mod tests {
     use std::cell::RefCell;
     use super::*;
