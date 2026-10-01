@@ -12,6 +12,7 @@
 
 - Observe typed engine permission denials before direct tools, computer actions or JavaScript/Python eval can serialize them. Emit `omo.computer.permission_required` on the root session's RPC connection with its own session ID.
 - Forward process and daemon child denials through task ownership, including nested and shared in-process task owners. Deduplicate each permission at the root, preserving the latch across reloads and resetting it for a new root session.
+- A session-journal write failure cannot prevent the permission event or replace the caller's original denial; failed marker persistence is reported through the component logger.
 - Real-session tests exercise direct, code-mode and child callers against a protocol-speaking engine fixture. Transport tests reject malformed and foreign-session records without delivering them to existing agent-event listeners.
 
 >>>>>>> c01d80d5e (fix(computer-use): relay permission events to the root session)

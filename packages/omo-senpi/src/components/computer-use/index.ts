@@ -98,7 +98,7 @@ export function createComputerUseComponent(options: ComputerUseComponentOptions 
   return {
     name: COMPUTER_USE_COMPONENT_NAME,
     register(pi: SenpiExtensionAPI, ctx: ComponentContext): void {
-      const reportPermission = wireComputerPermissionEvents(pi, options.env ?? process.env)
+      const reportPermission = wireComputerPermissionEvents(pi, options.env ?? process.env, ctx.logger)
       const api = hostApi(pi)
       const available = (() => {
         if (!isSupportedHost(platform)) return undefined

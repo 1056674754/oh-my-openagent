@@ -1,6 +1,6 @@
 import { CHILD_PERMISSION_EVENT, parseChildExtensionEvent, readSessionAncestry, type ChildExtensionEvent } from "@oh-my-opencode/senpi-task"
 import * as z from "zod"
-import type { SenpiExtensionAPI } from "../../extension/types"
+import type { ComponentLogger, SenpiExtensionAPI } from "../../extension/types"
 import { computerUseSessionId } from "../telemetry/omo-native-computer-use"
 
 export const TASK_CHILD_EXTENSION_EVENT = "omo.task.child_extension_event"
@@ -17,7 +17,7 @@ const markerSchema = z.object({
 })
 
 /** Root identity belongs to session_start, never to a shared tool's in-process child context. */
-export function wireComputerPermissionEvents(pi: SenpiExtensionAPI, env: NodeJS.ProcessEnv) {
+export function wireComputerPermissionEvents(pi: SenpiExtensionAPI, env: NodeJS.ProcessEnv, logger: ComponentLogger) {
   const seen = new Map<string, Set<ChildExtensionEvent["permission"]>>()
   let sessionId: string | undefined
   let unsubscribe: (() => void) | undefined
@@ -33,8 +33,12 @@ export function wireComputerPermissionEvents(pi: SenpiExtensionAPI, env: NodeJS.
     permissions.add(event.permission)
     seen.set(sessionId, permissions)
     const data = { session_id: sessionId, permission: event.permission, ...(event.app === undefined ? {} : { app: event.app }) }
-    pi.appendEntry?.(ROOT_PERMISSION_EVENT, { session_id: sessionId, permission: event.permission })
     pi.rpc.emit(ROOT_PERMISSION_EVENT, data)
+    try {
+      pi.appendEntry?.(ROOT_PERMISSION_EVENT, { session_id: sessionId, permission: event.permission })
+    } catch (error) {
+      logger.warn("Computer permission event emitted, but its session marker could not be persisted.", error)
+    }
   }
   pi.on("session_start", (_payload, context) => {
     sessionId = computerUseSessionId(context)

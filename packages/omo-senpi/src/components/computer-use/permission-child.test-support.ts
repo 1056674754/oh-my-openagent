@@ -23,6 +23,7 @@ export async function permissionOwner(sessionContext?: Readonly<Record<string, s
         pi, cwd, env: {},
         omoConfig: { task: OmoTaskSettingsSchema.parse({
           state_dir: join(cwd, "tasks"), process_runner: "child-process", default_execution_mode: "in-process",
+          max_depth: 2,
           isolation: { enabled: false },
         }) },
         sharedParentTools: () => ctx.getCapturedTools?.() ?? [],
@@ -45,7 +46,7 @@ export async function permissionOwner(sessionContext?: Readonly<Record<string, s
                     const nested = await owner.manager.start({
                       prompt: "capture", parent_session_id: session.sessionId,
                       root_session_id: owner.ancestry?.rootSessionId ?? owner.runtime.sessionId(),
-                      depth: 1, execution_mode: "process", model: "test/model", run_in_background: true,
+                      depth: (owner.ancestry?.depth ?? 0) + 2, execution_mode: "process", model: "test/model", run_in_background: true,
                     })
                     if (nested.kind !== "started") throw new Error(JSON.stringify(nested))
                     await owner.manager.waitFor(nested.task_id)
@@ -92,7 +93,7 @@ export async function permissionOwner(sessionContext?: Readonly<Record<string, s
       const started = await taskEngine.manager.start({
         prompt, parent_session_id: sessionId,
         root_session_id: ancestry?.rootSessionId ?? sessionId,
-        depth: ancestry?.depth ?? 0,
+        depth: (ancestry?.depth ?? 0) + 1,
         execution_mode: mode, model: "test/model", run_in_background: true,
       })
       if (started.kind !== "started") throw new Error(JSON.stringify(started))

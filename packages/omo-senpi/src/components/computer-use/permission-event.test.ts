@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import { capture, input, permissionSession } from "./permission-event.test-support"
 
 describe("computer permission events through the real session", () => {
@@ -114,6 +114,28 @@ describe("computer permission events through the real session", () => {
       expect(fixture.methods).toContain("capture")
       expect(fixture.events).toEqual([])
     } finally {
+      await fixture.close()
+    }
+  }, 120_000)
+
+  test("delivers the denial and preserves the caller error when its session marker cannot be saved", async () => {
+    // given
+    const fixture = await permissionSession()
+    const marker = spyOn(fixture.session.sessionManager, "appendCustomEntry").mockImplementation(() => {
+      throw new Error("Test session journal is read-only")
+    })
+    try {
+      // when
+      const first = await fixture.execute("computer", capture)
+      await fixture.execute("computer", capture)
+      // then
+      expect(first).toMatchObject({ details: { value: { code: "COMPUTER_PERMISSION_REQUIRED" } } })
+      expect(fixture.events).toEqual([{
+        name: "omo.computer.permission_required",
+        data: { session_id: fixture.session.sessionId, permission: "screen_recording", app: "Test App" },
+      }])
+    } finally {
+      marker.mockRestore()
       await fixture.close()
     }
   }, 120_000)
