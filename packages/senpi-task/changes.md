@@ -5,6 +5,13 @@
   gate stays `gpt-6-astra`, so the two deep lanes still never substitute each other's model.
 - Tests that pinned `xhigh` for deep-high (`fallback-chains`, `openai-categories`, `openai-lane`, `gating`, `resolve-category`)
   now expect `high`.
+- `manager/credential-failure.ts` `terminalFailureMessage`: a task that ends on a spent usage limit no longer ends on the bare
+  provider error. The text adds `<provider>/<model> reached its usage limit, so this task stopped.`, then
+  `No other model in its fallback chain could take over.` when `runtimeFallbackCandidates` leaves nothing (a deep-high child
+  whose every Astra lane is spent), then the recovery: retry after the reset or point the category elsewhere in omo.json. A
+  live deep-high run against a ChatGPT-subscription Astra that answers `access_terminated_error` returns exactly that text to
+  the parent. `credential-failure.test.ts` covers the exhausted chain, a limit with rungs left (no exhaustion claim) and an
+  ordinary error (unchanged).
 
 ## 2026-09-30 - The foreground task wait is bounded at 900 s (#8759 cluster, senpi#2323)
 
