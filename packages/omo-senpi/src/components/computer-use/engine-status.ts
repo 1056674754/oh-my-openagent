@@ -101,7 +101,7 @@ export class TrackedDesktopService extends DesktopService {
 
   #report(error: Error): void {
     if (error instanceof DesktopEngineRpcError && error.data !== null && "code" in error.data) {
-      if (error.data.code === "PermissionDenied" && error.data.permission !== undefined) {
+      if (error.data.code === "PermissionDenied" && error.data.permission != null) {
         this.#onPermissionRequired?.(error.data.permission)
       }
     }

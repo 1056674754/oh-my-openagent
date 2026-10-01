@@ -266,7 +266,8 @@ export class HostSessionClient {
   private handleControl(control: HostControlRecord): void {
     switch (control.type) {
       case "extension_ui_request":
-        return this.answerUi(control)
+        this.answerUi(control)
+        return
       case "session_parked": {
         const sessionId = this.routingId ?? control.sessionId
         this.routingId = undefined
@@ -280,7 +281,7 @@ export class HostSessionClient {
         return
       }
       default:
-        return unreachable(control)
+        unreachable(control)
     }
   }
 

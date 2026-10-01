@@ -1465,7 +1465,7 @@ class TaskManagerImpl implements TaskManager {
     return { ok: true, release: () => this.#concurrency.releaseLease(record.task_id, epoch) }
   }
 
-  #releaseSlot(taskId: string, model: string, epoch: number): void {
+  #releaseSlot(taskId: string, _model: string, epoch: number): void {
     // Release once per (task, epoch). A stale re-release of an already-released epoch is a no-op;
     // a revived task's higher epoch supersedes the prior one so its later release still counts.
     // A lease an older run still holds is released even after a newer epoch was: runtime fallback can

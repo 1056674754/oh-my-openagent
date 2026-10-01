@@ -103,4 +103,18 @@ describe("computer permission events through the real session", () => {
       await supported.close()
     }
   }, 120_000)
+
+  test("drops an engine PermissionDenied whose permission data is not recognized", async () => {
+    // given
+    const fixture = await permissionSession({ permission: "camera" })
+    try {
+      // when
+      await fixture.execute("computer", capture)
+      // then
+      expect(fixture.methods).toContain("capture")
+      expect(fixture.events).toEqual([])
+    } finally {
+      await fixture.close()
+    }
+  }, 120_000)
 })

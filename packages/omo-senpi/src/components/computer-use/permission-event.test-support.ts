@@ -20,6 +20,7 @@ export const input = { action: "call", chain: [{ method: "type", args: ["hello"]
 
 export async function permissionSession(options: {
   readonly error?: string
+  readonly permission?: string
   readonly engineFailure?: "native-unavailable" | "quarantined"
   readonly platform?: string
   readonly sessionContext?: Readonly<Record<string, string>>
@@ -39,7 +40,7 @@ export async function permissionSession(options: {
         message: "Test engine is unavailable", cause: "none",
       })
       const child = spawn(process.execPath, [join(import.meta.dir, "permission-engine.test-fixture.mjs")], {
-        env: { PATH: process.env.PATH, HOME: home, PERMISSION_TEST_ERROR: options.error },
+        env: { PATH: process.env.PATH, HOME: home, PERMISSION_TEST_ERROR: options.error, PERMISSION_TEST_PERMISSION: options.permission },
         stdio: "pipe",
         windowsHide: true,
       })

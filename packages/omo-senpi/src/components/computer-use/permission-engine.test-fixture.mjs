@@ -23,7 +23,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   if (method === "capabilities") return send({ id, result: capabilities })
   if (method === "stopPath.start" || method === "stopPath.status") return send({ id, result: status })
   if (method !== "capture" && method !== "typeText") return send({ id, result: null })
-  const permission = method === "capture" ? "screen_recording" : "accessibility"
+  const permission = process.env.PERMISSION_TEST_PERMISSION ?? (method === "capture" ? "screen_recording" : "accessibility")
   const code = process.env.PERMISSION_TEST_ERROR ?? "PermissionDenied"
   return send({
     id,

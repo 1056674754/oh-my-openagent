@@ -5,7 +5,6 @@ import {
   createCompletionNotifier,
   createFsSkillLoader,
   createIsolationRuntime,
-  parseExtensionEntries,
   createTaskManager,
   createTeamMemberRespawnLaunchResolver,
   createTaskRecordStore,
