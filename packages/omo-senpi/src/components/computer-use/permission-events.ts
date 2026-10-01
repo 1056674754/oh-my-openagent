@@ -17,14 +17,49 @@ const markerSchema = z.object({
   data: z.object({ session_id: z.string(), permission: z.enum(["screen_recording", "accessibility"]) }),
 })
 
+const localLatches = (() => {
+  const seen = new Map<string, Set<ChildExtensionEvent["permission"]>>()
+  return Object.freeze({
+    version: 1,
+    claim(root: string, permission: ChildExtensionEvent["permission"]): boolean {
+      const permissions = seen.get(root) ?? new Set<ChildExtensionEvent["permission"]>()
+      if (permissions.has(permission)) return false
+      permissions.add(permission)
+      seen.set(root, permissions)
+      return true
+    },
+  })
+})()
+
+function permissionClaim(): typeof localLatches.claim {
+  try {
+    const retained: unknown = Object.getOwnPropertyDescriptor(globalThis, PERMISSION_LATCHES)?.value
+    const facade = typeof retained === "object" && retained !== null && Object.isFrozen(retained)
+      && "version" in retained && retained.version === 1 && "claim" in retained && typeof retained.claim === "function"
+      ? retained : localLatches
+    Object.defineProperty(globalThis, PERMISSION_LATCHES, {
+      value: facade, writable: false, configurable: false, enumerable: false,
+    })
+    const claim = facade.claim
+    if (typeof claim !== "function") return localLatches.claim
+    return (root, permission) => {
+      try {
+        const claimed: unknown = claim(root, permission)
+        if (typeof claimed === "boolean") return claimed
+      } catch {
+        return localLatches.claim(root, permission)
+      }
+      return localLatches.claim(root, permission)
+    }
+  } catch {
+    // A hostile retained slot must not replace the caller's native permission denial.
+    return localLatches.claim
+  }
+}
+
 /** Root identity belongs to session_start, never to a shared tool's in-process child context. */
 export function wireComputerPermissionEvents(pi: SenpiExtensionAPI, env: NodeJS.ProcessEnv, logger: ComponentLogger) {
-  // Uncached extension reloads must retain already-emitted permissions even if journaling failed.
-  const registry: typeof globalThis & {
-    [PERMISSION_LATCHES]?: Map<string, Set<ChildExtensionEvent["permission"]>>
-  } = globalThis
-  const seen = registry[PERMISSION_LATCHES] ?? new Map<string, Set<ChildExtensionEvent["permission"]>>()
-  registry[PERMISSION_LATCHES] = seen
+  const claim = permissionClaim()
   let sessionId: string | undefined
   let unsubscribe: (() => void) | undefined
   const report = (permission: Omit<ChildExtensionEvent, "type">): void => {
@@ -34,10 +69,7 @@ export function wireComputerPermissionEvents(pi: SenpiExtensionAPI, env: NodeJS.
       pi.rpc.emit(CHILD_PERMISSION_EVENT, event)
       return
     }
-    const permissions = seen.get(sessionId) ?? new Set<ChildExtensionEvent["permission"]>()
-    if (permissions.has(event.permission)) return
-    permissions.add(event.permission)
-    seen.set(sessionId, permissions)
+    if (!claim(sessionId, event.permission)) return
     const data = { session_id: sessionId, permission: event.permission, ...(event.app === undefined ? {} : { app: event.app }) }
     pi.rpc.emit(ROOT_PERMISSION_EVENT, data)
     try {
@@ -49,18 +81,16 @@ export function wireComputerPermissionEvents(pi: SenpiExtensionAPI, env: NodeJS.
   pi.on("session_start", (_payload, context) => {
     sessionId = computerUseSessionId(context)
     if (sessionId === undefined) return
-    const permissions = seen.get(sessionId) ?? new Set<ChildExtensionEvent["permission"]>()
     if (typeof context === "object" && context !== null && "sessionManager" in context) {
       const manager = context.sessionManager
       if (typeof manager === "object" && manager !== null && "getEntries" in manager && typeof manager.getEntries === "function") {
         const entries: unknown = manager.getEntries()
         if (Array.isArray(entries)) for (const entry of entries) {
           const marker = markerSchema.safeParse(entry)
-          if (marker.success && marker.data.data.session_id === sessionId) permissions.add(marker.data.data.permission)
+          if (marker.success && marker.data.data.session_id === sessionId) claim(sessionId, marker.data.data.permission)
         }
       }
     }
-    if (permissions.size > 0) seen.set(sessionId, permissions)
     unsubscribe?.()
     unsubscribe = pi.events?.on(TASK_CHILD_EXTENSION_EVENT, (value) => {
       const parsed = forwardedSchema.safeParse(value)
