@@ -83,7 +83,8 @@ fn nonzero_exit_without_permission_is_permission_denied_with_tcc_identity() {
     };
     assert_eq!(error.code, ErrorCode::PermissionDenied);
     assert!(
-        error.message.contains("TCC identity: executable="),
+        error.message.contains("TCC identity: responsible=")
+            || error.message.contains("TCC identity: unresolved (engine executable="),
         "{}",
         error.message
     );
