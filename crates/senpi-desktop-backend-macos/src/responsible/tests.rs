@@ -41,15 +41,48 @@ fn unresolved_path_does_not_guess_an_identity() {
     assert!(resolve_with(41, |_| Some(42), |_| None, |_| panic!("bundle lookup")).is_none());
 }
 
-#[test]
-fn reads_bundle_identifier_from_a_real_plist() {
+fn app_with_info_plist(identifier_entry: &str) -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let contents = dir.path().join("QA.app/Contents");
     std::fs::create_dir_all(contents.join("MacOS")).unwrap();
-    std::fs::write(contents.join("Info.plist"),
-        r#"<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>org.example.qa</string></dict></plist>"#
-    ).unwrap();
-    assert_eq!(bundle_id(&contents.join("MacOS/QA")).as_deref(), Some("org.example.qa"));
+    std::fs::write(contents.join("Info.plist"), format!(
+        r#"<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key>{identifier_entry}</dict></plist>"#
+    )).unwrap();
+    let executable = contents.join("MacOS/QA");
+    (dir, executable)
+}
+
+#[test]
+fn reads_bundle_identifier_from_a_real_plist() {
+    let (_dir, executable) = app_with_info_plist("<string>org.example.qa</string>");
+    assert_eq!(bundle_id(&executable).as_deref(), Some("org.example.qa"));
+}
+
+#[test]
+fn oversized_bundle_identifier_is_not_reported() {
+    let (_dir, executable) = app_with_info_plist(&format!("<string>{}</string>", "a".repeat(1024 * 1024)));
+    assert!(bundle_id(&executable).is_none());
+}
+
+#[test]
+fn non_string_bundle_identifier_is_not_reported() {
+    let (_dir, executable) = app_with_info_plist("<integer>42</integer>");
+    assert!(bundle_id(&executable).is_none());
+}
+
+#[test]
+fn oversized_info_plist_is_not_read() {
+    let (_dir, executable) = app_with_info_plist(&format!("<string>org.example.qa</string><key>Pad</key><string>{}</string>", "p".repeat(1024 * 1024 + 1)));
+    assert!(bundle_id(&executable).is_none());
+}
+
+#[test]
+fn bundle_identifier_rejects_characters_outside_reverse_dns() {
+    assert!(valid_bundle_id("org.example.qa-1_x"));
+    assert!(!valid_bundle_id(""));
+    assert!(!valid_bundle_id("org.example qa"));
+    assert!(!valid_bundle_id("org\nexample"));
+    assert!(!valid_bundle_id(&"a".repeat(256)));
 }
 
 #[test]
