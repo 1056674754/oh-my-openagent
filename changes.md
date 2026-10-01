@@ -1,3 +1,9 @@
+## 2026-10-01 - The fake clock no longer calls the deprecated `AtomicU64::fetch_update` (#9383)
+
+Rust 1.99 deprecates `fetch_update` in favour of `try_update`, and `rust-toolchain.toml` follows `stable`, so the desktop engine workflow's `clippy -D warnings` failed on every pull request at `crates/senpi-desktop-backend-fake/src/clock.rs`. `FakeClock::advance` now uses an explicit `compare_exchange_weak` loop with the same saturating result, which compiles without deprecation on older and current stable alike. The existing saturation tests in `tests/scenario.rs` cover it.
+
+`rust-toolchain.toml` now pins `channel = "1.99.0"` instead of `stable`, which every Rust workflow reads, so a new stable release can no longer change the lints that every pull request is checked against. Toolchain upgrades now come as their own pull request, with clippy run on the new version.
+
 ## 2026-10-01 - Preserve Windows killed-task classification across repeated Bun advisories (#9228)
 
 Windows RPC exits now accept any positive number of Bun's known child-reaper startup advisory lines as advisory-only stderr. An empty stderr remains an external termination, while any other stderr line still proves a crash. This preserves `status: error` with `killed: true` for externally terminated code-1/no-signal children without weakening crash diagnostics.
