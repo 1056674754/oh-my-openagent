@@ -3,6 +3,7 @@
 use std::ffi::CStr;
 use std::os::unix::ffi::OsStrExt;
 use std::io::Read;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 use objc2_core_foundation::{
@@ -68,11 +69,20 @@ fn bundle_id(executable: &Path) -> Option<String> {
     bundle_id_from_plist(&read_bounded(&app.join("Contents/Info.plist"))?)
 }
 
-/// Reads at most `MAX_INFO_PLIST_BYTES`; a larger file, or one that grew
-/// while being read, is rejected instead of parsed.
+/// Reads at most `MAX_INFO_PLIST_BYTES` from a regular file; a larger file, one
+/// that grew while being read, or a FIFO/device (opened without blocking and
+/// rejected by the descriptor's own type) is never parsed.
 fn read_bounded(path: &Path) -> Option<Vec<u8>> {
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY)
+        .open(path)
+        .ok()?;
+    if !file.metadata().ok()?.file_type().is_file() {
+        return None;
+    }
     let mut bytes = Vec::new();
-    std::fs::File::open(path).ok()?.take(MAX_INFO_PLIST_BYTES + 1).read_to_end(&mut bytes).ok()?;
+    file.take(MAX_INFO_PLIST_BYTES + 1).read_to_end(&mut bytes).ok()?;
     (u64::try_from(bytes.len()).ok()? <= MAX_INFO_PLIST_BYTES).then_some(bytes)
 }
 
