@@ -32,6 +32,15 @@ struct Settings {
 }
 
 impl Settings {
+    fn permission_denied(
+        &self,
+        permission: TccPermission,
+        opener: impl FnOnce(&str) -> bool,
+    ) -> DesktopError {
+        let (opened, opened_now) = self.open_settings_once(permission, opener);
+        denial(permission, host_app_name(), opened, opened_now)
+    }
+
     fn open_settings_once(
         &self,
         permission: TccPermission,
@@ -73,8 +82,7 @@ fn open_settings(_: &str) -> bool {
 }
 
 pub(crate) fn permission_denied(permission: TccPermission) -> DesktopError {
-    let (opened, opened_now) = SETTINGS.open_settings_once(permission, open_settings);
-    denial(permission, host_app_name(), opened, opened_now)
+    SETTINGS.permission_denied(permission, open_settings)
 }
 
 fn denial(permission: TccPermission, app: String, opened: bool, opened_now: bool) -> DesktopError {
@@ -132,10 +140,10 @@ mod tests {
         let settings = Settings::default();
         let opened = RefCell::new(Vec::new());
         let opener = |url: &str| { opened.borrow_mut().push(url.to_owned()); true };
-        for permission in [TccPermission::ScreenRecording, TccPermission::ScreenRecording,
-            TccPermission::Accessibility, TccPermission::Accessibility] {
-            assert!(settings.open_settings_once(permission, opener).0);
-        }
+        assert_eq!(settings.open_settings_once(TccPermission::ScreenRecording, opener), (true, true));
+        assert_eq!(settings.open_settings_once(TccPermission::ScreenRecording, |_| panic!("retry")), (true, false));
+        assert_eq!(settings.open_settings_once(TccPermission::Accessibility, opener), (true, true));
+        assert_eq!(settings.open_settings_once(TccPermission::Accessibility, |_| panic!("retry")), (true, false));
         assert_eq!(*opened.borrow(), [
             "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
             "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
@@ -145,8 +153,8 @@ mod tests {
     #[test]
     fn failed_open_is_not_retried_and_keeps_its_failure_state() {
         let settings = Settings::default();
-        assert!(!settings.open_settings_once(TccPermission::Accessibility, |_| false).0);
-        assert!(!settings.open_settings_once(TccPermission::Accessibility, |_| panic!("retry")).0);
+        assert_eq!(settings.open_settings_once(TccPermission::Accessibility, |_| false), (false, true));
+        assert_eq!(settings.open_settings_once(TccPermission::Accessibility, |_| panic!("retry")), (false, false));
     }
 
     #[test]
@@ -171,20 +179,37 @@ mod tests {
     }
 
     #[test]
-    fn repeat_guidance_describes_the_pane_opened_earlier_not_a_new_open() {
-        let first = denial(TccPermission::ScreenRecording, "QA App".to_owned(), true, true);
-        let repeated = denial(TccPermission::ScreenRecording, "QA App".to_owned(), true, false);
+    fn repeated_denials_use_the_real_latch_and_current_call_flag() {
+        let settings = Settings::default();
+        let opened = RefCell::new(0);
+        let first = settings.permission_denied(TccPermission::ScreenRecording, |_| {
+            *opened.borrow_mut() += 1;
+            true
+        });
+        let repeated = settings.permission_denied(TccPermission::ScreenRecording, |_| {
+            panic!("repeat denial reopened Settings")
+        });
+        assert_eq!(*opened.borrow(), 1);
         assert!(first.message.contains("has been opened"));
         assert!(repeated.message.contains("opened earlier"));
         assert!(!repeated.message.contains("has been opened"));
     }
 
     #[test]
-    fn repeat_guidance_does_not_claim_a_failed_pane_was_opened() {
-        let first = denial(TccPermission::Accessibility, "QA App".to_owned(), false, true);
-        let repeated = denial(TccPermission::Accessibility, "QA App".to_owned(), false, false);
+    fn repeated_denials_after_failed_opening_do_not_claim_success() {
+        let settings = Settings::default();
+        let opened = RefCell::new(0);
+        let first = settings.permission_denied(TccPermission::Accessibility, |_| {
+            *opened.borrow_mut() += 1;
+            false
+        });
+        let repeated = settings.permission_denied(TccPermission::Accessibility, |_| {
+            panic!("repeat denial retried Settings")
+        });
+        assert_eq!(*opened.borrow(), 1);
         assert!(first.message.contains("could not be opened automatically"));
         assert!(repeated.message.contains("Open System Settings"));
+        assert!(!repeated.message.contains("has been opened"));
         assert!(!repeated.message.contains("opened earlier"));
     }
 }
