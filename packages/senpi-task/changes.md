@@ -1,3 +1,12 @@
+## 2026-10-01 - Windows child parity regression (#9274, #6709)
+
+- `builtin-tool-parity.integration.test.ts` reloads the in-process child loader beside the `DefaultResourceLoader` policy used by process children and compares their builtin registrations directly. This removes both Windows CLI cold starts while pinning equal platform-specific builtin counts, exact names, and `web_search`; shared parent and session-default tool policy remains covered by the existing surface tests.
+
+## 2026-09-30 - In-process task children load senpi's builtin tools (#9274, #6709)
+
+- `runners/in-process/child-loader.ts` now uses senpi's `DefaultResourceLoader` with every path-loaded extension and resource disabled, so in-process children receive the same builtin extension factories as process children without re-running the parent's omo-senpi or project extensions. The child binds the loaded extensions so model-aware variants settle before its first request, keeps process-mode's `--no-ask-user` flag, and preserves category/agent allow and deny policy. Shared task/workpool tools now follow process mode; lead-only workflow/team and question tools remain excluded.
+- `builtin-tool-parity.integration.test.ts` drives both execution modes through a local OpenAI-compatible provider and compares the actual tool payloads. Before the fix the in-process child had 11 tools versus 27 in process mode and lacked `web_search`; after bundle regeneration both payloads are identical.
+
 ## 2026-10-01 - deep-high runs GPT-6 Astra at high (#9372)
 
 - `category/fallback-chains.ts` `deep-high` and `category/openai-categories.ts` (builtin default
