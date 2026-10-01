@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, stat, unlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -136,12 +136,23 @@ describe("cross-process lock protocol", () => {
     // #given
     const lockPath = await createLockPath()
     let now = Date.now()
+    const events: string[] = []
     restoreLockFs.push(setLockCandidateFsForTests({
       link: async () => { throw codedError("EACCES") },
-      writeFallback: async () => { throw new Error("simulated writer crash") },
+      writeFallback: async () => {
+        events.push("fallback-write")
+        throw new Error("simulated writer crash")
+      },
+      unlink: async (candidatePath) => {
+        events.push("candidate-unlink")
+        await unlink(candidatePath)
+      },
     }))
     const options = { incompleteLockGraceMs: 100, now: () => now }
     await expect(acquireLock(lockPath, await createLockRecord("facts-queue"), options)).rejects.toThrow("simulated writer crash")
+    // The candidate is removed only after the fallback settled, so the crash is this call's own
+    // rejection and never a promise left pending without a handler while the cleanup runs.
+    expect(events).toEqual(["fallback-write", "candidate-unlink"])
     restoreLockFs.pop()?.()
     restoreLockFs.push(setLockCandidateFsForTests({ link: async () => { throw codedError("EACCES") } }))
     now = (await stat(lockPath)).mtimeMs

@@ -180,7 +180,9 @@ async function publishExclusive(lockPath: string, record: LockRecord): Promise<b
       return true
     } catch (error) {
       if (isCandidatePublishRace(error)) return false
-      if (LINK_FALLBACK_ERRORS.has(errorCode(error) ?? "")) return publishFallback(lockPath, record)
+      // Awaited so the finally below removes the candidate only after the fallback settles; a bare
+      // return would leave a fallback rejection unhandled while the candidate unlink is pending.
+      if (LINK_FALLBACK_ERRORS.has(errorCode(error) ?? "")) return await publishFallback(lockPath, record)
       throw error
     }
   } finally {
