@@ -187,7 +187,14 @@ export function createGatewayStore(options: GatewayStoreOptions): GatewayStore {
     const id = nextId++
     const reply = new Promise<unknown>((resolve, reject) => pending.set(id, { worker: active, resolve, reject }))
     active.ref()
-    active.postMessage({ type: "request", id, op, args })
+    try {
+      active.postMessage({ type: "request", id, op, args })
+    } catch (error) {
+      const entry = pending.get(id)
+      pending.delete(id)
+      if (pending.size === 0) active.unref()
+      entry?.reject(error instanceof Error ? error : new Error(String(error)))
+    }
     return reply
   }
 
@@ -250,7 +257,15 @@ export function createGatewayStore(options: GatewayStoreOptions): GatewayStore {
 
   return {
     registerStoreExtension: (extension) => call("extension_register", { extension, now: now() }),
-    extensionCall: (name, op, args) => call("extension_call", { name, op, args, now: now() }),
+    extensionCall: async (name, op, args) => {
+      let cloned: unknown
+      try {
+        cloned = structuredClone(args)
+      } catch (error) {
+        return { kind: "refused", code: "invalid_arguments", message: `Extension arguments are not cloneable: ${error instanceof Error ? error.message : String(error)}` }
+      }
+      return await call("extension_call", { name, op, args: cloned, now: now() })
+    },
     busyTimeoutMs: config.busy_timeout_ms,
     now,
     identity: async () => (await start()).self,
