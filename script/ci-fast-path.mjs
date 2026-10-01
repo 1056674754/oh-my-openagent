@@ -12,6 +12,7 @@ const fullMatrixLabel = "ci:full-matrix"
 const platformSensitiveExactPaths = new Set([
   ".github/workflows/ci.yml",
   "script/ci-fast-path.mjs",
+  "script/ci-leg-tests-guard.mjs",
   "bunfig.win2.parallel.toml",
   "bunfig.win2.parallel.windows.toml",
   "script/bun-panic-retry.ts",
@@ -67,6 +68,37 @@ function isWebPath(path) {
   )
 }
 
+// Files that only document or describe the project. They change no code a test
+// loads, so they alone never require the Windows and macOS legs. Anything under
+// packages/*/src is runtime regardless of its name (prompts and skills ship
+// from there).
+const documentationBasename =
+  /^(?:readme|changelog|changes|agents|claude|contributing|license|code_of_conduct|security|roadmap|third-party-notices|cla)(?:\.[0-9a-z-]+)*$/i
+const packageSourcePath = /^packages\/[^/]+\/src\//
+
+function isDocumentationPath(path) {
+  if (packageSourcePath.test(path)) return false
+  const basename = path.slice(path.lastIndexOf("/") + 1)
+  if (documentationBasename.test(basename)) return true
+  // Top-level prose (README translations and similar) is documentation too.
+  return !path.includes("/") && /\.mdx?$/i.test(path)
+}
+
+// Repository metadata that no test loads: other workflows, issue templates and
+// similar. ci.yml is platform-sensitive and .github/scripts runs inside the test
+// legs, so both stay runtime.
+function isRepositoryMetadataPath(path) {
+  if (!path.startsWith(".github/")) return false
+  return !path.startsWith(".github/scripts/") && path !== ".github/workflows/ci.yml"
+}
+
+// A runtime-touching path can change what a test observes on any operating
+// system, so the change must run every OS leg. It fails closed: a path is
+// runtime unless it is clearly web, documentation, or repository metadata.
+export function isRuntimePath(path) {
+  return !isWebPath(path) && !isDocumentationPath(path) && !isRepositoryMetadataPath(path)
+}
+
 function isPlatformSensitivePath(path) {
   if (platformSensitiveExactPaths.has(path)) return true
   if (path.endsWith(".ps1")) return true
@@ -93,11 +125,13 @@ export function classifyCiMode({
     isRealMerge &&
     generatedReleaseMerge.test(subject)
   const webOnly = diffAvailable && changedPaths.length > 0 && changedPaths.every(isWebPath)
-  // Ubuntu-first is a pull-request optimization only, and it fails open: any
-  // event we cannot fully inspect keeps all three operating systems.
+  const runtimeTouching = !diffAvailable || changedPaths.some(isRuntimePath)
+  // Ubuntu-first is a pull-request optimization only for changes no test can
+  // observe, and it fails open: any event we cannot fully inspect keeps all
+  // three operating systems.
   const fullMatrix =
     eventName === "push" ||
-    !diffAvailable ||
+    runtimeTouching ||
     releaseStateHeadRef.test(headRef) ||
     labels.includes(fullMatrixLabel) ||
     changedPaths.some(isPlatformSensitivePath)
@@ -107,6 +141,7 @@ export function classifyCiMode({
     webOnly,
     runHeavy: !(generatedReleasePush || webOnly),
     fullMatrix,
+    runtimeTouching,
   }
 }
 
