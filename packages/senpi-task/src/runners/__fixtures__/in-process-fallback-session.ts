@@ -75,6 +75,7 @@ export async function createFallbackSessionHarness(errorMessage: string): Promis
   const primary = modelRegistry.find("runtime-fallback-test", "dead-primary")
   if (primary === undefined) throw new Error("primary model missing")
   const settingsManager = createRuntimeFallbackSettings(
+    { cwd: root, agentDir: join(root, "agent"), projectTrusted: false },
     "runtime-fallback-test/dead-primary",
     [{
       source: "category",
