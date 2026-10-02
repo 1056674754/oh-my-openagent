@@ -158,10 +158,12 @@ function buildChildProfile(
   env[OMO_SENPI_TASK_RPC_CHILD] = "1"
   // stdio-RPC children forward extension events (e.g. computer.permission_required) only when
   // their client capabilities advertise extension_events; without it the event never reaches the wire.
+  // senpi's parseClientCapabilities splits on COMMAS only, so join and check with a comma split:
+  // a space-joined value would parse one capability as "b extension_events" and drop the event.
   for (const varName of ["SENPI_RPC_CLIENT_CAPABILITIES", "RPC_CLIENT_CAPABILITIES", "OMO_RPC_CLIENT_CAPABILITIES"]) {
     const current = env[varName]
-    if (current !== undefined && !current.split(/[\s,]+/).includes("extension_events")) {
-      env[varName] = current.trim() === "" ? "extension_events" : `${current.trim()} extension_events`
+    if (current !== undefined && !current.split(",").map((entry) => entry.trim()).includes("extension_events")) {
+      env[varName] = current.trim() === "" ? "extension_events" : `${current.trim()},extension_events`
     }
   }
   if (env.SENPI_RPC_CLIENT_CAPABILITIES === undefined) env.SENPI_RPC_CLIENT_CAPABILITIES = "extension_events"
