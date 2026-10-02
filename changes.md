@@ -1,3 +1,11 @@
+## 2026-10-02 - The skill tool lists skills and commands in a stable order (#9432)
+
+Reported by @kimchupa-l10n, with relay captures that pinned the cause. `sortByScopePriority` in `packages/skills-loader-core/src/tools/skill/scope-priority.ts` compared scope priority only, so items in the same scope kept their discovery order, and that order varies between processes. The OpenCode edition's skill tool description (`packages/omo-opencode/src/tools/skill/description-formatter.ts`) is built from that sort, so the tool definition changed from one session to the next and every new session and subagent missed the Anthropic prompt cache.
+
+The sort is now total: scope priority first, then name, compared by UTF-16 code units so the order cannot depend on the machine's locale. Scope precedence is unchanged, and `matchCommandByName` still resolves by exact name with the higher-priority scope winning a shared name. OmO Native does not use this sort: `omo-senpi`, `senpi-task` and `omo-native` never import `skills-loader-core`, Native's tool descriptions are static, and the bundled skills Native contributes are already listed in sorted order (`packages/omo-senpi/src/components/bundled-skills/index.ts:40`).
+
+`description-formatter.order.test.ts` renders the same skills and commands discovered in different orders and requires byte-identical descriptions; both cases fail on `dev` and pass with this change. `skill-matcher.test.ts` covers exact-name command resolution and scope precedence under both discovery orders.
+
 ## 2026-10-02 - In-process task children run session_shutdown before they are disposed (#9413)
 
 Since #9343, an in-process task child loads the engine's builtin extensions, codemode included. `packages/senpi-task/src/runners/in-process/child-handle.ts` tore the child down with a bare `session.dispose()`, on both the handle's `dispose()` and `discardUnstartedChildSession()`. That never emits `session_shutdown` (only the engine's `AgentSessionRuntime` does), and codemode closes its per-session bridge HTTP server only on `session_shutdown`. So every in-process child left a listening loopback server and a keep-alive socket behind, and `omo -p` never exited after it delegated a task.
