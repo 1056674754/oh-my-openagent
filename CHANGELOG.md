@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**In the desktop app's restricted modes, the agent's own tools stop asking for approval, and a bash call from an eval cell no longer hangs.** Files that ship with the app no longer count as outside paths, the first Python cell after a cold start works on Windows x64, and delegated tasks keep your timeout settings and run at thinking levels their models accept. This release runs on the senpi 2026.10.1-3 engine.
+
 ### Fixed
 
 In the desktop app's "Work in this project" and "Ask first" modes, senpi's own internal tools (todo, tool search, ask-user, monitor, memory) no longer ask for approval, reading files that ship inside the app no longer counts as an outside path, and a bash call from an eval cell shows its approval prompt instead of hanging. Real commands, outside reads and outside watches still ask. ([senpi#2511](https://github.com/code-yeongyu/senpi/issues/2511), [senpi#2513](https://github.com/code-yeongyu/senpi/issues/2513), [senpi#2512](https://github.com/code-yeongyu/senpi/issues/2512))
@@ -18,6 +20,12 @@ Tool search keeps working after a reload or session replacement. Thanks to @jeri
 Toggle-only reasoning models offer only the thinking states their API accepts. Thanks to @effortprogrammer. ([senpi#891](https://github.com/code-yeongyu/senpi/issues/891))
 
 On a Claude subscription, a long run survives a lost session whose re-sent conversation is rejected as too long, and images the agent read with a tool are no longer re-sent as new attachments (thanks to @willowite). ([senpi#2480](https://github.com/code-yeongyu/senpi/issues/2480), [senpi#2490](https://github.com/code-yeongyu/senpi/issues/2490))
+
+A delegated task that runs in-process now keeps your timeout and retry settings, such as `retry.provider.streamStartTimeoutMs`, instead of the built-in defaults. Thanks to @rhyme227 for the report. ([#9353](https://github.com/code-yeongyu/oh-my-openagent/issues/9353))
+
+Builtin category chains only name thinking levels their models accept, so child sessions no longer flood `fallback.log` with `validation_warning` lines and each rung runs at its declared level instead of a silent clamp. Thanks to @markshikada for the report and the byte-compare that pinned it down. ([#9378](https://github.com/code-yeongyu/oh-my-openagent/issues/9378))
+
+On macOS, a repeated permission denial no longer claims the privacy pane was just opened; it points at the pane opened earlier, or tells you to open it when the first attempt failed. ([omo-desktop-app#1437](https://github.com/code-yeongyu/omo-desktop-app/issues/1437))
 
 ## [5.1.8] - 2026-10-01
 
