@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-**Hotfix: a delegated task whose connection to its host drops no longer hangs and holds its lane.** Before, the task stayed suspended with its lane taken, so new tasks queued behind it until the session was restarted. This release runs on the senpi 2026.10.1-3 engine.
+**New tasks no longer queue forever behind a delegated task that lost its connection to the host.** Such a task used to stay suspended with its lane taken until the session restarted; now it reconnects, or ends within a bounded time and frees the lane. This release runs on the senpi 2026.10.1-3 engine.
 
 ### Fixed
 
