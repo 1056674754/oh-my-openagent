@@ -28,6 +28,12 @@ Builds on #9406 (Dante-dan), which reports a recovery `continued` only after the
 - Pins updated to the new variants: `fallback-chains`, `category-routing-policy`, `unspecified-low-chain`,
   `in-process-runtime-fallback`, `manager-runtime-fallback`.
 
+## 2026-10-02 - A split or repeated Bun reaper advisory is still a Windows kill (#9228)
+
+- `runners/rpc/exit-mapping.ts` `hasOnlyWindowsStartupAdvisories` now matches the sentence senpi's `startHostChildReaper` writes (`packages/coding-agent/src/modes/rpc/child-reaper.ts`, ending `until this host exits`) as source text: one or more copies, each either whole on one line or split across lines at any point with only its own remaining words after it. Before, every line had to start with the sentence's first 119 characters, so a copy whose tail (`host exits`) arrived on its own line made the kill a crash (dev run 36881640066, `kill_marks_error_killed_true`).
+- Any other text still makes the exit a crash: a real error line before or after the advisory, the advisory's head followed by other words, a lone piece of the sentence with no copy started before it, or a copy shorter than the head. The last copy may stop short at the end of stderr once it reaches `until this`, as #9347 accepted.
+- The N-copy tests used a guessed `until this runtime exits` ending; they now use the source sentence. New cases: the dev CI excerpt with `host exits` on the next CRLF line, three split points repeated beside a whole copy (both crashed on the base, killed now), and five advisory-plus-other-text shapes that stay crashed.
+
 ## 2026-10-01 - In-process task children honor the caller's settings (#9353)
 
 - `runners/in-process/runtime-fallback-settings.ts` `createRuntimeFallbackSettings` now takes the caller's settings source (`cwd`, `agentDir`, `projectTrusted`) and gives the child a private in-memory copy of the caller's global and project settings, replacing only the fallback policy: `retry.modelFallback`, `retry.fallbackChains` and `retry.fallbackRevertPolicy` come from the child's own chain, and the child's `maxRetries`/`baseDelayMs` override wins over both caller scopes. Before, the child got an in-memory manager holding only that policy (#6478), so `retry.provider.streamStartTimeoutMs`, `retry.provider.timeoutMs`, `httpIdleTimeoutMs`, `compaction.*` and `thinkingBudgets` fell back to the engine defaults (a 300 s first-event guard and a 300 s request idle timeout). Children now also honor the caller's compaction and thinking settings, matching process children.

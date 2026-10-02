@@ -185,10 +185,11 @@ function waitForRecord(stateDir, predicate, timeoutMs) {
 const PARENT_TASK_CREATE_MS = 120_000
 const CHILD_SPAWN_MS = 40_000
 
-async function waitForRunningRpcChild(stateDir, name) {
-  const created = await waitForRecord(stateDir, (r) => r.name === name, PARENT_TASK_CREATE_MS)
+export async function waitForRunningRpcChild(stateDir, name, budgets = {}) {
+  const { parentTaskCreateMs = PARENT_TASK_CREATE_MS, childSpawnMs = CHILD_SPAWN_MS } = budgets
+  const created = await waitForRecord(stateDir, (r) => r.name === name, parentTaskCreateMs)
   if (created === undefined) return undefined
-  return waitForRecord(stateDir, (r) => r.name === name && runningRpcChild(r), CHILD_SPAWN_MS)
+  return waitForRecord(stateDir, (r) => r.name === name && runningRpcChild(r), childSpawnMs)
 }
 
 async function cleanupSenpiHost(child) {
