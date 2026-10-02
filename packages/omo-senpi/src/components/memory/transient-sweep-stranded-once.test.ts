@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { rmSyncEfaultTolerant } from "./teardown.test-support"
 
 import { TRANSIENT_DIRNAME } from "./transient-identity"
-import { STRANDED_REPORTED_MARKER } from "./transient-stranded"
+import { STRANDED_REPORTS_DIRNAME, strandedReportPath } from "./transient-stranded"
 import { TRANSIENT_RUN_MAX_AGE_MS, sweepTransientMemoryRuns } from "./transient-sweep"
 
 const roots: string[] = []
@@ -51,11 +51,15 @@ function strandedRun(root: string, token: string, identity: string): string {
   return from
 }
 
-async function sweepTimes(root: string, times: number) {
+/**
+ * Ages the tree once, then sweeps `times` times at the same clock, as real time does between sweeps:
+ * nothing re-ages the tree, so anything a sweep writes under a run root would make it look active.
+ */
+async function sweepTimes(root: string, times: number, options: { readonly age?: boolean } = {}) {
   const warnings: { message: string; fields?: Readonly<Record<string, unknown>> }[] = []
   const results = []
+  if (options.age !== false) ageTree(root)
   for (let pass = 0; pass < times; pass += 1) {
-    ageTree(root)
     results.push(await sweepTransientMemoryRuns({
       memoryRoot: root,
       now: () => NOW,
@@ -98,19 +102,38 @@ describe("stranded transient runs are reported once (#8646)", () => {
     expect(results.map((result) => result.stranded)).toEqual([2, 2])
   })
 
-  test("#given a reported stranded run whose durable identity is later removed #when the sweep runs #then it is promoted without the marker", async () => {
+  test("#given a reported stranded run whose durable identity is then removed #when the very next sweep runs #then it promotes the run and drops the report record", async () => {
     // given
     const root = memoryRoot()
     strandedRun(root, "ddd-4242-zz", "project-1")
     await sweepTimes(root, 1)
+    const record = strandedReportPath(join(root, TRANSIENT_DIRNAME, "ddd-4242-zz"), "project-1")
+    expect(existsSync(record)).toBe(true)
     rmSync(join(root, "agents", "project-1"), { recursive: true, force: true })
 
-    // when
-    const { results } = await sweepTimes(root, 1)
+    // when - no re-aging: the report must not have made the run look active
+    const { results } = await sweepTimes(root, 1, { age: false })
 
     // then
     expect(results[0]?.promoted).toBe(1)
     expect(existsSync(join(root, "agents", "project-1", "repo", "system", "persona.md"))).toBe(true)
-    expect(existsSync(join(root, "agents", "project-1", STRANDED_REPORTED_MARKER))).toBe(false)
+    expect(existsSync(record)).toBe(false)
+    expect(readdirSync(join(root, "agents", "project-1"))).toEqual(["repo"])
+  })
+
+  test("#given a reported stranded run that is then deleted by hand #when the next sweep runs #then its report record is dropped too", async () => {
+    // given
+    const root = memoryRoot()
+    strandedRun(root, "eee-4242-zz", "project-1")
+    await sweepTimes(root, 1)
+    const record = strandedReportPath(join(root, TRANSIENT_DIRNAME, "eee-4242-zz"), "project-1")
+    rmSync(join(root, TRANSIENT_DIRNAME, "eee-4242-zz"), { recursive: true, force: true })
+
+    // when
+    await sweepTimes(root, 1, { age: false })
+
+    // then
+    expect(existsSync(record)).toBe(false)
+    expect(existsSync(join(root, TRANSIENT_DIRNAME, STRANDED_REPORTS_DIRNAME))).toBe(true)
   })
 })

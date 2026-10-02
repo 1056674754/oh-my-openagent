@@ -26,7 +26,7 @@ import {
   removeMemoryTree,
   type TransientWarn,
 } from "./transient-identity"
-import { clearStrandedMarker, reportStrandedOnce } from "./transient-stranded"
+import { clearStrandedReport, pruneStrandedReports, reportStrandedOnce, strandedReportPath } from "./transient-stranded"
 
 export const TRANSIENT_RUN_MAX_AGE_MS = 24 * 60 * 60 * 1000
 export const TRANSIENT_IDENTITY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
@@ -93,6 +93,7 @@ async function sweepRunRoots(
     if (await removeMemoryTree(runRoot, input.warn)) totals.removedRuns += 1
     else totals.kept += 1
   }
+  await pruneStrandedReports(area, input.warn)
 }
 
 /** Promotes every identity in an abandoned run that turned out to hold memory. Returns true when one could not be rescued. */
@@ -105,6 +106,7 @@ async function rescueRunMemory(input: TransientSweepInput, totals: Totals, runRo
     const promotion = await promoteIdentityRoot({
       from,
       to: join(input.memoryRoot, AGENTS_DIRNAME, identity),
+      record: strandedReportPath(runRoot, identity),
       ...(input.warn === undefined ? {} : { warn: input.warn }),
     })
     if (promotion === "promoted") totals.promoted += 1
@@ -124,6 +126,7 @@ async function rescueRunMemory(input: TransientSweepInput, totals: Totals, runRo
 async function promoteIdentityRoot(input: {
   readonly from: string
   readonly to: string
+  readonly record: string
   readonly warn?: TransientWarn
 }): Promise<"promoted" | "stranded"> {
   if (existsSync(input.to)) {
@@ -133,7 +136,7 @@ async function promoteIdentityRoot(input: {
   try {
     await mkdir(dirname(input.to), { recursive: true })
     await rename(input.from, input.to)
-    await clearStrandedMarker(input.to, input.warn)
+    await clearStrandedReport(input.record, input.warn)
     return "promoted"
   } catch (error) {
     input.warn?.("omo-senpi memory transient run promotion failed", {
