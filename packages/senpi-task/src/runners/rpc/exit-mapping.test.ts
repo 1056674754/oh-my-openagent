@@ -65,7 +65,7 @@ describe("classifyChildExit", () => {
   // Bun prints the advisory once per terminated worker thread, and the handle classifies the 4KB tail
   // of the child's stderr (client.stderrTail): with enough advisories that tail starts mid-line.
   test("#given more Bun Windows advisories than the 4KB stderr tail holds #when a killed child exits with code 1 #then it is still killed", () => {
-    const advisory = "child reaper unavailable under Bun on win32: children orphaned by a terminated worker thread stay as zombies until this runtime exits"
+    const advisory = "child reaper unavailable under Bun on win32: children orphaned by a terminated worker thread stay as zombies until this host exits"
     const stderr = tailStderr(`${Array.from({ length: 40 }, () => advisory).join("\n")}\n`)
 
     const outcome = classifyChildExit({ code: 1, signal: null, pid: 6304, stderr, platform: "win32" })
@@ -76,7 +76,7 @@ describe("classifyChildExit", () => {
   })
 
   test("#given a Bun Windows advisory the kill cut mid-write #when the child exits with code 1 #then it is still killed", () => {
-    const advisory = "child reaper unavailable under Bun on win32: children orphaned by a terminated worker thread stay as zombies until this runtime exits"
+    const advisory = "child reaper unavailable under Bun on win32: children orphaned by a terminated worker thread stay as zombies until this host exits"
     const stderr = `${advisory}\n${advisory}\nchild reaper unavailable under Bun on wi`
 
     const outcome = classifyChildExit({ code: 1, signal: null, pid: 6304, stderr, platform: "win32" })
@@ -86,7 +86,7 @@ describe("classifyChildExit", () => {
   })
 
   test("#given a real diagnostic among Bun Windows advisories, whole or cut #when the child exits with code 1 #then it stays crashed", () => {
-    const advisory = "child reaper unavailable under Bun on win32: children orphaned by a terminated worker thread stay as zombies until this runtime exits"
+    const advisory = "child reaper unavailable under Bun on win32: children orphaned by a terminated worker thread stay as zombies until this host exits"
     const advisories = Array.from({ length: 40 }, () => advisory).join("\n")
     // The tail cut a diagnostic line, not an advisory: its fragment ends no advisory line.
     const cutDiagnostic = tailStderr(`${"TypeError: boom ".repeat(300)}\n${advisory}\n`)

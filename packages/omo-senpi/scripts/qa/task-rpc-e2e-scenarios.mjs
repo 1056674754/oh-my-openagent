@@ -136,17 +136,20 @@ function waitForChildClose(child, timeoutMs) {
   })
 }
 
+// The task state may not exist yet, or a record may be mid-write: neither is a harness failure.
+function readRecordsLenient(stateDir) {
+  try {
+    return readRecords(stateDir)
+  } catch (error) {
+    if (error?.code === "ENOENT" || error instanceof SyntaxError) return []
+    throw error
+  }
+}
+
 function waitForRecord(stateDir, predicate, timeoutMs) {
   const tasksDir = join(stateDir, "tasks")
   const logsDir = join(stateDir, "logs")
-  const find = () => {
-    try {
-      return readRecords(stateDir).find(predicate)
-    } catch (error) {
-      if (error?.code === "ENOENT" || error instanceof SyntaxError) return undefined
-      throw error
-    }
-  }
+  const find = () => readRecordsLenient(stateDir).find(predicate)
   const existing = find()
   if (existing !== undefined) return Promise.resolve(existing)
   return new Promise((resolve, reject) => {
@@ -204,7 +207,7 @@ export async function runKillCheck(senpiBin) {
   try {
     const running = await waitForRunningRpcChild(stateDir, "pk")
     if (running === undefined) {
-      const seen = readRecords(stateDir).find((r) => r.name === "pk")
+      const seen = readRecordsLenient(stateDir).find((r) => r.name === "pk")
       const seenMessage = typeof seen?.error_message === "string" ? seen.error_message : ""
       return {
         check: "kill_marks_error_killed_true",
