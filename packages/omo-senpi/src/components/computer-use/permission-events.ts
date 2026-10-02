@@ -11,11 +11,6 @@ const forwardedSchema = z.object({
   root_session_id: z.string(),
   event: z.unknown(),
 })
-const markerSchema = z.object({
-  type: z.literal("custom"),
-  customType: z.literal(ROOT_PERMISSION_EVENT),
-  data: z.object({ session_id: z.string(), permission: z.enum(["screen_recording", "accessibility"]) }),
-})
 
 const localLatches = (() => {
   const seen = new Map<string, Set<ChildExtensionEvent["permission"]>>()
@@ -81,16 +76,12 @@ export function wireComputerPermissionEvents(pi: SenpiExtensionAPI, env: NodeJS.
   pi.on("session_start", (_payload, context) => {
     sessionId = computerUseSessionId(context)
     if (sessionId === undefined) return
-    if (typeof context === "object" && context !== null && "sessionManager" in context) {
-      const manager = context.sessionManager
-      if (typeof manager === "object" && manager !== null && "getEntries" in manager && typeof manager.getEntries === "function") {
-        const entries: unknown = manager.getEntries()
-        if (Array.isArray(entries)) for (const entry of entries) {
-          const marker = markerSchema.safeParse(entry)
-          if (marker.success && marker.data.data.session_id === sessionId) claim(sessionId, marker.data.data.permission)
-        }
-      }
-    }
+    // Do NOT replay persisted permission markers into the claim latch. The process-global
+    // facade already dedupes a denial within this process (across extension reloads). A marker
+    // written by a previous process only ever matters when the session resumes in a NEW process,
+    // which is exactly when suppression is wrong: the grant may have been revoked since (re-sign,
+    // TCC reset, user toggle), so a fresh denial must prompt again. Cross-process resume falls
+    // back to re-prompting, which is the safe default.
     unsubscribe?.()
     unsubscribe = pi.events?.on(TASK_CHILD_EXTENSION_EVENT, (value) => {
       const parsed = forwardedSchema.safeParse(value)
