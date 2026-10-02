@@ -101,11 +101,13 @@ export class StoreExtensions {
     const operation = Object.hasOwn(entry.module, op) ? entry.module[op] : undefined
     if (typeof operation !== "function") return refusal("extension_unknown_op", `Extension ${name} exports no operation ${op}.`)
     const effects: (() => void)[] = []
+    const compensations: (() => void)[] = []
+    let value: unknown
     try {
       await this.ensure(entry.descriptor, now)
-      const value = await transaction(this.ctx, "extension_call", async () => {
+      value = await transaction(this.ctx, "extension_call", async () => {
         const before = extensionSchema(this.ctx.sql)
-        const scope = extensionTransaction({ ...this.ctx, afterCommit: effects }, name, now, this.resolveTarget)
+        const scope = extensionTransaction({ ...this.ctx, afterCommit: effects, afterRollback: compensations }, name, now, this.resolveTarget)
         let timer: ReturnType<typeof setTimeout> | undefined
         try {
           const run = async () => {
@@ -130,16 +132,29 @@ export class StoreExtensions {
           scope.cancel()
         }
       })
-      for (const effect of effects) {
+    } catch (error) {
+      // The transaction rolled back: undo its early filesystem writes (a wake marker created before
+      // the failing statement). A failed compensation only leaves a stale marker, which the next
+      // reconcile removes with the row gone.
+      for (const compensation of compensations) {
         try {
-          effect()
-        } catch (error) {
-          this.ctx.emit({ kind: "extension_error", extension: name, phase: "after_commit", error: error instanceof Error ? error.message : String(error) })
+          compensation()
+        } catch (compensationError) {
+          this.ctx.emit({ kind: "extension_error", extension: name, phase: "after_rollback", error: compensationError instanceof Error ? compensationError.message : String(compensationError) })
         }
       }
-      return { kind: "ok", value }
-    } catch (error) {
       return fromError(error)
     }
+    // Past COMMIT: a failure here never rolls back, so no compensation may run - exactly as a core
+    // enqueue reports a post-commit failure without undoing its marker.
+    await this.ctx.hook("afterDbCommit")
+    for (const effect of effects) {
+      try {
+        effect()
+      } catch (error) {
+        this.ctx.emit({ kind: "extension_error", extension: name, phase: "after_commit", error: error instanceof Error ? error.message : String(error) })
+      }
+    }
+    return { kind: "ok", value }
   }
 }

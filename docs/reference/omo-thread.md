@@ -188,7 +188,10 @@ Operations run in one `BEGIN IMMEDIATE`. The transaction surface is:
 - `enqueue({ binding_id, event_id, text, author?, mode? })`: the relay's inbound validation,
   including resolution through its shared live-and-disk address book, author-specific rate
   limits, mode ceiling and idempotency. A missing target returns `not_found`, just as relay
-  inbound does. It does not wake a live endpoint before commit. Enqueue requires a binding;
+  inbound does. Like a core enqueue, it creates the target's wake marker inside the
+  transaction, so a committed delivery always has its marker and a rolled-back one never
+  keeps it; the wake is only ever early, and a marker that cannot be created refuses the
+  call. Enqueue requires a binding;
   there is no `enqueueToSession` operation.
   `deliveries.actor_user_id` records `author.user_id`, or NULL without it.
 - `bind({ principal, binding, idempotency_key? })`, `unbind({ principal, binding_id,
@@ -224,13 +227,17 @@ and never a core row an extension can still act on through `tx`: an active bindi
 binding that still has outbox rows, completion arms or undelivered messages, or an undelivered
 message. A core id an extension keeps by value can name a row that retention has since pruned.
 
-A thrown operation rolls back extension rows and joined core writes together. Inbox/outbox
-marker writes and removals run only after COMMIT; rollback publishes no marker. Each
-post-commit effect runs independently: a failed marker emits an `extension_error` store event
-with phase `after_commit`, does not skip later effects, and does not turn committed data into
-a refused call. A returned relay refusal is data, so an operation that wants to undo its
-earlier work must throw. Catching an error from `all`, `one` or `exec` does not clear it:
-the whole call still rolls back, including for a caught constraint error.
+A thrown operation rolls back extension rows and joined core writes together. Inbox wake
+markers are created inside the transaction, exactly as a core enqueue creates them: a
+committed delivery always has its marker, and a marker that cannot be created fails the
+operation. A rollback removes the markers the operation created (a failed removal is an
+`extension_error` with phase `after_rollback`), and a marker left by a crash before COMMIT
+names no row, so the next reconcile removes it. Marker removals still run only after COMMIT.
+Each post-commit effect runs independently: a failed effect emits an `extension_error` store
+event with phase `after_commit`, does not skip later effects, and does not turn committed
+data into a refused call. A returned relay refusal is data, so an operation that wants to
+undo its earlier work must throw. Catching an error from `all`, `one` or `exec` does not
+clear it: the whole call still rolls back, including for a caught constraint error.
 
 Refusal codes are `extension_import_failed`, `extension_unknown_op`, `extension_unknown_name`,
 `extension_schema_violation`, `gateway_lock_wait_exceeded`, and `gateway_schema_too_new`.

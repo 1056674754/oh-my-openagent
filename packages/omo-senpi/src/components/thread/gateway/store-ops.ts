@@ -8,6 +8,9 @@
  * the marker starts its drain with its own `BEGIN IMMEDIATE` (`reconcile`), which cannot succeed
  * until this transaction is fully published or fully rolled back - so a notification is only ever
  * early, never late, and every marker a lock holder sees names a row that is visible or gone.
+ * An enqueue joined to an extension's transaction follows the same ordering: its marker is created
+ * under the lock and removed by the rollback compensation when the operation does not commit, so a
+ * committed delivery always has its marker and a rolled-back one never keeps it.
  */
 import { createHash, randomUUID } from "node:crypto"
 import { closeSync, constants, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeSync } from "node:fs"
@@ -67,6 +70,8 @@ export type StoreContext = {
   readonly delay: (ms: number) => Promise<void>
   /** Present only on a context joining an extension's outer transaction. */
   readonly afterCommit?: (() => void)[]
+  /** Filesystem compensations run when a joined extension transaction rolls back (e.g. removing the wake markers it created early). */
+  readonly afterRollback?: (() => void)[]
 }
 
 const DELIVERY_COLUMNS = [
@@ -187,10 +192,10 @@ export async function transaction<T>(ctx: StoreContext, op: string, body: () => 
 
 function createMarker(ctx: StoreContext, targetDurableId: string, deliveryId: string, allowExisting: boolean): string {
   const directory = gatewayInboxDirectory(ctx.config.agent_dir, targetDurableId)
-  if (ctx.afterCommit !== undefined) {
-    ctx.afterCommit.push(() => createMarker({ ...ctx, afterCommit: undefined }, targetDurableId, deliveryId, allowExisting))
-    return join(directory, deliveryId)
-  }
+  // The marker is created eagerly, inside the transaction like a core enqueue: a committed
+  // delivery always has its wake, and the rollback compensation removes it when the joined
+  // operation does not commit. A receiver's reconcile deletes the marker of a row that never
+  // landed, so an early marker is only ever early.
   mkdirSync(directory, { recursive: true, mode: 0o700 })
   const path = join(directory, deliveryId)
   let fd: number
@@ -205,6 +210,7 @@ function createMarker(ctx: StoreContext, targetDurableId: string, deliveryId: st
   } finally {
     closeSync(fd)
   }
+  ctx.afterRollback?.push(() => rmSync(path, { force: true }))
   return path
 }
 
@@ -529,7 +535,7 @@ export async function enqueue(ctx: StoreContext, request: EnqueueRequest): Promi
     if (!committed) {
       rollbackQuietly(ctx)
       if (ctx.afterCommit !== undefined) ctx.afterCommit.length = effectsAtStart
-      else if (marker !== null) rmSync(marker, { force: true })
+      if (marker !== null) rmSync(marker, { force: true })
     }
     throw error
   }
