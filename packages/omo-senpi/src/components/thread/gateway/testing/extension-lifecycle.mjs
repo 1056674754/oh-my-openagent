@@ -45,3 +45,29 @@ export function unawaitedEnqueue(tx, request) {
   void tx.enqueue(request)
   return "returned"
 }
+
+export async function hangAfterEnqueue(tx, binding) {
+  const bound = await tx.bind(binding)
+  if (bound.kind !== "ok") throw new Error(JSON.stringify(bound))
+  const result = await tx.enqueue({ binding_id: bound.binding.binding_id, event_id: binding.binding.chat_id, text: "hello" })
+  if (result.kind !== "ok") throw new Error(JSON.stringify(result))
+  return new Promise(() => {})
+}
+
+export async function rollbackAfterEnqueue(tx, binding) {
+  const bound = await tx.bind(binding)
+  if (bound.kind !== "ok") throw new Error(JSON.stringify(bound))
+  const result = await tx.enqueue({ binding_id: bound.binding.binding_id, event_id: binding.binding.chat_id, text: "hello" })
+  if (result.kind !== "ok") throw new Error(JSON.stringify(result))
+  throw new Error("the operation failed after its enqueue")
+}
+
+export function lateThrow() {
+  setTimeout(() => { throw new Error("late extension throw") }, 0)
+  return null
+}
+
+export function lateReject() {
+  void Promise.reject(new Error("late extension rejection"))
+  return null
+}

@@ -35,24 +35,22 @@ test.each([false, true])("#given target session presence %s #when relay and tx e
   } finally { relay.dispose() }
 })
 
-test("#given a blocked inbox path #when two deliveries commit #then success and subsequent marker effects survive", async () => {
+test("#given a blocked inbox path #when a joined enqueue's marker fails #then the operation refuses and rolls back, and the worker keeps serving", async () => {
   const h = (harness = createGatewayHarness())
   h.phantom("blocked")
   h.phantom("healthy")
   const store = h.store()
   await store.registerStoreExtension({ name: "alpha", moduleUrl, migrations: [] })
   mkdirSync(join(gatewayRootDirectory(h.agentDir), "inbox"), { recursive: true })
-  writeFileSync(gatewayInboxDirectory(h.agentDir, "blocked"), "not a directory")
+  const blockedPath = gatewayInboxDirectory(h.agentDir, "blocked")
+  writeFileSync(blockedPath, "not a directory")
   const events: unknown[] = []
   const remove = store.onEvent((event) => events.push(event))
   try {
     const outcome = await store.extensionCall("alpha", "enqueuePair", [bind("blocked"), bind("healthy")])
-    expect(outcome).toMatchObject({ kind: "ok", value: [{ kind: "ok" }, { kind: "ok" }] })
-    const rows = await store.list()
-    expect(rows).toHaveLength(2)
-    const healthy = rows.find((row) => row.target_durable_id === "healthy")
-    expect(healthy).toBeDefined()
-    expect(existsSync(join(gatewayInboxDirectory(h.agentDir, "healthy"), healthy?.delivery_id ?? ""))).toBe(true)
-    expect(events).toContainEqual({ kind: "extension_error", extension: "alpha", phase: "after_commit", error: expect.any(String) })
+    expect(outcome).toMatchObject({ kind: "refused", code: "extension_operation_failed" })
+    expect(await store.list()).toEqual([])
+    expect(existsSync(gatewayInboxDirectory(h.agentDir, "healthy"))).toBe(false)
+    expect(events.filter((event) => typeof event === "object" && event !== null && (event as { kind?: unknown }).kind === "extension_error")).toEqual([])
   } finally { remove() }
 })

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import type { Worker } from "node:worker_threads"
 
 import type { GatewayResolution } from "./engine"
 import { createGatewayHarness, type GatewayHarness } from "./testing/harness"
@@ -31,6 +32,55 @@ test.each(["hang", "staleTimer", "uncloneable-function", "uncloneable-symbol"])(
     rmSync(agentDir, { recursive: true, force: true })
   }
 }, 20_000)
+
+test.each(["lateThrow", "lateReject"])("#given an extension that fails after returning (%s) #when the worker absorbs the late error #then the same worker keeps serving with the error as an event", async (scenario) => {
+  const agentDir = mkdtempSync(join(tmpdir(), "gateway-late-"))
+  const child = Bun.spawn([process.execPath, fileURLToPath(new URL("./testing/extension-wake-driver.mjs", import.meta.url)), scenario, agentDir], { stdout: "pipe", stderr: "pipe" })
+  const watchdog = setTimeout(() => child.kill(), 10_000)
+  try {
+    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()])
+    expect({ code, stderr }).toEqual({ code: 0, stderr: "" })
+    const result = JSON.parse(stdout.trim().split("\n").at(-1) ?? "")
+    expect(result).toMatchObject({
+      outcome: { kind: "ok", value: null },
+      event: { kind: "extension_error", extension: "alpha", phase: "async" },
+      sameWorker: true,
+      core: [],
+      rows: { kind: "ok", value: [] },
+    })
+  } finally {
+    clearTimeout(watchdog)
+    if (child.exitCode === null) child.kill()
+    await child.exited
+    rmSync(agentDir, { recursive: true, force: true })
+  }
+}, 20_000)
+
+test.each(["lateThrow", "lateReject"])("#given an extension that fails after returning (%s) #when the error surfaces #then the store keeps serving core and extension calls", async (scenario) => {
+  const h = (harness = createGatewayHarness())
+  const workers: Worker[] = []
+  const store = h.store({ _test: { onWorkerStarted: (worker) => workers.push(worker) } })
+  await store.registerStoreExtension({ name: "alpha", moduleUrl, migrations: [["CREATE TABLE alpha_items (id INTEGER PRIMARY KEY, value TEXT)"]] })
+  const worker = workers[0]
+  let off = () => {}
+  const signaled = Promise.race([
+    new Promise<"event">((resolve) => {
+      off = store.onEvent((value) => { if (value.kind === "extension_error" && value.phase === "async") resolve("event") })
+    }),
+    new Promise<"exit">((resolve) => worker?.once("exit", () => resolve("exit"))),
+    new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 10_000)),
+  ])
+  expect(await store.extensionCall("alpha", scenario, null)).toEqual({ kind: "ok", value: null })
+  const outcome = await signaled
+  off()
+  expect(outcome).not.toBe("timeout")
+  expect(await store.extensionCall("alpha", "rows", { name: "alpha" })).toEqual({ kind: "ok", value: [] })
+  expect(await store.list()).toEqual([])
+  // Under plain runtimes the worker absorbs the late error and survives; a runner that never
+  // delivers the worker's uncaughtException handler lets it die, and the facade must reopen.
+  if (outcome === "event") expect(workers).toHaveLength(1)
+  else expect(workers.length).toBeGreaterThan(1)
+})
 
 test.each(["staleSync", "staleAsync"])("#given retained tx #when %s is called #then the caller receives a typed error and the worker survives", async (operation) => {
   const h = (harness = createGatewayHarness())
