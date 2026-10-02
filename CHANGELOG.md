@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.9] - 2026-10-02
+
 **In the desktop app's restricted modes, the agent's own tools stop asking for approval, and a bash call from an eval cell no longer hangs.** Files that ship with the app no longer count as outside paths, the first Python cell after a cold start works on Windows x64, and delegated tasks keep your timeout settings and run at thinking levels their models accept. This release runs on the senpi 2026.10.1-3 engine.
 
 ### Fixed
