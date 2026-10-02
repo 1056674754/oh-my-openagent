@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { Server } from "node:http"
-import { connect } from "node:net"
+import { connect, Server as NetServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -94,19 +94,27 @@ export async function openBoundSession(options: CreateAgentSessionOptions): Prom
 }
 
 export type ServerWatch = {
-  /** Every node:http server that started listening while the watch was armed. */
+  /** Every node:http or node:net server that started listening while the watch was armed. */
   readonly servers: readonly Server[]
   stop(): void
 }
 
 export function watchHttpServers(): ServerWatch {
+  // Hook both prototypes: node:http's Server extends node:net's, and a runtime may route an http
+  // server's listen through either one. A server seen through both is recorded once.
   const servers: Server[] = []
-  const listen = Server.prototype.listen
-  Server.prototype.listen = function (this: Server, ...args: unknown[]) {
-    servers.push(this)
-    return Reflect.apply(listen, this, args)
-  } as typeof listen
-  return { servers, stop: () => { Server.prototype.listen = listen } }
+  const restore: Array<() => void> = []
+  for (const proto of [Server.prototype, NetServer.prototype] as const) {
+    const listen = proto.listen
+    proto.listen = function (this: Server, ...args: unknown[]) {
+      if (!servers.includes(this)) servers.push(this)
+      return Reflect.apply(listen, this, args)
+    } as typeof listen
+    restore.push(() => {
+      proto.listen = listen
+    })
+  }
+  return { servers, stop: () => restore.reverse().forEach((undo) => undo()) }
 }
 
 export function loopbackPort(server: Server): number {
@@ -115,9 +123,16 @@ export function loopbackPort(server: Server): number {
   return address.port
 }
 
+const CONNECT_PROBE_MS = 2_000
+
+/** Whether a loopback port accepts a connection; a probe that neither connects nor errors counts as closed. */
 export function acceptsConnections(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = connect({ host: "127.0.0.1", port })
+    socket.setTimeout(CONNECT_PROBE_MS, () => {
+      socket.destroy()
+      resolve(false)
+    })
     socket.once("connect", () => {
       socket.destroy()
       resolve(true)
