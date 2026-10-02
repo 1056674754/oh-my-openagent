@@ -20,6 +20,8 @@ import { join } from "node:path"
 const workflowPath = new URL("../.github/workflows/publish.yml", import.meta.url)
 const workflowText = readFileSync(workflowPath, "utf8").replace(/\r\n/g, "\n")
 const workflow = Bun.YAML.parse(workflowText) as { jobs: Record<string, { steps: Array<{ name?: string; run?: string }> }> }
+// Git Bash process startup is slower on Windows, especially in parallel CI legs.
+const READINESS_TEST_TIMEOUT_MS = process.platform === "win32" ? 60_000 : 15_000
 
 function readinessRunBlock(): string {
   const step = workflow.jobs["post-publish-verify"].steps.find((s) => s.name === "Wait for omo-ai registry readiness")
@@ -61,18 +63,18 @@ function runReadiness(options: { readonly metadataReadyAfterViews: number; reado
     writeFileSync(sleeps, "")
     const preamble = [
       "npm() {",
-      '  local n; n=$(cat "$COUNTER"); n=$((n+1)); printf "%s" "$n" > "$COUNTER"',
+      '  local n; IFS= read -r n < "$COUNTER" || :; n=$((n+1)); printf "%s" "$n" > "$COUNTER"',
       '  if [ "$n" -gt "$METADATA_READY_AFTER" ]; then',
-      '    if printf "%s\\n" "$*" | grep -q "dist.tarball"; then',
+      '    case "$*" in *dist.tarball*)',
       '      printf "https://registry.npmjs.org/omo-ai/-/omo-ai-%s.tgz\\n" "$OMO_AI_VERSION"',
-      "    else",
+      "    ;; *)",
       '      printf "%s\\n" "$OMO_AI_VERSION"',
-      "    fi",
+      "    ;; esac",
       "  fi",
       "  return 0",
       "}",
       "curl() {",
-      '  local n; n=$(cat "$CURL_COUNTER"); n=$((n+1)); printf "%s" "$n" > "$CURL_COUNTER"',
+      '  local n; IFS= read -r n < "$CURL_COUNTER" || :; n=$((n+1)); printf "%s" "$n" > "$CURL_COUNTER"',
       '  [ "$n" -gt "$TARBALL_READY_AFTER" ]',
       "}",
       'sleep() { printf "%s\\n" "$1" >> "$SLEEPS"; }',
@@ -83,6 +85,7 @@ function runReadiness(options: { readonly metadataReadyAfterViews: number; reado
     writeFileSync(script, preamble + readinessRunBlock())
     const result = spawnSync("bash", [script], {
       encoding: "utf8",
+      timeout: READINESS_TEST_TIMEOUT_MS - 1_000,
       env: {
         ...process.env,
         COUNTER: counter,
@@ -95,6 +98,7 @@ function runReadiness(options: { readonly metadataReadyAfterViews: number; reado
         ALREADY_PUBLISHED: "false",
       },
     })
+    if (result.error) throw result.error
     return {
       status: result.status ?? -1,
       stdout: result.stdout,
@@ -112,7 +116,7 @@ describe("publish.yml post-publish-verify registry readiness", () => {
     const outcome = runReadiness({ metadataReadyAfterViews: 3 * 20, tarballReadyAfterHeads: 0 })
     expect(outcome.status).toBe(0)
     expect(outcome.stdout).toContain("metadata and tarball are ready")
-  })
+  }, READINESS_TEST_TIMEOUT_MS)
 
   test("#given metadata is visible before the tarball #when artifact propagation takes several minutes #then readiness waits for the installable blob", () => {
     const outcome = runReadiness({ metadataReadyAfterViews: 0, tarballReadyAfterHeads: 20 })
@@ -120,13 +124,13 @@ describe("publish.yml post-publish-verify registry readiness", () => {
     expect(outcome.curlCalls).toBe(21)
     expect(outcome.sleeps).toBe(20)
     expect(outcome.stdout).toContain("metadata and tarball are ready")
-  })
+  }, READINESS_TEST_TIMEOUT_MS)
 
   test("#given a stable release on the latest dist-tag #when the registry catches up #then readiness passes on the same budget", () => {
     const outcome = runReadiness({ metadataReadyAfterViews: 3 * 20, tarballReadyAfterHeads: 0 }, { version: "5.0.0", distTag: "latest" })
     expect(outcome.status).toBe(0)
     expect(outcome.stdout).toContain("omo-ai@5.0.0 metadata and tarball are ready")
-  })
+  }, READINESS_TEST_TIMEOUT_MS)
 
   test("#given metadata is ready but the tarball stays unavailable #when readiness exhausts its budget #then it probes HEAD every attempt and names tarball availability", () => {
     const outcome = runReadiness({ metadataReadyAfterViews: 0, tarballReadyAfterHeads: Number.MAX_SAFE_INTEGER })
@@ -135,7 +139,7 @@ describe("publish.yml post-publish-verify registry readiness", () => {
     expect(outcome.sleeps).toBe(59)
     expect(outcome.stdout + outcome.stderr).toContain("metadata and tarball did not become ready")
     expect(outcome.stdout + outcome.stderr).toContain("tarball availability")
-  }, 15_000)
+  }, READINESS_TEST_TIMEOUT_MS)
 
   test(
     "#given the registry never exposes the version #when the budget is exhausted #then it fails and names the publish-vs-propagation distinction",
@@ -146,6 +150,6 @@ describe("publish.yml post-publish-verify registry readiness", () => {
       // Budget is wall-clock shaped, not "5 tries": sleeps x interval must cover several minutes.
       expect(outcome.sleeps).toBeGreaterThanOrEqual(20)
     },
-    15_000,
+    READINESS_TEST_TIMEOUT_MS,
   )
 })
