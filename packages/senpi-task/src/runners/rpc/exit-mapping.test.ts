@@ -61,6 +61,43 @@ describe("classifyChildExit", () => {
     }
   })
 
+  // Bun prints the advisory once per terminated worker thread, and the handle classifies the 4KB tail
+  // of the child's stderr (client.stderrTail): with enough advisories that tail starts mid-line.
+  test("#given more Bun Windows advisories than the 4KB stderr tail holds #when a killed child exits with code 1 #then it is still killed", () => {
+    const advisory = "child reaper unavailable under Bun on win32: children orphaned by a terminated worker thread stay as zombies until this runtime exits"
+    const stderr = tailStderr(`${Array.from({ length: 40 }, () => advisory).join("\n")}\n`)
+
+    const outcome = classifyChildExit({ code: 1, signal: null, pid: 6304, stderr, platform: "win32" })
+
+    expect(stderr.startsWith(advisory)).toBe(false)
+    expect(outcome.kind).toBe("killed")
+    expect(mapExitOutcomeToError(outcome, { alreadyTerminal: false })?.killed).toBe(true)
+  })
+
+  test("#given a Bun Windows advisory the kill cut mid-write #when the child exits with code 1 #then it is still killed", () => {
+    const advisory = "child reaper unavailable under Bun on win32: children orphaned by a terminated worker thread stay as zombies until this runtime exits"
+    const stderr = `${advisory}\n${advisory}\nchild reaper unavailable under Bun on wi`
+
+    const outcome = classifyChildExit({ code: 1, signal: null, pid: 6304, stderr, platform: "win32" })
+
+    expect(outcome.kind).toBe("killed")
+    expect(mapExitOutcomeToError(outcome, { alreadyTerminal: false })?.killed).toBe(true)
+  })
+
+  test("#given a real diagnostic among Bun Windows advisories, whole or cut #when the child exits with code 1 #then it stays crashed", () => {
+    const advisory = "child reaper unavailable under Bun on win32: children orphaned by a terminated worker thread stay as zombies until this runtime exits"
+    const advisories = Array.from({ length: 40 }, () => advisory).join("\n")
+    // The tail cut a diagnostic line, not an advisory: its fragment ends no advisory line.
+    const cutDiagnostic = tailStderr(`${"TypeError: boom ".repeat(300)}\n${advisory}\n`)
+    const errorAfterAdvisories = tailStderr(`${advisories}\nTypeError: boom\n`)
+    const errorCutMidWrite = `${advisory}\nTypeError: bo`
+
+    for (const stderr of [cutDiagnostic, errorAfterAdvisories, errorCutMidWrite]) {
+      expect(classifyChildExit({ code: 1, signal: null, pid: 6304, stderr, platform: "win32" }).kind).toBe("crashed")
+    }
+    expect(classifyChildExit({ code: 1, signal: null, pid: 6304, stderr: tailStderr(`${advisories}\n`), platform: "linux" }).kind).toBe("crashed")
+  })
+
   test("#given Bun advisory lines plus one real error line #when classifying #then it stays crashed", () => {
     const advisory = "child reaper unavailable under Bun on win32: children orphaned by a terminated worker thread stay as zombies until this runtime exits"
     const stderr = `${advisory}\n${advisory}\nTypeError: boom\n`

@@ -19,9 +19,23 @@ export type ChildExitInput = {
 const WINDOWS_TERMINATION_EXIT_CODE = 1
 const WINDOWS_BUN_REAPER_ADVISORY = "child reaper unavailable under Bun on win32: children orphaned by a terminated worker thread stay as zombies until this"
 
+/**
+ * Bun writes the advisory once per terminated worker thread, so a killed child can leave many of them,
+ * and the stderr the classifier sees is a capped tail. Two fragments are still the advisory: the first
+ * line of a tail that the cap cut mid-advisory (it is the end of a full advisory line in the same
+ * window), and a last line the kill cut mid-write (it is the start of the advisory). Anything else on a
+ * line is a real diagnostic and the exit stays a crash.
+ */
 function hasOnlyWindowsStartupAdvisories(stderr: string): boolean {
-  const lines = stderr.trim().split(/\r?\n/).filter((line) => line.trim().length > 0)
-  return lines.length > 0 && lines.every((line) => line.startsWith(WINDOWS_BUN_REAPER_ADVISORY))
+  const lines = stderr.split(/\r?\n/).filter((line) => line.trim().length > 0)
+  if (lines.length === 0) return false
+  const complete = lines.filter((line) => line.startsWith(WINDOWS_BUN_REAPER_ADVISORY))
+  const cutByTail = stderr.length >= STDERR_TAIL_CAP
+  return lines.every((line, index) => {
+    if (line.startsWith(WINDOWS_BUN_REAPER_ADVISORY)) return true
+    if (index === 0 && cutByTail && complete.some((advisory) => advisory.endsWith(line))) return true
+    return index === lines.length - 1 && !/\r?\n$/.test(stderr) && WINDOWS_BUN_REAPER_ADVISORY.startsWith(line)
+  })
 }
 
 /**
