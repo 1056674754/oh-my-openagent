@@ -14,6 +14,10 @@ import { PLATFORMS } from "./build-binaries"
 import { DESKTOP_ENGINE_TARGETS } from "./release-desktop-engine-target"
 import { runBlock, sliceWorkflowSection } from "./release-workflow-test-steps"
 
+// These tests spawn bash or bun children. On 16 windows-latest runs the slowest passed in 2.6 s,
+// while cold runners went past Bun's 5 s default (#9386), so the budget is a hang watchdog, not a wait.
+const SUBPROCESS_TEST_TIMEOUT_MS = 30_000
+
 const publishWorkflowPath = new URL("../.github/workflows/publish.yml", import.meta.url)
 const publishPlatformWorkflowPath = new URL("../.github/workflows/publish-platform.yml", import.meta.url)
 
@@ -199,7 +203,7 @@ describe("release binary asset lane in the platform publish workflow", () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
-  })
+  }, SUBPROCESS_TEST_TIMEOUT_MS)
 
   test("rebuilds a baseline binary when its shared engine asset is absent", () => {
     // Given an existing omo baseline binary but no Darwin x64 engine release asset.
@@ -237,7 +241,7 @@ describe("release binary asset lane in the platform publish workflow", () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
-  })
+  }, SUBPROCESS_TEST_TIMEOUT_MS)
 
   test("verifies precisely twelve launchers and four engines on reruns without publishing", () => {
     // Given a synthetic release with canonical names and independently computed hashes.
@@ -283,5 +287,5 @@ describe("release binary asset lane in the platform publish workflow", () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
-  })
+  }, SUBPROCESS_TEST_TIMEOUT_MS)
 })

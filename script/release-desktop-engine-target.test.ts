@@ -12,6 +12,10 @@ import {
 } from "./release-desktop-engine-target"
 import { buildRuntimeManifest, RELEASE_BINARY_TARGETS, resolveExpectedSidecarRelPaths, stageSidecarPayload } from "./build-omo-binary"
 
+// The CLI test spawns three bun children. On 16 windows-latest runs it passed in at most 0.2 s,
+// while cold runners went past Bun's 5 s default (#9386), so the budget is a hang watchdog, not a wait.
+const SUBPROCESS_TEST_TIMEOUT_MS = 30_000
+
 describe("desktop engine target fixture", () => {
   test("all twelve targets resolve from the fixture with explicit unavailable entries", () => {
     // Given the release fixture and binary matrix.
@@ -67,7 +71,7 @@ describe("desktop engine target fixture", () => {
       target: "linux-arm64", available: false, host: null, asset: null, source: null, payload: null,
     })
     expect(spawnSync("bun", [cli, "--target", "surprise"], { encoding: "utf8" }).status).toBe(1)
-  })
+  }, SUBPROCESS_TEST_TIMEOUT_MS)
 })
 
 describe("compiled desktop engine staging", () => {
