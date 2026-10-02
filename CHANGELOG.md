@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+**A platform package is published only if its release binary passed the smoke.** The platform publish uploaded its npm package before the release-binary smoke ran, so a platform whose smoke failed still published its package (5.1.8 published both Windows x64 packages from a run whose smoke failed). The package is now uploaded only after that platform's smoke passes, so a failed smoke stops exactly that platform's publish while the others still publish, and the linux-arm64 smokes now finish before their packages publish.
+
 ## [5.1.11] - 2026-10-02
 
 **New tasks no longer queue forever behind a delegated task that lost its connection to the host.** Such a task used to stay suspended with its lane taken until the session restarted; now it reconnects, or ends within a bounded time and frees the lane. This release runs on the senpi 2026.10.1-3 engine.
