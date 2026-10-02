@@ -52,6 +52,8 @@ export interface ParentOptions {
   readonly reattachDelaysMs?: readonly number[]
   /** The clock that decides when a lost transport's recovery bound runs out. */
   readonly recoveryClock?: ManualRecoveryClock
+  /** How long a close the host does not answer may take before it counts as unconfirmed. */
+  readonly hostCloseTimeoutMs?: number
   /** Observe every child's transport recoveries, as the parent's crash notice does. */
   readonly shardEvents?: HostShardEvents
 }
@@ -188,6 +190,7 @@ function connectParent(input: ConnectParentInput): ParentSession {
     ...(input.options.hostPid === undefined ? {} : { hostPid: input.options.hostPid }),
   })
   const lifecycle = createTaskLifecycle({
+    ...(input.options.hostCloseTimeoutMs === undefined ? {} : { hostCloseTimeoutMs: input.options.hostCloseTimeoutMs }),
     hostEndpoint: NO_HOST_ENDPOINT,
     store,
     config,
