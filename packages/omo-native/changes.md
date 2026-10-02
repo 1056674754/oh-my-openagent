@@ -6,7 +6,9 @@ already uploaded and the publish leg published it. The payload compress + upload
 smokes: a failed smoke leaves that platform without a payload, so only its publish leg fails (loudly, at the artifact
 download) and every other leg still publishes. `publish` also needs `smoke-linux-arm64`, and the arm64 publish legs
 refuse to publish unless that smoke succeeded; `smoke-linux-arm64` no longer requires the aggregate build to succeed,
-so an unrelated failed leg cannot block the arm64 publishes. Contract test: `script/publish-platform-smoke-gate.test.ts`.
+so an unrelated failed leg cannot block the arm64 publishes. Both publish decisions are expression-free shell steps (inputs
+via env), and `script/publish-platform-smoke-gate.test.ts` runs those exact step bodies: an empty download dir fails with
+the reason, a present payload passes, and the arm64 gate refuses on a failed or skipped smoke for arm64 legs only.
 
 ## 2026-10-01 - The gateway hook's integrity check and its tests agree on Windows paths (follow-up to #9243)
 
