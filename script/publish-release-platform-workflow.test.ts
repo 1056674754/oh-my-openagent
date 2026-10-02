@@ -15,8 +15,11 @@ import { DESKTOP_ENGINE_TARGETS } from "./release-desktop-engine-target"
 import { runBlock, sliceWorkflowSection } from "./release-workflow-test-steps"
 
 // These tests spawn bash or bun children. On 16 windows-latest runs the slowest passed in 2.6 s,
-// while cold runners went past Bun's 5 s default (#9386), so the budget is a hang watchdog, not a wait.
+// while cold runners went past Bun's 5 s default (#9386): the per-test budget absorbs those slow
+// cold-runner spawns. It cannot catch a hang, because spawnSync blocks the timer that enforces it,
+// so each spawn carries its own timeout: a hung child is killed and the test fails on its status.
 const SUBPROCESS_TEST_TIMEOUT_MS = 30_000
+const SUBPROCESS_SPAWN_TIMEOUT_MS = 20_000
 
 const publishWorkflowPath = new URL("../.github/workflows/publish.yml", import.meta.url)
 const publishPlatformWorkflowPath = new URL("../.github/workflows/publish-platform.yml", import.meta.url)
@@ -197,6 +200,7 @@ describe("release binary asset lane in the platform publish workflow", () => {
         cwd: root,
         env: { ...process.env, ENGINE_ASSET: asset, ENGINE_SOURCE: source },
         encoding: "utf8",
+        timeout: SUBPROCESS_SPAWN_TIMEOUT_MS,
       })
       expect(result.status, result.stderr).toBe(0)
       expect(readFileSync(join(root, source), "utf8")).toBe("x64 cross-target binary")
@@ -228,14 +232,14 @@ describe("release binary asset lane in the platform publish workflow", () => {
 
       // When only the executable exists, the real workflow shell must request a build.
       writeFileSync(names, "omo-darwin-x64-baseline\n")
-      const missing = spawnSync("bash", ["-e", "-c", check], { cwd: new URL("..", import.meta.url), env, encoding: "utf8" })
+      const missing = spawnSync("bash", ["-e", "-c", check], { cwd: new URL("..", import.meta.url), env, encoding: "utf8", timeout: SUBPROCESS_SPAWN_TIMEOUT_MS })
       expect(missing.status, missing.stderr).toBe(0)
       expect(readFileSync(output, "utf8")).toContain("binary_exists=false")
 
       // When the shared engine is also present, the release bytes are reused.
       writeFileSync(names, "omo-darwin-x64-baseline\nsenpi-desktop-engine-darwin-x64\n")
       writeFileSync(output, "")
-      const complete = spawnSync("bash", ["-e", "-c", check], { cwd: new URL("..", import.meta.url), env, encoding: "utf8" })
+      const complete = spawnSync("bash", ["-e", "-c", check], { cwd: new URL("..", import.meta.url), env, encoding: "utf8", timeout: SUBPROCESS_SPAWN_TIMEOUT_MS })
       expect(complete.status, complete.stderr).toBe(0)
       expect(readFileSync(output, "utf8")).toContain("binary_exists=true")
     } finally {
@@ -262,7 +266,7 @@ describe("release binary asset lane in the platform publish workflow", () => {
       const gh = join(root, "gh")
       writeFileSync(gh, "#!/bin/bash\n[ \"$1\" = release ] && [ \"$2\" = download ] || exit 1\ncp \"$ASSET_SOURCE_DIR\"/* \"${@: -1}/\"\n")
       chmodSync(gh, 0o755)
-      if (spawnSync("bash", ["-c", "command -v shasum"]).status !== 0) {
+      if (spawnSync("bash", ["-c", "command -v shasum"], { timeout: SUBPROCESS_SPAWN_TIMEOUT_MS }).status !== 0) {
         const shasum = join(root, "shasum")
         writeFileSync(shasum, "#!/bin/bash\n[ \"$1\" = -a ] && [ \"$2\" = 256 ] || exit 2\nshift 2\nexec sha256sum \"$@\"\n")
         chmodSync(shasum, 0o755)
@@ -273,6 +277,7 @@ describe("release binary asset lane in the platform publish workflow", () => {
         cwd: new URL("..", import.meta.url),
         env: { ...process.env, PATH: `${root}:${process.env.PATH ?? ""}`, VERSION: "5.0.0", ASSET_SOURCE_DIR: assets },
         encoding: "utf8",
+        timeout: SUBPROCESS_SPAWN_TIMEOUT_MS,
       })
 
       // When every release asset exists, the actual workflow verification passes.
