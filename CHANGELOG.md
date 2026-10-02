@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.9] - 2026-10-02
+
+**In the desktop app's restricted modes, the agent's own tools stop asking for approval, and a bash call from an eval cell no longer hangs.** Files that ship with the app no longer count as outside paths, the first Python cell after a cold start works on Windows x64, and delegated tasks keep your timeout settings and run at thinking levels their models accept. This release runs on the senpi 2026.10.1-3 engine.
+
+### Fixed
+
+In the desktop app's "Work in this project" and "Ask first" modes, senpi's own internal tools (todo, tool search, ask-user, monitor, memory) no longer ask for approval, reading files that ship inside the app no longer counts as an outside path, and a bash call from an eval cell shows its approval prompt instead of hanging. Real commands, outside reads and outside watches still ask. ([senpi#2511](https://github.com/code-yeongyu/senpi/issues/2511), [senpi#2513](https://github.com/code-yeongyu/senpi/issues/2513), [senpi#2512](https://github.com/code-yeongyu/senpi/issues/2512))
+
+On Windows x64, the first Python cell after a cold start no longer fails with "Python kernel did not become ready": Python eval waits on the kernel's own readiness stages instead of a 5-second deadline and names a stalled stage in the error. This was a known issue in 5.1.8.
+
+Tool search keeps working after a reload or session replacement. Thanks to @jerilkuriakose for the report. ([senpi#2509](https://github.com/code-yeongyu/senpi/issues/2509))
+
+Toggle-only reasoning models offer only the thinking states their API accepts. Thanks to @effortprogrammer. ([senpi#891](https://github.com/code-yeongyu/senpi/issues/891))
+
+On a Claude subscription, a long run survives a lost session whose re-sent conversation is rejected as too long, and images the agent read with a tool are no longer re-sent as new attachments (thanks to @willowite). ([senpi#2480](https://github.com/code-yeongyu/senpi/issues/2480), [senpi#2490](https://github.com/code-yeongyu/senpi/issues/2490))
+
+A delegated task that runs in-process now keeps your timeout and retry settings, such as `retry.provider.streamStartTimeoutMs`, instead of the built-in defaults. Thanks to @rhyme227 for the report. ([#9353](https://github.com/code-yeongyu/oh-my-openagent/issues/9353))
+
+Builtin category chains only name thinking levels their models accept, so child sessions no longer flood `fallback.log` with `validation_warning` lines and each rung runs at its declared level instead of a silent clamp. Thanks to @markshikada for the report and the byte-compare that pinned it down. ([#9378](https://github.com/code-yeongyu/oh-my-openagent/issues/9378))
+
+On macOS, a repeated permission denial no longer claims the privacy pane was just opened; it points at the pane opened earlier, or tells you to open it when the first attempt failed.
+
 ## [5.1.8] - 2026-10-01
 
 **A packaged install runs Bun itself again when you call `bun` from an eval cell or the bash tool.** Before, it started a second agent and handed back that agent's reply as a passing result. Geeky · Heavy and `deep-high` move to GPT-6 Astra at high, Geeky · Normal to GPT-6.1 Sol Fast at medium, a session opened from the desktop app keeps the permission mode it asked for, and memory recall now matches Chinese and Japanese characters one by one. This release runs on the senpi 2026.10.1-2 engine.

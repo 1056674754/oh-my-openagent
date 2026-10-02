@@ -104,7 +104,7 @@ export async function recoverLostTransport(subject: ReattachSubject, reattach: H
   try {
     await subject.continueTurn(reattachContinuationPrompt())
   } catch (error) {
-    report("lost", next.session.instanceId)
+    report(subject.alive() ? "lost" : "cancelled", next.session.instanceId)
     throw error
   }
   if (!subject.alive()) return report("cancelled", next.session.instanceId)

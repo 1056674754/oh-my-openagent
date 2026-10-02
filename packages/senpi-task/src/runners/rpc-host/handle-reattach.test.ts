@@ -170,6 +170,7 @@ describe("host-session handle reattach", () => {
     await host.restart()
     const continuation = await host.waitForCommand("prompt")
 
+    expect(observed).toEqual([]) // the prompt has reached the host, but its ACK has not reached recovery
     await handle.getEntries() // joins recovery after the prompt acknowledgement
 
     // then: the managed stream (what the footer widget reads) learns the turn is live again; the
@@ -181,6 +182,40 @@ describe("host-session handle reattach", () => {
     if (reopened === undefined) throw new Error("the host did not reopen the session")
     host.completeTurn(reopened.routingId, "finished after the restart")
     expect((await handle.waitForOutcome()).status).toBe("completed")
+    await handle.dispose()
+  })
+
+  test("#given a continuation awaiting acknowledgement #when the child cancels and delivery rejects #then recovery reports cancelled rather than lost", async () => {
+    const continuation = Promise.withResolvers<void>()
+    const promptSent = Promise.withResolvers<void>()
+    const original = fakeSessionPort()
+    const reopened = fakeSessionPort((command) => {
+      if (command.type !== "prompt") return Promise.resolve()
+      promptSent.resolve()
+      return continuation.promise
+    })
+    const outcomes: string[] = []
+    const observed: string[] = []
+    const handle = createHostSessionHandle({
+      client: original,
+      session: FAKE_SESSION,
+      taskId: "st_cancel_pending_continuation",
+      heartbeatIntervalMs: 60_000,
+      now: () => 13,
+      closeGraceMs: 100,
+      openDisposition: "attached",
+      reattach: async () => ({ client: reopened, session: FAKE_SESSION, attached: false }),
+      shardEvents: { onReattachOutcome: (info) => outcomes.push(info.outcome) },
+    })
+    adaptRpcHandle(handle).subscribe((event) => observed.push(event.type))
+    await handle.startInitialPrompt("do the work")
+    original.loseTransport()
+    await promptSent.promise
+    await handle.terminate()
+    continuation.reject(new Error("continuation refused after cancellation"))
+    await handle.getEntries()
+    expect(outcomes).toEqual(["cancelled"])
+    expect(observed).not.toContain(HOST_TURN_RESUMED_EVENT)
     await handle.dispose()
   })
 
