@@ -49,8 +49,9 @@ describe("omob mainline launcher", () => {
 				const requested = changed ? { ...info, engine: { ...info.engine, commit: "c".repeat(40) } } : info
 				writeFileSync(`${binary}.build.json`, JSON.stringify({ buildInfo: requested }))
 				expect(current(binary, requested, builder.hostTargetFor(process.platform, process.arch))).toBe(!changed)
-				rmSync(binary)
-				expect(current(binary, requested, builder.hostTargetFor(process.platform, process.arch))).toBe(false)
+				// A never-created path checks absence without unlinking an executable a Windows scanner may still hold.
+				const missingBinary = join(root, process.platform === "win32" ? "missing-omob.exe" : "missing-omob")
+				expect(current(missingBinary, requested, builder.hostTargetFor(process.platform, process.arch))).toBe(false)
 			} finally { removeTempRoot(root) }
 		})
 	}
