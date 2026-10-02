@@ -239,3 +239,43 @@ test("a slow reused socket with a different identity never receives the target's
   expect(target.runtime.enqueueCalls).toHaveLength(0)
   expect(w.discovery()).toBe(0)
 }, 15000)
+
+test("a terminal the engine still reports dead is offline to thread_list, send and steer alike inside the verdict window, and nothing is admitted", async () => {
+  const w = await world()
+  const target = await w.owner("a", undefined, "target", true)
+  await w.owner("spectator", undefined, "spectator")
+  target.runtime.beginUserTurn()
+  // The engine probed the terminal while it was suspended and cached alive:false; the verdict is the
+  // authority for the whole enumeration-cache window, even though the socket answers again below.
+  w.setVerdict(target.socketPath, { alive: false, reason: "live_unresponsive", paths: [target.sessionPath] })
+  const listed = async () => {
+    const result = await w.sdk.list({})
+    if (result.kind !== "ok" || !("threads" in result)) throw new Error(`expected a thread list, got ${JSON.stringify(result)}`)
+    return (result.threads as ReadonlyArray<{ readonly thread_id: string; readonly alive?: boolean; readonly error_note?: string }>).find((thread) => thread.thread_id === "target")
+  }
+  const before = await listed()
+  const [send, steer] = await Promise.all([
+    w.sdk.send({ thread: "target", text: "busy followup" }),
+    w.sdk.send({ thread: "target", text: "busy steer", mode: "steer", expected_turn_id: target.runtime.epoch }),
+  ])
+  const after = await listed()
+  expect(before).toMatchObject({ alive: false, error_note: "live_unresponsive" })
+  expect(after).toMatchObject({ alive: false, error_note: "live_unresponsive" })
+  expect(send).toMatchObject({ kind: "ok", delivery: { kind: "queued_offline" } })
+  expect(steer).toMatchObject({ kind: "error", error: { code: "turn_conflict" } })
+  expect(target.runtime.enqueueCalls).toHaveLength(0)
+  // The verdict stands: a cached-dead terminal is never re-dialed inside the window, even to send.
+  expect(target.frames.filter((frame) => frame === "list_sessions")).toHaveLength(0)
+}, 15000)
+
+test("a bound send to a never-answering owner settles within one listing budget", async () => {
+  const w = await world()
+  const target = await w.owner("a")
+  const bound = await w.sdk.bind({ session: "target", binding: { platform: "custom", account_id: "bot", chat_id: "chat" } })
+  if (bound.kind !== "ok") throw new Error(JSON.stringify(bound))
+  target.listing.answer = false
+  const started = performance.now()
+  const result = await w.sdk.send({ thread: "target", binding_id: bound.binding.binding_id, text: "hello bound" })
+  expect(result).toMatchObject({ kind: "ok", delivery: { kind: "queued_offline" } })
+  expect(performance.now() - started).toBeLessThan(ENDPOINT_LIST_TIMEOUT_MS * 1.5)
+}, 30000)

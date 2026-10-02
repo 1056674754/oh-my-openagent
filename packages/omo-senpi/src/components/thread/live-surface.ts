@@ -408,8 +408,12 @@ export function createLiveThreadSurface(_pi: SenpiExtensionAPI | undefined, opti
       kinds.set(resolve(endpoint.socket), endpoint.kind)
       // The owner is listed exactly as thread_list lists it (the same per-kind budget and failure
       // classification), so a send, a steer and a listing never disagree on whether it is live. A stale
-      // publication is offline, not a reason to discover another endpoint.
-      const listed = await listEndpoint({ socket: endpoint.socket, paths: [], kind: endpoint.kind, verdict: {} })
+      // publication is offline, not a reason to discover another endpoint. For a terminal that means
+      // honoring the cached engine verdict: one liveness decision - the engine's latest probe, fresh
+      // for the enumeration-cache window - serves the listing, the send and the steer alike. With no
+      // cached verdict the direct probe decides, exactly as a listing would.
+      const cached = endpoint.kind === "tui" ? (await endpoints()).find((candidate) => resolve(candidate.socket) === resolve(endpoint.socket))?.verdict : undefined
+      const listed = await listEndpoint({ socket: endpoint.socket, paths: [], kind: endpoint.kind, verdict: cached ?? {} })
       const target = listed.sessions.filter((session) => (session.durableSessionId ?? session.sessionId) === durableId && session.status !== "closed")
       return { sessions: target, hosts: [listed.failure === undefined ? { ...listed.host, list_sessions: { sessions: target } } : listed.host], disk: [] }
     },

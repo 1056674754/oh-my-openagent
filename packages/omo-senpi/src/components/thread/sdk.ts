@@ -121,10 +121,15 @@ export function createThreadSdk(options: ThreadSdkOptions): ThreadSdk {
   async function inbound(request: Parameters<ThreadSdk["send"]>[0] & { readonly binding_id: string }): Promise<GatewayDeliveryResult> {
     if (request.thread !== undefined) {
       const binding = await store.bindingView({ now: now(), binding_id: request.binding_id })
-      const target = await sessionId(request.thread, request.all_scope)
-      if ("kind" in target) return target
-      if (binding !== null && binding.session_durable_id !== target.id) {
-        return fail("invalid_arguments", `Binding ${binding.binding_id} delivers to session ${binding.session_durable_id}, not ${target.id}.`, "Drop the target (the binding names its session) or pass the binding of that session.", { binding_id: binding.binding_id, session: binding.session_durable_id })
+      // An explicit durable id that IS the binding's session needs no validating lookup: the inbound
+      // delivery resolves that same owner once, so a bound send pays one lookup budget like any
+      // other send. Any other address still resolves here to enforce the match.
+      if (binding === null || binding.session_durable_id !== request.thread) {
+        const target = await sessionId(request.thread, request.all_scope)
+        if ("kind" in target) return target
+        if (binding !== null && binding.session_durable_id !== target.id) {
+          return fail("invalid_arguments", `Binding ${binding.binding_id} delivers to session ${binding.session_durable_id}, not ${target.id}.`, "Drop the target (the binding names its session) or pass the binding of that session.", { binding_id: binding.binding_id, session: binding.session_durable_id })
+        }
       }
     }
     if (request.expected_turn_id !== undefined) return fail("invalid_arguments", "A binding message never steers, so it takes no expected_turn_id.", "Drop expected_turn_id.")
