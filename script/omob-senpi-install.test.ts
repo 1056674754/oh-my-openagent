@@ -150,7 +150,7 @@ describe("installSenpiTarball", () => {
 		}
 	})
 
-	test("rejects siblings that require different versions of one external dependency", async () => {
+	test("rejects siblings that declare different version specs for one external dependency", async () => {
 		const root = mkdtempSync(join(tmpdir(), "omob-sibling-conflict-"))
 		try {
 			const sibling = await packFixture(join(root, "sibling"), {
