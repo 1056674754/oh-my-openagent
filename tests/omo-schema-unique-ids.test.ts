@@ -39,18 +39,21 @@ describe("omo.schema.json identifiers (#6444)", () => {
     expect(duplicated).toEqual([])
   })
 
-  test("#given the per-profile [opencode] block #when read #then it references the top-level [opencode] schema by its $id", () => {
+  test("#given the top-level and per-profile [opencode] blocks #when read #then both point at the one embedded definition with a local reference", () => {
     // given
     const schema: unknown = JSON.parse(readFileSync(SCHEMA_PATH, "utf-8"))
     const properties = child(schema, "properties")
-    const topLevel = child(properties, "[opencode]")
     const profile = child(child(properties, "profiles"), "additionalProperties")
 
     // when
+    const topLevel = child(properties, "[opencode]")
     const nested = child(child(profile, "properties"), "[opencode]")
+    const embedded = child(child(schema, "definitions"), "opencode")
 
     // then
-    expect(typeof child(topLevel, "$id")).toBe("string")
-    expect(nested).toEqual({ $ref: child(topLevel, "$id") })
+    expect(topLevel).toEqual({ $ref: "#/definitions/opencode" })
+    expect(nested).toEqual({ $ref: "#/definitions/opencode" })
+    expect(isRecord(embedded) && isRecord(embedded.properties)).toBe(true)
+    expect(isRecord(embedded) ? embedded.$id : "missing").toBeUndefined()
   })
 })
