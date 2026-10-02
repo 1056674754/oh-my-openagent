@@ -27,7 +27,7 @@ A delegated task that runs in-process now keeps your timeout and retry settings,
 
 Builtin category chains only name thinking levels their models accept, so child sessions no longer flood `fallback.log` with `validation_warning` lines and each rung runs at its declared level instead of a silent clamp. Thanks to @markshikada for the report and the byte-compare that pinned it down. ([#9378](https://github.com/code-yeongyu/oh-my-openagent/issues/9378))
 
-On macOS, a repeated permission denial no longer claims the privacy pane was just opened; it points at the pane opened earlier, or tells you to open it when the first attempt failed. ([omo-desktop-app#1437](https://github.com/code-yeongyu/omo-desktop-app/issues/1437))
+On macOS, a repeated permission denial no longer claims the privacy pane was just opened; it points at the pane opened earlier, or tells you to open it when the first attempt failed.
 
 ## [5.1.8] - 2026-10-01
 
