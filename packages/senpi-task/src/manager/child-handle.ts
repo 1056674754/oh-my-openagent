@@ -81,9 +81,8 @@ export function adaptInProcessHandle(handle: InProcessChildHandle): ManagedChild
     subscribe: (listener) => handle.subscribe(listener),
     waitForOutcome: () => handle.waitForIdle(),
     lastAssistantText: () => handle.lastAssistantText(),
-    dispose: () => {
-      handle.dispose()
-      return Promise.resolve()
+    dispose: async () => {
+      await handle.dispose()
     },
   }
 }
