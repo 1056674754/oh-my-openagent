@@ -594,15 +594,22 @@ jobs:
         platform: [darwin-arm64, darwin-x64, darwin-x64-baseline, linux-x64, linux-x64-baseline, linux-arm64, linux-x64-musl, linux-x64-musl-baseline, linux-arm64-musl, windows-x64, windows-x64-baseline, windows-arm64]
     steps:
       - name: Require the linux-arm64 smoke for arm64 legs
-        if: startsWith(matrix.platform, 'linux-arm64')
         env:
           ARM64_SMOKE_RESULT: ${{ needs.smoke-linux-arm64.result }}
           PLATFORM: ${{ matrix.platform }}
         run: |
-          if [ "$ARM64_SMOKE_RESULT" != "success" ]; then
-            echo "::error::$PLATFORM is not published: the linux-arm64 release-binary smoke finished with '$ARM64_SMOKE_RESULT'"
-            exit 1
-          fi
+          case "$PLATFORM" in
+            linux-arm64*)
+              if [ "$ARM64_SMOKE_RESULT" != "success" ]; then
+                echo "::error::$PLATFORM is not published: the linux-arm64 release-binary smoke finished with '$ARM64_SMOKE_RESULT'"
+                exit 1
+              fi
+              echo "$PLATFORM: linux-arm64 release-binary smoke passed"
+              ;;
+            *)
+              echo "$PLATFORM: smoked in its own build leg"
+              ;;
+          esac
 
       - name: Validate release inputs
         id: validate
@@ -658,10 +665,24 @@ jobs:
       - name: Download artifact
         id: download
         if: steps.check.outputs.skip_all != 'true'
+        # A missing payload is decided by the next step with a clear reason, not by an opaque download error.
+        continue-on-error: true
         uses: actions/download-artifact@v8
         with:
           name: binary-${{ matrix.platform }}
           path: .
+
+      - name: Require this platform's smoked payload
+        if: steps.check.outputs.skip_all != 'true'
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          if [ -f "binary-$PLATFORM.tar.gz" ] || [ -f "binary-$PLATFORM.zip" ]; then
+            echo "$PLATFORM: payload present, its release-binary smoke passed in this run"
+          else
+            echo "::error::$PLATFORM is not published: its npm payload was never uploaded, because this platform's release-binary smoke did not pass in this run"
+            exit 1
+          fi
 
       - name: Extract artifact
         if: steps.check.outputs.skip_all != 'true' && steps.download.outcome == 'success'
