@@ -128,6 +128,15 @@ describe("publish.yml post-publish-verify registry readiness", () => {
     expect(outcome.stdout).toContain("omo-ai@5.0.0 metadata and tarball are ready")
   })
 
+  test("#given metadata is ready but the tarball stays unavailable #when readiness exhausts its budget #then it probes HEAD every attempt and names tarball availability", () => {
+    const outcome = runReadiness({ metadataReadyAfterViews: 0, tarballReadyAfterHeads: Number.MAX_SAFE_INTEGER })
+    expect(outcome.status).not.toBe(0)
+    expect(outcome.curlCalls).toBe(60)
+    expect(outcome.sleeps).toBe(59)
+    expect(outcome.stdout + outcome.stderr).toContain("metadata and tarball did not become ready")
+    expect(outcome.stdout + outcome.stderr).toContain("tarball availability")
+  }, 15_000)
+
   test(
     "#given the registry never exposes the version #when the budget is exhausted #then it fails and names the publish-vs-propagation distinction",
     () => {
