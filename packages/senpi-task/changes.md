@@ -15,14 +15,22 @@ Builds on #9406 (Dante-dan), which reports a recovery `continued` only after the
 - Review round (#9407): an accepted cancel is final on every path. A pending cancel is durable (`cancel_requested` on the record): a parent that shuts down, or a host shard that crashes, before the stop lands no longer gets the child back - every revival (`lifecycle/reconcile-reclamation.ts` `reviveClaimed`, via `lifecycle/pending-cancel.ts`) finishes the cancel instead, closing the session on its host. A cancel accepted while the child is reachable marks the handle stopping first, so crash recovery that reopens the session ends it there rather than resuming it (a live repro: a cancelled child's shard crashed and recovery ran it on for ~20 minutes). The deferred stop always settles: a recovery that exhausts its attempts or is refused stops the child locally, the cancel's record write is covered by a `finally`, and the outcome tracker waits on the stop and writes `cancelled` itself if that write failed (`manager/pending-stops.ts`). `interruptTask` and a repeat `task_cancel` defer to the pending cancel; `task_send` refuses a child whose cancel is pending; a parent shutdown no longer waits out the recovery bound on such a child's abort. `task_send` to a parked running child (`steering/revive-running.ts`) fences delivery on the reopened run before and after the follow-up, and a refused message hands the child back parked with its lanes free. A deadline-edge result is reported expired (`withinBound`, the reattach race). `abort: "skip"` releases every lease of a task with no live handle. `task_output` shows the pending-cancel note only while the record is running. Steering reads the loss reason from the shared `state/transport-loss.ts`. Tests: `rpc-host-cancel-pending.test.ts`, `rpc-host-cancel-crash.test.ts`, `rpc-host-revive-running.test.ts`, `rpc-host/transport-recovery.test.ts`, a `cancel_pending` renderer row.
 
 ## 2026-10-01 - Empty project scaffolding does not select legacy runtime storage
+## 2026-10-01 - Empty project scaffolding does not select legacy runtime storage (#9395)
 
 - `store/project-state-directory.ts` keeps the agent-directory store when old
   observers have created only empty project directories. Populated legacy stores,
-  symlinks, unreadable subtrees and malformed artifact filenames retain their
-  existing location so live state and diagnostics remain reachable.
-- The lookup tests exercise empty scaffolding, symlinked records and a malformed
-  task artifact through the real record store. The DAG fixture explicitly marks
-  its legacy store rather than depending on empty directories selecting it.
+  a store root that is a symlink or a file, symlink entries, unreadable subtrees
+  and malformed artifact filenames retain their existing location so live state
+  and diagnostics remain reachable.
+- A legacy store seen holding records is marked with `.in-project`, so it stays
+  selected after its records are expunged and one project's records never split
+  across the project and the agent directory.
+- The resolver tests cover empty scaffolding, symlinked records, root symlink and
+  file stores, and adoption that survives expunge. The malformed-artifact case
+  goes through the real record store, and `omo-senpi`'s engine test composes the
+  task engine over empty scaffolding and checks nothing is written into it. The
+  DAG fixture marks its legacy store rather than depending on empty directories
+  selecting it.
 - Preserves and extends drakeo338's state-lookup work from PR #9367. The separate
   desktop observer fix removes the directory writer; this lookup change alone is
   not evidence that first-turn project writes are fixed.

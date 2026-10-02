@@ -73,7 +73,7 @@ describe("resolveProjectStateDirectory", () => {
 
   describe("#given a legacy state directory whose records sit behind a symlink", () => {
     test("#then the legacy directory is kept instead of being treated as empty", () => {
-      const project = mkdtempSync(join(import.meta.dir, ".omo-project-state-"))
+      const project = mkdtempSync(join(tmpdir(), "omo-project-state-"))
       try {
         const elsewhere = join(project, "elsewhere")
         mkdirSync(elsewhere, { recursive: true })
@@ -84,6 +84,51 @@ describe("resolveProjectStateDirectory", () => {
         expect(resolveProjectStateDirectory(project, "senpi-task", { env: { HOME } })).toBe(
           join(resolve(project), ".omo", "senpi-task"),
         )
+      } finally {
+        rmSync(project, { recursive: true, force: true })
+      }
+    })
+  })
+
+  describe("#given a legacy state root that is not a plain directory", () => {
+    test("#then a root symlink to an empty directory is kept instead of being treated as scaffolding", () => {
+      const project = mkdtempSync(join(tmpdir(), "omo-project-state-"))
+      try {
+        mkdirSync(join(project, "shared-state"))
+        mkdirSync(join(project, ".omo"))
+        symlinkSync(join(project, "shared-state"), join(project, ".omo", "senpi-task"))
+
+        expect(resolveProjectStateDirectory(project, "senpi-task", { env: { HOME } })).toBe(join(project, ".omo", "senpi-task"))
+      } finally {
+        rmSync(project, { recursive: true, force: true })
+      }
+    })
+
+    test("#then a file in place of the store is kept so its error is reported instead of hidden", () => {
+      const project = mkdtempSync(join(tmpdir(), "omo-project-state-"))
+      try {
+        mkdirSync(join(project, ".omo"))
+        writeFileSync(join(project, ".omo", "senpi-task"), "")
+
+        expect(resolveProjectStateDirectory(project, "senpi-task", { env: { HOME } })).toBe(join(project, ".omo", "senpi-task"))
+      } finally {
+        rmSync(project, { recursive: true, force: true })
+      }
+    })
+  })
+
+  describe("#given a legacy store whose records are expunged after it was adopted", () => {
+    test("#then later probes keep selecting it so one project's records never split across two stores", () => {
+      const project = mkdtempSync(join(tmpdir(), "omo-project-state-"))
+      try {
+        const record = join(project, ".omo", "senpi-task", "tasks", "st_x.json")
+        mkdirSync(join(project, ".omo", "senpi-task", "tasks"), { recursive: true })
+        writeFileSync(record, "{}")
+        const adopted = resolveProjectStateDirectory(project, "senpi-task", { env: { HOME } })
+        rmSync(record)
+
+        expect(resolveProjectStateDirectory(project, "senpi-task", { env: { HOME } })).toBe(adopted)
+        expect(adopted).toBe(join(project, ".omo", "senpi-task"))
       } finally {
         rmSync(project, { recursive: true, force: true })
       }

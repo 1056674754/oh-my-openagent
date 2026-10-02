@@ -59,6 +59,23 @@ describe("task engine state directory", () => {
     expect(engine.stateDir).toBe(join(project, ".omo", "senpi-task"))
   })
 
+  test("#given empty .omo/senpi-task scaffolding #when the engine persists task state #then it writes outside the project", () => {
+    // given
+    const project = tempProject()
+    mkdirSync(join(project, ".omo", "senpi-task", "tasks"), { recursive: true })
+
+    // when
+    const engine = composeIn(project)
+    const stateDir = engine.stateDir
+    tempRoots.push(stateDir)
+    engine.appendTaskEvent("st_0000d032", { type: "probe", payload: {} })
+
+    // then
+    expect(relative(project, stateDir).startsWith("..")).toBe(true)
+    expect(readdirSync(join(project, ".omo", "senpi-task"))).toEqual(["tasks"])
+    expect(readdirSync(join(project, ".omo", "senpi-task", "tasks"))).toEqual([])
+  })
+
   test("#given task.state_dir in omo.json #when the engine composes #then the configured directory wins", () => {
     // given
     const project = tempProject()
