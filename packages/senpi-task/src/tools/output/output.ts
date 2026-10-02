@@ -62,7 +62,8 @@ function hasLegacyBlockingParam(params: object): boolean {
 function outputForRecord(deps: TaskOutputDeps, record: TaskRecord, params: TaskOutputInput): TaskOutputToolResult {
   const now = (deps.now ?? Date.now)()
   const lease = deps.manager.concurrency?.leaseState(record.task_id, record.notification.run_epoch)
-  const stop = deps.manager.stopPending?.(record.task_id) === true ? { stop: STOP_PENDING_EXPLANATION } : {}
+  // Only a still-running child can be waiting on its cancel; a cancelled record says so itself.
+  const stop = record.status === "running" && record.cancel_requested !== undefined ? { stop: STOP_PENDING_EXPLANATION } : {}
   const snapshot = { ...buildTaskSnapshot(record, deps.stateDir, now), ...(lease === undefined ? {} : { lease }), ...stop }
   const mode = params.mode ?? "status"
 

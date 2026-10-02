@@ -29,6 +29,8 @@ export interface HandleRecoveryHost {
   endOnHost(client: HostSessionPort): Promise<void>
   /** The child stopped from this side without reaching its host (the bound ran out under a stop). */
   stopUnreached(): void
+  /** A recovery ended, by any path; `adopted` says whether it left the child on a recovered port. */
+  recoveryEnded(adopted: boolean): void
 }
 
 export interface HandleRecovery {
@@ -84,7 +86,7 @@ export function createHandleRecovery(host: HandleRecoveryHost): HandleRecovery {
   const boundedReattach = (reattach: HostSessionReattach, bound: RecoveryBound): HostSessionReattach => async (lost) => {
     const attempt = reattach(lost)
     const winner = await Promise.race([attempt, bound.expired])
-    if (winner === "expired") {
+    if (winner === "expired" || bound.isExpired()) {
       void attempt.then(endLate, () => undefined)
       if (host.stopRequested()) host.stopUnreached()
       return undefined
@@ -108,6 +110,7 @@ export function createHandleRecovery(host: HandleRecoveryHost): HandleRecovery {
       return host.endLost()
     }
     const bound = armRecoveryBound(host.bound)
+    let adopted = false
     reattaching = recoverLostTransport(
       {
         taskId: host.taskId,
@@ -116,7 +119,10 @@ export function createHandleRecovery(host: HandleRecoveryHost): HandleRecovery {
         session: () => ({ socket: host.port().socketPath, ...host.identity() }),
         alive: () => host.alive() && !host.stopRequested(),
         turnInFlight: () => !host.turnSettled() && deliveries === 0,
-        adopt: host.adopt,
+        adopt: (next) => {
+          adopted = true
+          host.adopt(next)
+        },
         turnResumed: host.turnResumed,
         continueTurn: (prompt) => withinBound(bound, host.port().send({ type: "prompt", message: prompt, streamingBehavior: "steer" })),
         // A refused reattach parks (the endpoint answered, but may not host this session); exhaustion ends.
@@ -128,6 +134,7 @@ export function createHandleRecovery(host: HandleRecoveryHost): HandleRecovery {
       .finally(() => {
         bound.settle()
         reattaching = undefined
+        host.recoveryEnded(adopted)
       })
   }
 

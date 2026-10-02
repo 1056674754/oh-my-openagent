@@ -1,9 +1,11 @@
 import { log } from "@oh-my-opencode/utils"
 
 import type { ManagedChildHandle } from "../manager/child-handle"
-import { getLifecycleDetachedRevival, getLifecycleDetachedRevivalRollback } from "../lifecycle/port"
+import { getLifecycleDetachedRevival } from "../lifecycle/port"
 import type { TaskRecord } from "../state"
-import { buildRevived, deliveryUncertain, lazyRevivalFailure, messageSha256, uncertainDeliveryDenial } from "./engine-policy"
+import { buildRevived, deliveryUncertain, evictionRefusal, lazyRevivalFailure, messageSha256, uncertainDeliveryDenial } from "./engine-policy"
+import { bestEffortRollback } from "./revival-rollback"
+import { reviveRunningOnSend } from "./revive-running"
 import type { ReviveReservation, SendOutcome, SteeringPort } from "./types"
 
 export async function reviveTerminal(
@@ -67,46 +69,6 @@ export async function reviveDetachedTerminalOnSend(
       return lazyRevivalFailure(record, "child handle is unavailable")
     }
     return deliverRevivedTerminal(port, fresh, handle, message, nowIso, reservation, true, record)
-  } finally {
-    endSend(record.task_id)
-  }
-}
-
-const UNUSED_RESERVATION = { ok: true as const, commit: (): void => undefined, release: (): void => undefined }
-
-/**
- * A parked daemon child that was still RUNNING is reopened, not revived into a new run: the revival's
- * own reattach opens the run's next epoch and takes its lane slot. Reserving a slot here first made
- * that reattach refuse the very slot this send held, so every send answered `lane_capacity` even on
- * an empty lane (omo#9403). The message is then delivered to the reopened session as a follow-up.
- */
-async function reviveRunningOnSend(
-  port: SteeringPort,
-  record: TaskRecord,
-  message: string,
-  beginSend: (taskId: string) => boolean,
-  endSend: (taskId: string) => void,
-): Promise<SendOutcome> {
-  if (!beginSend(record.task_id)) return evictionRefusal(record.task_id)
-  try {
-    const reviveDetached = port.reviveDetached ?? getLifecycleDetachedRevival(port.store)
-    if (reviveDetached === undefined) return lazyRevivalFailure(record, "revival is unavailable")
-    let revived: Awaited<ReturnType<typeof reviveDetached>>
-    try {
-      revived = await reviveDetached(record.task_id, UNUSED_RESERVATION)
-    } catch (error) {
-      await bestEffortRollback(port, record)
-      return lazyRevivalFailure(record, error instanceof Error ? error.message : String(error))
-    }
-    if (!revived.ok) {
-      return revived.code === undefined ? lazyRevivalFailure(record, revived.reason) : { kind: revived.code, task_id: record.task_id, reason: revived.reason }
-    }
-    const fresh = port.store.load(record.task_id)
-    const handle = port.liveHandle(record.task_id)
-    if (fresh === null || handle === undefined) return lazyRevivalFailure(record, "child handle is unavailable")
-    await handle.followUp(message)
-    port.store.appendEvent(record.task_id, { type: "steered", payload: { delivered: "followUp", run_epoch: fresh.notification.run_epoch } })
-    return { kind: "revived", task_id: record.task_id, run_epoch: fresh.notification.run_epoch }
   } finally {
     endSend(record.task_id)
   }
@@ -235,36 +197,5 @@ function buildDeliveryRecord(record: TaskRecord, timestamp: string, message: str
   return record.revive_delivery_uncertain !== undefined || (record.pending_steering?.length ?? 0) === 0 ? revived : {
     ...revived,
     revive_delivery_uncertain: { run_epoch: revived.notification.run_epoch, message_sha256: messageSha256(message) },
-  }
-}
-
-async function bestEffortRollback(port: SteeringPort, priorRecord: TaskRecord): Promise<void> {
-  const rollback = port.rollbackDetachedRevival ?? getLifecycleDetachedRevivalRollback(port.store)
-  if (rollback !== undefined) {
-    try {
-      if (rollback(priorRecord) === "not_owner") return
-    } catch (error) {
-      log("senpi-task lazy revival rollback failed", {
-        taskId: priorRecord.task_id,
-        error: error instanceof Error ? error.message : String(error),
-      })
-    }
-  }
-  try {
-    await port.destruction.destroyResidentTask(priorRecord.task_id, "revive_failure")
-  } catch (error) {
-    log("senpi-task lazy revival destruction failed", {
-      taskId: priorRecord.task_id,
-      error: error instanceof Error ? error.message : String(error),
-    })
-  }
-}
-
-function evictionRefusal(taskId: string): SendOutcome {
-  return {
-    kind: "not_continuable",
-    task_id: taskId,
-    reason: `Task ${taskId} is being evicted; send was not started.`,
-    suggestion: "Use task_output to read the final result.",
   }
 }

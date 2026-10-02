@@ -7,7 +7,9 @@
 
 export const TRANSPORT_RECOVERY_BOUND_MS = 180_000
 
-export const TRANSPORT_LOST_REASON = "transport lost: the connection to the task host dropped and the child did not resume"
+import { TRANSPORT_LOST_REASON } from "../../state/transport-loss"
+
+export { TRANSPORT_LOST_REASON }
 
 export interface RecoveryClock {
   schedule(ms: number, expire: () => void): () => void
@@ -60,8 +62,11 @@ export function armRecoveryBound(options: TransportRecoveryOptions | undefined):
   }
 }
 
+// Work that settles in the very tick the bound runs out lost the race: a deadline-edge result is
+// reported expired, never as a recovery that resumed.
 export async function withinBound<T>(bound: RecoveryBound, work: Promise<T>): Promise<T> {
+  if (bound.isExpired()) throw new TransportRecoveryExpiredError()
   const winner = await Promise.race([work, bound.expired])
-  if (winner === "expired" && bound.isExpired()) throw new TransportRecoveryExpiredError()
+  if (bound.isExpired()) throw new TransportRecoveryExpiredError()
   return winner as T
 }

@@ -10,6 +10,7 @@ import { clearSuspensionReason, markSuspensionReason } from "./host-session-reco
 import { detachTerminalResident } from "./reconcile-terminal"
 import { getLifecycleReattachPorts, type RespawnFailureCode, type RespawnPort, type RespawnResult } from "./port"
 import { markCrashedResident } from "./reconcile-crashed-resident"
+import { finishPendingCancel } from "./pending-cancel"
 import { reclaimOrphanedResident } from "./residency"
 import { deferred, disposeClaimed, markLost, rollbackOrDeferred, terminateOldRpc, type SuspendedResidency } from "./revive-rollback"
 import type { ReconcileDeferredReason, ReconcileOutcome } from "./types"
@@ -115,6 +116,8 @@ export async function reviveClaimed(
   if (!isClaimHeld(context, fresh, claimed.parent_session_id) || fresh.killed === true || (!REVIVABLE_STATUSES.has(fresh?.status ?? "pending") && !terminalAllowed)) {
     return rollbackOrDeferred(context, claimed.task_id, rollbackResidency, "foreign_live_owner", claimed)
   }
+  // An accepted cancel is final: this claim finishes it rather than running the child again.
+  if (fresh.cancel_requested !== undefined && !TERMINAL_STATUSES.has(fresh.status)) return finishPendingCancel(context, fresh)
 
   // A host session has no pid of its own; only the child-process runner ever leaves one behind.
   if (fresh.execution_mode === "process" && fresh.pid !== undefined && !isHostSessionRecord(fresh)) {

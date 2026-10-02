@@ -298,8 +298,6 @@ export type TaskManager = {
   sendToTask(input: SendInput): Promise<SendOutcome>
   interruptTask(idOrName: string): Promise<InterruptOutcome>
   cancelTask(idOrName: string, reason?: string, options?: CancelOptions): Promise<CancelOutcome>
-  // A cancel is waiting for this child's lost connection; it is not stopped yet (omo#9403).
-  stopPending?(taskId: string): boolean
   get(taskId: string): TaskRecord | undefined
   hasPendingSends?(taskId: string): boolean
   tryClaimEviction?(taskId: string): boolean

@@ -1,7 +1,7 @@
 import { log } from "@oh-my-opencode/utils"
 
 import type { ManagedChildHandle } from "../manager/child-handle"
-import { messageability } from "../state"
+import { isTransportLostMessage, messageability } from "../state"
 import { isColdRevivalCandidate } from "../lifecycle/revive-policy"
 import type { PendingSteeringEntry, TaskRecord } from "../state"
 import {
@@ -23,7 +23,6 @@ import { reviveDetachedTerminalOnSend, reviveTerminal } from "./revive"
 import { createSteeringControls } from "./controls"
 
 const TASK_OUTPUT_SUGGESTION = "Use task_output to read the final result."
-const TRANSPORT_LOST_PREFIX = "transport lost"
 const NOT_FOUND_SUGGESTION = "Use /tasks to see available tasks, or task_output to read a known task."
 
 export function createSteeringEngine(port: SteeringPort): SteeringEngine {
@@ -69,6 +68,15 @@ export function createSteeringEngine(port: SteeringPort): SteeringEngine {
     const deliverAs = input.deliverAs ?? DEFAULT_SEND_DELIVERY
     if (record.status === "pending") return enqueuePending(record, input.message, deliverAs)
     if (port.isEvicting?.(record.task_id) === true) return evictionRefusal(record.task_id)
+    // An accepted cancel is final: nothing may revive or steer the child it is stopping (omo#9403).
+    if (record.status === "running" && record.cancel_requested !== undefined) {
+      return {
+        kind: "not_continuable",
+        task_id: record.task_id,
+        reason: `Task ${record.task_id} has a pending cancel and will not run again.`,
+        suggestion: TASK_OUTPUT_SUGGESTION,
+      }
+    }
 
     if (coldRevivals.has(record.task_id)) return { kind: "admission_refused", task_id: record.task_id, reason: "revival_in_progress" }
     const cold = isColdRevivalCandidate(record)
@@ -108,7 +116,7 @@ export function createSteeringEngine(port: SteeringPort): SteeringEngine {
     if (handle.hasExited?.() === true) {
       // A child whose connection never came back ended for that reason; say so instead of pointing at
       // a message (omo#9403). Its transcript and worktree are left for the parent to recover from.
-      const lost = record.error_message?.startsWith(TRANSPORT_LOST_PREFIX) === true
+      const lost = isTransportLostMessage(record.error_message)
       return {
         kind: "not_continuable",
         task_id: record.task_id,

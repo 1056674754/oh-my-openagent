@@ -89,7 +89,11 @@ export class FakeSessionTable {
     if (this.#sessionProcesses && session.process === undefined) {
       const child = startSessionProcess()
       session.process = child
-      session.processExit = new Promise<void>((resolve) => child.once("exit", () => resolve()))
+      // A spawn that fails emits `error` and never `exit`: either one ends the process's life.
+      session.processExit = new Promise<void>((resolve) => {
+        child.once("exit", () => resolve())
+        child.once("error", () => resolve())
+      })
     }
     this.#peaks.set(sessionPath, Math.max(this.#peaks.get(sessionPath) ?? 0, session.attachments.size))
     session.parked = false
@@ -248,6 +252,7 @@ function startSessionProcess(): ChildProcess {
 function endSessionProcess(session: LiveSession): void {
   session.process?.kill("SIGKILL")
   session.process = undefined
+  session.processExit = undefined
 }
 
 function drained(session: LiveSession): FakeDrainedSession {

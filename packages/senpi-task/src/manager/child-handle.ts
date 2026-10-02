@@ -48,6 +48,8 @@ export type ManagedChildHandle = {
   onParked?(listener: (event: { readonly reason: SuspensionReason }) => void): () => void
   // A daemon-session child whose connection dropped and is being recovered (omo#9403).
   transportRecovering?(): boolean
+  // A cancel was accepted: no transport recovery may bring this child back as running.
+  markStopping?(): void
   // Stop it once reachable, before it runs anything else; resolves once it has ended on this side.
   stopWhenReachable?(): Promise<void>
   steer(text: string): Promise<void>
@@ -106,6 +108,7 @@ export function adaptRpcHandle(handle: RpcChildHandle): ManagedChildHandle {
       ? {
           onParked: (listener) => handle.onParked(listener),
           transportRecovering: () => handle.transportRecovering(),
+          markStopping: () => handle.markStopping(),
           stopWhenReachable: () => handle.stopWhenReachable(),
         }
       : {}),

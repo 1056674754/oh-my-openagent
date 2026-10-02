@@ -98,6 +98,8 @@ export type HostSessionChildHandle = RpcChildHandle & {
   startInitialPrompt(text: string): Promise<void>
   /** The connection is down and being recovered: nothing sent to the child can land yet. */
   transportRecovering(): boolean
+  /** A cancel was accepted: a recovery that reaches the host ends the session instead of resuming it. */
+  markStopping(): void
   /**
    * Stop the child. With its transport down the stop waits for the recovered connection and runs
    * there before anything else; it resolves once the child has ended on this side.

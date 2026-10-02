@@ -42,6 +42,8 @@ export type SteeringPort = {
   // that run, so no failure the stop itself causes is written over it.
   stopRequested?(taskId: string): void
   stopSettled?(taskId: string): void
+  // A reopened child handed back parked runs nowhere: no epoch of it keeps a lane slot.
+  releaseTaskLeases?(taskId: string): void
   now(): number
 }
 

@@ -48,6 +48,9 @@ export async function destroyResidentTask(
         if (cause !== "fallback_handoff") context.registry.forget(taskId)
         if (cause === "revive_failure") recordRevivalFailure(context, taskId)
       }
+      // A daemon child whose stop could not reach its host (the transport was down, or crash recovery
+      // gave up) may still hold its session there: the cancel ends it once the host answers.
+      if (handle.kind !== "in-process" && (cause === "cancel" || cause === "cancel_without_abort")) await closeParkedSession(context, taskId)
     } else if (cause === "reconcile_lost" || cause === "ttl" || cause === "revive_failure") {
       await terminateOrphan(context, taskId, orphan)
       if (cause === "revive_failure") recordRevivalFailure(context, taskId)

@@ -53,6 +53,7 @@ import { createOutcomeTracker, type OutcomeTracker } from "./manager-outcome"
 import { claimTaskRecord, TaskRecordCollisionError } from "../store"
 import { withTaskRecordLockAsync } from "../store/record-lock"
 import { reattachManagedTask } from "./manager-reattach"
+import { PendingStops } from "./pending-stops"
 import { respawnWithWorkpool } from "./workpool-respawn"
 import { NameRegistry } from "./names"
 import { TaskSequence } from "./task-sequence"
@@ -163,8 +164,7 @@ class TaskManagerImpl implements TaskManager {
   readonly #background = new Set<string>()
   readonly #evicting = new Set<string>()
   readonly #sendCounts = new Map<string, number>()
-  // Cancels waiting for a child's lost connection (omo#9403): the cancel alone ends those runs.
-  readonly #stopsPending = new Set<string>()
+  readonly #stopsPending = new PendingStops()
   readonly #steering: SteeringEngine
   readonly #isolation: IsolationWiring
   readonly #outcome: OutcomeTracker
@@ -217,13 +217,12 @@ class TaskManagerImpl implements TaskManager {
       reserveForDetachedRevive: (record) => this.#reserveForDetachedRevive(record),
       destruction: options.destruction ?? NOOP_DESTRUCTION,
       runStatsSnapshot: (taskId) => this.#runStats.get(taskId)?.snapshot(this.#now()),
-      stopRequested: (taskId) => {
-        this.#stopsPending.add(taskId)
-      },
+      stopRequested: (taskId) => this.#stopsPending.request(taskId),
+      releaseTaskLeases: (taskId) => this.#concurrency.releaseTask(taskId),
       stopSettled: (taskId) => {
-        this.#stopsPending.delete(taskId)
         this.#concurrency.releaseTask(taskId)
         this.#settleWaiters(taskId)
+        this.#stopsPending.settle(taskId)
       },
       now: this.#now,
     }
@@ -246,7 +245,7 @@ class TaskManagerImpl implements TaskManager {
       forget: (taskId) => this.forget(taskId),
       settleWaiters: (taskId, terminal) => this.#settleWaiters(taskId, terminal),
       tryRuntimeFallback: (input) => this.#tryRuntimeFallback(input),
-      stopPending: (taskId) => this.#stopsPending.has(taskId),
+      stopSettlement: (taskId) => this.#stopsPending.settlement(taskId),
     })
     this.workpools = createWorkpoolEngine(options.store.stateDir, createWorkpoolAdmission({
       options, concurrency: this.#concurrency, hostPid: this.#hostPid,
@@ -538,8 +537,9 @@ class TaskManagerImpl implements TaskManager {
       this.#removeCapacityWaiter(outcome.task_id)
       this.#releaseSlotForTask(outcome.task_id)
       // A cancelled task never runs again, so no epoch of it may keep a lane slot - including a run
-      // whose live handle this manager already let go of.
-      if (options?.abort !== "skip") this.#concurrency.releaseTask(outcome.task_id)
+      // whose live handle this manager already let go of, or never had (still launching). Only a live
+      // handle whose abort was skipped keeps its slot until its settled outcome releases it.
+      if (options?.abort !== "skip" || !this.#live.has(outcome.task_id)) this.#concurrency.releaseTask(outcome.task_id)
     }
     return outcome
   }
@@ -584,8 +584,6 @@ class TaskManagerImpl implements TaskManager {
   }
 
   get concurrency(): TaskConcurrency { return this.#concurrency }
-
-  stopPending(taskId: string): boolean { return this.#stopsPending.has(taskId) }
 
   findTaskByChildSession(sessionId: string): TaskRecord | undefined {
     return this.#options.store.list().records.find((record) => record.child_session_id === sessionId

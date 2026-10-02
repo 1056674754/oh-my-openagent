@@ -54,6 +54,8 @@ export interface FakeHost {
   withholdReply(type: string): void
   /** Answer the named command again from now on; a reply already withheld stays unanswered. */
   allowReply(type: string): void
+  /** Refuse the named command with this error from now on; `undefined` answers it normally again. */
+  failReply(type: string, error: string | undefined): void
   requestUi(routingId: string, request: Readonly<Record<string, unknown>>): void
   emitRecord(routingId: string, record: Readonly<Record<string, unknown>>): void
   /** The host loop stalled: a connection-level notice every attached client sees. */
@@ -93,6 +95,7 @@ export async function startFakeHost(options: FakeHostOptions = {}): Promise<Fake
   const sockets = new Set<Socket>()
   const connectionWaiters: Array<{ readonly count: number; readonly resolve: () => void }> = []
   const withheld = new Set<string>()
+  const failed = new Map<string, string>()
   let identity = fakeProtocolInfo(options)
   let generation = typeof identity.generation === "number" ? identity.generation : 1
   let openFailure = options.openFailure
@@ -108,7 +111,7 @@ export async function startFakeHost(options: FakeHostOptions = {}): Promise<Fake
     }
   }
 
-  const ports = { table, warm: options.warm ?? { state: "warmed" as const }, identity: () => identity, openFailure: () => openFailure, enforceSessionDir: options.enforceSessionDir === true, withheld, record }
+  const ports = { table, warm: options.warm ?? { state: "warmed" as const }, identity: () => identity, openFailure: () => openFailure, enforceSessionDir: options.enforceSessionDir === true, withheld, failed, record }
 
   const settleConnectionWaiters = (): void => {
     for (let index = connectionWaiters.length - 1; index >= 0; index--) {
@@ -192,6 +195,10 @@ export async function startFakeHost(options: FakeHostOptions = {}): Promise<Fake
     },
     allowReply: (type) => {
       withheld.delete(type)
+    },
+    failReply: (type, error) => {
+      if (error === undefined) failed.delete(type)
+      else failed.set(type, error)
     },
     requestUi: (routingId, request) => sendTo(routingId, { type: "extension_ui_request", ...request }),
     emitRecord: (routingId, payload) => sendTo(routingId, payload),

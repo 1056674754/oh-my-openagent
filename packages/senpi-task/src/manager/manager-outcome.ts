@@ -33,8 +33,9 @@ export type OutcomeTrackerPorts = {
   // record is then guaranteed non-terminal, so the waiters must be settled from this record instead.
   readonly settleWaiters: (taskId: string, terminal?: TaskRecord) => void
   readonly tryRuntimeFallback: (input: ErrorOutcomeInput) => Promise<boolean>
-  // A cancel is waiting to stop this task: the run ends as cancelled, never as the failure the stop causes.
-  readonly stopPending?: (taskId: string) => boolean
+  // A cancel is waiting to stop this task: the run ends as cancelled, never as the failure the stop
+  // causes. Settles once that cancel finished, whether or not its own record write landed.
+  readonly stopSettlement?: (taskId: string) => Promise<void> | undefined
   // Merges (or retains) an isolated child's clone. Awaited BEFORE the terminal record is written, so
   // every result builder - the foreground waiter, the completion notification, task_output - reads
   // one record that already carries merge_result. A late merge would publish "done" before the
@@ -178,12 +179,26 @@ export function createOutcomeTracker(ports: OutcomeTrackerPorts): OutcomeTracker
     if (stop !== undefined) parkWatches.set(taskId, stop)
   }
 
+  // The run a pending cancel stopped. The cancel normally wrote the terminal record and let the handle
+  // go; when its write failed the run is still ours, and it ends as cancelled here - never as the
+  // failure the stop caused, which would also start a runtime fallback.
+  async function settleStopped(taskId: string, handle: ManagedChildHandle, model: string, epoch: number, stopped: Promise<void>): Promise<void> {
+    await stopped
+    const owned = ownedRecord(ports, taskId, handle, epoch)
+    if (owned === null) return
+    ports.releaseSlot(taskId, model, epoch)
+    const runStats = ports.runStatsSnapshot(taskId)
+    const timestamp = nowIso(ports.now)
+    persistTerminal(taskId, owned, timestamp, { type: "cancel", timestamp, ...(runStats === undefined ? {} : { run_stats: runStats }) })
+  }
+
   function trackOutcome(taskId: string, handle: ManagedChildHandle, model: string, epoch: number): void {
     watchParks(taskId, handle, epoch)
     handle
       .waitForOutcome()
       .then(async (outcome) => {
-        if (ports.stopPending?.(taskId) === true) return
+        const stopped = ports.stopSettlement?.(taskId)
+        if (stopped !== undefined) return await settleStopped(taskId, handle, model, epoch, stopped)
         const owned = ownedRecord(ports, taskId, handle, epoch)
         if (owned === null) return
         const timestamp = nowIso(ports.now)
