@@ -216,7 +216,9 @@ export class InProcessRunner {
       })
     } catch (error) {
       this.#kernelToolBindings?.release(spec.taskId)
-      discardUnstartedChildSession(session)
+      await discardUnstartedChildSession(session).catch((shutdownError: unknown) => {
+        throw new AggregateError([error, shutdownError], "child handle construction failed, and shutting down its session failed")
+      })
       throw error
     }
     // Runtime-only, and only once the child actually exists: the grant is bound under this child's
