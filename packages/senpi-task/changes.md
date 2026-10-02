@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 ## 2026-10-02 - A killed Windows child stays killed when Bun's reaper advisory fills its stderr tail (#9228)
 
 - `runners/rpc/exit-mapping.ts`: on win32 a child ended by `TerminateProcess` exits with code 1 and no signal, and stderr that holds only Bun's `child reaper unavailable under Bun on win32 ...` advisory still counts as a kill. Bun prints that advisory once per terminated worker thread, and the handle classifies the last 4 KB of stderr (`client.stderrTail`), so with enough advisories the tail began mid-advisory, or the kill cut the last advisory mid-write; either fragment made the exit a crash, and the task ended `status=error killed=false` with the advisory as its error (the Windows RPC e2e `kill_marks_error_killed_true` check, timing-dependent). Those two fragments are now recognized: a cut first line that ends a full advisory line in the same tail, and a last line that is the start of the advisory. Any other text, whole or cut, still makes the exit a crash.
@@ -36,14 +35,11 @@ Builds on #9406 (Dante-dan), which reports a recovery `continued` only after the
   desktop observer fix removes the directory writer; this lookup change alone is
   not evidence that first-turn project writes are fixed.
 
-||||||| parent of c01d80d5e (fix(computer-use): relay permission events to the root session)
-=======
 ## 2026-10-01 - Relay typed child computer permission events through task ownership (omo-desktop-app#1437)
 
 - Add a separate, validated child extension-event channel for `computer.permission_required`; keep `AgentSessionEvent` and its listeners unchanged. Invalid permission records are dropped.
 - Preserve denials received before the manager subscribes, forward daemon events across transport replacement, and retire subscriptions with their owning handles. The manager supplies trusted task ownership rather than accepting session identities from the child record.
 
->>>>>>> c01d80d5e (fix(computer-use): relay permission events to the root session)
 ## 2026-10-01 - Builtin chain rungs name thinking levels their models accept (#9378)
 
 - `category/fallback-chains.ts`: `quick` opencode-go `minimax-m3` / `minimax-m2.7` drop `variant: "max"` (the child now inherits the
