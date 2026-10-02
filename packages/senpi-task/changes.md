@@ -1,3 +1,8 @@
+## 2026-10-02 - A killed Windows child stays killed when Bun's reaper advisory fills its stderr tail (#9228)
+
+- `runners/rpc/exit-mapping.ts`: on win32 a child ended by `TerminateProcess` exits with code 1 and no signal, and stderr that holds only Bun's `child reaper unavailable under Bun on win32 ...` advisory still counts as a kill. Bun prints that advisory once per terminated worker thread, and the handle classifies the last 4 KB of stderr (`client.stderrTail`), so with enough advisories the tail began mid-advisory, or the kill cut the last advisory mid-write; either fragment made the exit a crash, and the task ended `status=error killed=false` with the advisory as its error (the Windows RPC e2e `kill_marks_error_killed_true` check, timing-dependent). Those two fragments are now recognized: a cut first line that ends a full advisory line in the same tail, and a last line that is the start of the advisory. Any other text, whole or cut, still makes the exit a crash.
+- Tests (`exit-mapping.test.ts`): 40 advisories through the 4 KB tail and an advisory cut mid-write both classify as killed (both fail before this change); a diagnostic among the advisories (cut by the tail, after them, or cut mid-write) still classifies as crashed, and POSIX is unchanged.
+
 ## 2026-10-01 - A child whose host connection drops resumes or fails within a bound; task_cancel really stops it (#9403)
 
 Builds on #9406 (Dante-dan), which reports a recovery `continued` only after the host takes the continuation; this entry is the rest of #9403.
