@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.11] - 2026-10-02
+
 **New tasks no longer queue forever behind a delegated task that lost its connection to the host.** Such a task used to stay suspended with its lane taken until the session restarted; now it reconnects, or ends within a bounded time and frees the lane. This release runs on the senpi 2026.10.1-3 engine.
 
 ### Fixed
