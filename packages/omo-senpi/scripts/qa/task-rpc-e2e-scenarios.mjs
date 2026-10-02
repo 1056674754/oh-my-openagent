@@ -146,6 +146,8 @@ function readRecordsLenient(stateDir) {
   }
 }
 
+const RECORD_RECHECK_MS = 250
+
 function waitForRecord(stateDir, predicate, timeoutMs) {
   const tasksDir = join(stateDir, "tasks")
   const logsDir = join(stateDir, "logs")
@@ -158,7 +160,17 @@ function waitForRecord(stateDir, predicate, timeoutMs) {
       const match = find()
       if (match !== undefined) finish(match)
     }))
-    const closeWatchers = () => watchers.forEach((watcher) => watcher.close())
+    // File watchers drop events under load (macOS FSEvents, Windows runners), and a dropped create
+    // event would read as a missing child. A short re-read backs the watchers up until the wait ends.
+    const recheck = setInterval(() => {
+      const match = find()
+      if (match !== undefined) finish(match)
+    }, RECORD_RECHECK_MS)
+    recheck.unref?.()
+    const closeWatchers = () => {
+      clearInterval(recheck)
+      watchers.forEach((watcher) => watcher.close())
+    }
     const finish = (match) => {
       if (settled) return
       settled = true
