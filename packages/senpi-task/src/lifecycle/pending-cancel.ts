@@ -1,6 +1,8 @@
 import type { TaskRecord } from "../state"
 import { nowIso, type LifecycleContext } from "./context"
 import { destroyResidentTask } from "./destroy"
+import { closeHostSessionConfirmed } from "./host-session-close"
+import { isHostSessionRecord } from "./host-session"
 import type { ReconcileOutcome } from "./types"
 
 /**
@@ -8,8 +10,19 @@ import type { ReconcileOutcome } from "./types"
  * (omo#9403): its parent shut down, or its host shard crashed, before the stop landed. Whichever
  * revival reaches the record next - session-start reconcile, daemon-loss retry, a send - finishes the
  * cancel instead: the session is ended on its host, the record is cancelled, and nothing runs.
+ *
+ * The session is ended FIRST. A close the host refuses or does not confirm in time returns undefined
+ * and leaves the cancel pending on the record, so the next revival retries it: a cancelled record whose
+ * session still runs would let the child keep working until the TTL sweep caught it.
  */
-export async function finishPendingCancel(context: LifecycleContext, record: TaskRecord): Promise<ReconcileOutcome> {
+export async function finishPendingCancel(context: LifecycleContext, record: TaskRecord): Promise<ReconcileOutcome | undefined> {
+  if (isHostSessionRecord(record) && context.registry.get(record.task_id) === undefined) {
+    context.hostSessionProbe.refresh(record.host_session.socket)
+    if (await context.hostSessionProbe.sessionLive(record.host_session)) {
+      const closed = await closeHostSessionConfirmed(context, record.task_id, record.host_session, record.spawn_spec?.cwd)
+      if (!closed) return undefined
+    }
+  }
   const reason = record.cancel_requested?.reason
   const result = context.store.transition(record.task_id, {
     type: "cancel",

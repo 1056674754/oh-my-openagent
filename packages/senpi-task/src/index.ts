@@ -56,6 +56,7 @@ export type {
   ResolvedModelSource,
   SpawnSpecV1,
   TaskNotification,
+  CancelRequest,
   TaskRecord,
   TaskRecordInput,
   TaskRunStats,

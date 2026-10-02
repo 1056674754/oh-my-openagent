@@ -124,7 +124,12 @@ export function createHandleRecovery(host: HandleRecoveryHost): HandleRecovery {
           host.adopt(next)
         },
         turnResumed: host.turnResumed,
-        continueTurn: (prompt) => withinBound(bound, host.port().send({ type: "prompt", message: prompt, streamingBehavior: "steer" })),
+        // A stop recorded while the reattached session was being read must run before any continuation:
+        // the turn is not re-driven, and the recovery's end stops the adopted session (omo#9403).
+        continueTurn: async (prompt) => {
+          if (host.stopRequested()) return
+          await withinBound(bound, host.port().send({ type: "prompt", message: prompt, streamingBehavior: "steer" }))
+        },
         // A refused reattach parks (the endpoint answered, but may not host this session); exhaustion ends.
         giveUp: (reason) => (reason === undefined ? host.endLost() : host.park(reason)),
       },

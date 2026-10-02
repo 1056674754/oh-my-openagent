@@ -14,6 +14,9 @@ export interface HandleStopHost {
   detached(): boolean
   recovering(): boolean
   markAborted(): void
+  /** The teardown the child is under: a plain close() keeps its clean close when a late reattach ends it. */
+  intent(): "running" | "closed" | "terminated"
+  settleClosed(): void
   settleExit(outcome: ChildExitOutcome): void
   waitForExit(): Promise<ChildExitOutcome>
 }
@@ -39,9 +42,13 @@ export interface HandleStop {
 export function createHandleStop(host: HandleStopHost): HandleStop {
   let requested = false
 
+  // A cancel or terminate ends the session as terminated; a plain close() that a recovery overlapped
+  // still ends as the clean close it asked for.
   const endOnHost = async (client: HostSessionPort): Promise<void> => {
-    await endSessionOnHost({ taskId: host.taskId, closeGraceMs: host.closeGraceMs, port: () => client }, "terminated")
-    host.settleExit({ kind: "killed", facts: sessionExitFacts("terminated") })
+    const kind = requested || host.intent() !== "closed" ? "terminated" : "closed"
+    await endSessionOnHost({ taskId: host.taskId, closeGraceMs: host.closeGraceMs, port: () => client }, kind)
+    if (kind === "closed") host.settleClosed()
+    else host.settleExit({ kind: "killed", facts: sessionExitFacts("terminated") })
   }
   const stopUnreached = (): void => host.settleExit({ kind: "killed", facts: sessionExitFacts(STOPPED_UNREACHED_REASON) })
   const markStopping = (): void => {
@@ -65,8 +72,10 @@ export function createHandleStop(host: HandleStopHost): HandleStop {
       else stopUnreached()
     },
     stopWhenReachable: async () => {
-      if (!host.recovering()) return await endOnHost(host.port())
+      // Marked first: a transport that drops while the session is being ended must find the stop
+      // already recorded, so the recovery it starts ends the child instead of resuming it.
       markStopping()
+      if (!host.recovering()) return await endOnHost(host.port())
       await host.waitForExit()
     },
   }

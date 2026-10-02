@@ -65,6 +65,14 @@ export type OutcomeTracker = {
 // nobody can settle (chaos invariant 3 pins this drain behavior).
 // Returns the fresh record when the outcome is owned, null otherwise. The record is handed on so a
 // failed terminal write can still synthesize the terminal the waiters are owed.
+function stoppedRunRecord(ports: OutcomeTrackerPorts, taskId: string, epoch: number): TaskRecord | null {
+  const fresh = ports.tryLoad(taskId)
+  if (fresh === null || fresh.cancel_requested === undefined || fresh.notification.run_epoch !== epoch) return null
+  return STOPPED_RUN_TERMINAL.has(fresh.status) ? null : fresh
+}
+
+const STOPPED_RUN_TERMINAL: ReadonlySet<string> = new Set(["completed", "error", "cancelled", "interrupted", "lost"])
+
 function ownedRecord(
   ports: OutcomeTrackerPorts,
   taskId: string,
@@ -184,7 +192,9 @@ export function createOutcomeTracker(ports: OutcomeTrackerPorts): OutcomeTracker
   // failure the stop caused, which would also start a runtime fallback.
   async function settleStopped(taskId: string, handle: ManagedChildHandle, model: string, epoch: number, stopped: Promise<void>): Promise<void> {
     await stopped
-    const owned = ownedRecord(ports, taskId, handle, epoch)
+    // A teardown that already let the handle go must not strand the run: the record of this same run,
+    // still non-terminal with its cancel on it, is still the cancel's to end.
+    const owned = ownedRecord(ports, taskId, handle, epoch) ?? stoppedRunRecord(ports, taskId, epoch)
     if (owned === null) return
     ports.releaseSlot(taskId, model, epoch)
     const runStats = ports.runStatsSnapshot(taskId)

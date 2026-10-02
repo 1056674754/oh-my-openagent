@@ -140,6 +140,8 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     detached: () => detached,
     recovering: () => recovery.recovering(),
     markAborted: () => { abortedByUser = true },
+    intent: () => intent,
+    settleClosed: () => settleClassified(classifySessionExit({ cause: { kind: "session_closed", reason: "client_close" }, intent })),
     waitForExit: () => waiters.waitForExit(outcome),
   })
 

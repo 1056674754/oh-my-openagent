@@ -14,6 +14,7 @@ import {
   type SteeringPort,
 } from "./types"
 import {
+  evictionRefusal,
   uncertainDeliveryDenial,
   notContinuableReason,
   oneShotPolicyDenial,
@@ -185,15 +186,6 @@ export function createSteeringEngine(port: SteeringPort): SteeringEngine {
 
   function hasPendingSends(taskId: string): boolean {
     return (pendingSends.get(taskId) ?? 0) > 0 || (tryLoad(taskId)?.pending_steering?.length ?? 0) > 0
-  }
-
-  function evictionRefusal(taskId: string): SendOutcome {
-    return {
-      kind: "not_continuable",
-      task_id: taskId,
-      reason: `Task ${taskId} is being evicted; send was not started.`,
-      suggestion: TASK_OUTPUT_SUGGESTION,
-    }
   }
 
   function dropPending(taskId: string): void {

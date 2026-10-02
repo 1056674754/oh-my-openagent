@@ -30,6 +30,7 @@ export type {
   StartQueued,
   SuspensionReason,
   TaskNotification,
+  CancelRequest,
   TaskRecord,
   TaskRecordInput,
   TaskRunStats,
