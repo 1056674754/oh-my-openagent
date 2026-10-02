@@ -254,7 +254,11 @@ and rolled back before the next request runs. This bounds asynchronous waits, no
 JavaScript that blocks the worker's event loop. Using a retained `tx` after the operation
 returns throws a typed error (async helpers reject); an unhandled expired-transaction error
 is reported as an `extension_error` event with phase `stale_transaction`, without killing
-the worker.
+the worker. Any other late asynchronous error from extension code - a timer or an unawaited
+promise that fails after the operation returned - is reported as an `extension_error` with
+phase `async`, attributed to the most recent extension activity on a best effort, and never
+closes the store. If the worker ever does exit, the facade opens a fresh one on the next
+call and restores that worker's registrations.
 
 A core schema newer than this binary supports is refused with `gateway_schema_too_new`
 without applying migrations or lowering `user_version`. Extension registration/calls return

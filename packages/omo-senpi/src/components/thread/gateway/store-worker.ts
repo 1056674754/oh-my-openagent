@@ -39,6 +39,8 @@ let running = false
 let context: ops.StoreContext | undefined
 let connection: SqliteConnection | undefined
 let extensions: StoreExtensions | undefined
+/** The extension whose registration or call ran most recently; a late error is attributed to it. */
+let lastExtensionActivity: string | undefined
 let nextResolution = 1
 const resolutions = new Map<number, { readonly resolve: (value: GatewayResolution) => void; readonly reject: (error: Error) => void }>()
 const resolveTarget: GatewayResolve = (address, request) => new Promise((resolve, reject) => {
@@ -48,8 +50,14 @@ const resolveTarget: GatewayResolve = (address, request) => new Promise((resolve
 })
 
 function lateTransactionError(error: unknown): void {
-  if (!(error instanceof ExtensionTransactionEndedError)) throw error
-  emit({ kind: "extension_error", extension: error.extension, phase: "stale_transaction", error: error.message })
+  if (error instanceof ExtensionTransactionEndedError) {
+    emit({ kind: "extension_error", extension: error.extension, phase: "stale_transaction", error: error.message })
+    return
+  }
+  // A late asynchronous error fires after its operation returned: report it as a store event,
+  // attributed to the most recent extension activity on a best effort, and keep the worker (and
+  // with it the store) serving instead of letting the process default take the worker down.
+  emit({ kind: "extension_error", extension: lastExtensionActivity ?? "worker", phase: "async", error: error instanceof Error ? error.message : String(error) })
 }
 
 process.on("uncaughtException", lateTransactionError)
@@ -120,11 +128,13 @@ async function dispatch(op: string, args: unknown): Promise<unknown> {
   switch (op) {
     case "extension_register": {
       const request = args as { readonly extension: StoreExtensionRegistration; readonly now: number }
+      lastExtensionActivity = request.extension.name
       const result = await extensions?.register(request.extension, request.now)
       return { result, retained: extensions?.holds(request.extension) === true }
     }
     case "extension_call": {
       const request = args as { readonly name: string; readonly op: string; readonly args: unknown; readonly now: number }
+      lastExtensionActivity = request.name
       try {
         return await extensions?.call(request.name, request.op, request.args, request.now)
       } finally {
