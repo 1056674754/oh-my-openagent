@@ -218,6 +218,7 @@ describe("a pending cancel always ends the run", () => {
     const { world, parent } = lane
     await parent.startChildren(1)
     const child = recordAt(parent, 0)
+    const session = sessionOf(world, child)
     world.host.withholdReply("get_state")
     const stateAsked = world.host.waitForCommand("get_state")
     const promptsBefore = world.commandsOfType("prompt")
@@ -234,6 +235,9 @@ describe("a pending cancel always ends the run", () => {
     expect(["cancel_pending", "cancelled"]).toContain(cancelled.details.kind)
     expect(stopped.status).toBe("cancelled")
     expect(world.commandsOfType("prompt")).toBe(promptsBefore)
+    // The record turns cancelled as the stop lands; the host drops the session as its close completes.
+    // Wait for that end on the host instead of racing it.
+    await bounded(session.processExit ?? Promise.resolve(), "the cancelled child's process exit")
     expect(hostHolds(world, child)).toBe(false)
   })
 })
