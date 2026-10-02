@@ -406,17 +406,12 @@ export function createLiveThreadSurface(_pi: SenpiExtensionAPI | undefined, opti
     socket: legacy,
     listTarget: async (durableId, endpoint) => {
       kinds.set(resolve(endpoint.socket), endpoint.kind)
-      try {
-        // A live owner gets the bound a terminal listing gets in discovery: nothing else is tried after
-        // this call, so a shorter one reports a busy owner offline (and refuses its steers).
-        const { sessions } = await callOn<{ sessions: ThreadHostSession[] }>(endpoint.socket, "list_sessions", endpoint.kind === "tui" ? {} : OBSERVE, TUI_REQUEST_TIMEOUT_MS)
-        const target = sessions.filter((session) => (session.durableSessionId ?? session.sessionId) === durableId && session.status !== "closed")
-          .map((session) => ({ ...session, socket: endpoint.socket, endpoint_kind: endpoint.kind }))
-        return { sessions: target, hosts: [{ socket: endpoint.socket, endpoint_kind: endpoint.kind, list_sessions: { sessions: target }, alive: true }], disk: [] }
-      } catch {
-        // A stale publication is offline, not a reason to discover another endpoint.
-        return { sessions: [], hosts: [], disk: [] }
-      }
+      // The owner is listed exactly as thread_list lists it (the same per-kind budget and failure
+      // classification), so a send, a steer and a listing never disagree on whether it is live. A stale
+      // publication is offline, not a reason to discover another endpoint.
+      const listed = await listEndpoint({ socket: endpoint.socket, paths: [], kind: endpoint.kind, verdict: {} })
+      const target = listed.sessions.filter((session) => (session.durableSessionId ?? session.sessionId) === durableId && session.status !== "closed")
+      return { sessions: target, hosts: [listed.failure === undefined ? { ...listed.host, list_sessions: { sessions: target } } : listed.host], disk: [] }
     },
     listSessions: async () => (await listView()).sessions,
     listView,

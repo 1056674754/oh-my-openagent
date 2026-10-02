@@ -88,7 +88,7 @@ export async function publishedWorld() {
         },
       },
     })
-    const start = () => registrant.start({ durableId, sessionPath: () => sessionPath, isIdle: () => true })
+    const start = () => registrant.start({ durableId, sessionPath: () => sessionPath, isIdle: () => runtime.phase() === "idle" })
     await start()
     releases.push(async () => { await registrant.stop(); await crash() })
     return { frames, runtime, crash, stop: registrant.stop, start, socketPath, listing,

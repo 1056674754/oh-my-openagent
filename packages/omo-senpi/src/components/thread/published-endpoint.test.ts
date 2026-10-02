@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test"
 import { existsSync } from "node:fs"
+import { ENDPOINT_LIST_TIMEOUT_MS } from "./live-surface"
 import { publishedWorld } from "./published-endpoint-fixture"
 
 /** A listener process killed with SIGKILL never unlinks its socket file: connects to it are refused. */
@@ -161,17 +162,58 @@ test("a live owner that lists slower than 200 ms is still reached", async () => 
   expect(w.discovery()).toBe(0)
 }, 10000)
 
-test("published listener that never answers completes offline after bounded validation", async () => {
+/** One thread_list, one auto send and one steer at the same owner, issued together as a caller would. */
+async function listSendSteer(w: Awaited<ReturnType<typeof publishedWorld>>, target: Awaited<ReturnType<Awaited<ReturnType<typeof publishedWorld>>["owner"]>>) {
+  const [list, send, steer] = await Promise.all([
+    w.sdk.list({}),
+    w.sdk.send({ thread: "target", text: "busy followup" }),
+    w.sdk.send({ thread: "target", text: "busy steer", mode: "steer", expected_turn_id: target.runtime.epoch }),
+  ])
+  const listed = list.kind === "ok" && "threads" in list ? (list.threads as ReadonlyArray<{ readonly thread_id: string; readonly alive?: boolean }>).find((thread) => thread.thread_id === "target") : undefined
+  return { listed, send, steer }
+}
+
+test("a busy RPC owner that lists after 1.8 s is live to thread_list, send and steer alike", async () => {
   const w = await world()
   const target = await w.owner("a")
+  target.runtime.beginUserTurn()
+  target.listing.delayMs = 1800
+  const { listed, send, steer } = await listSendSteer(w, target)
+  expect(listed).toMatchObject({ alive: true })
+  expect(send).toMatchObject({ kind: "ok", endpoint_kind: "rpc_host", delivery: { kind: "queued" } })
+  expect(steer).toMatchObject({ kind: "ok", endpoint_kind: "rpc_host", delivery: { kind: "steered" } })
+  expect(target.runtime.enqueueCalls.map((call) => call.lane).sort()).toEqual(["followUp", "steer"])
+}, 15000)
+
+test("a published listener that never answers is not live to thread_list, send or steer, and nothing is delivered", async () => {
+  const w = await world()
+  const target = await w.owner("a")
+  target.runtime.beginUserTurn()
   target.listing.answer = false
-  const connection = target.connected()
-  const sent = w.send()
-  await connection
-  expect(await sent).toMatchObject({ kind: "ok", delivery: { kind: "queued_offline" } })
+  const { listed, send, steer } = await listSendSteer(w, target)
+  expect(listed?.alive).not.toBe(true)
+  expect(send).toMatchObject({ kind: "ok", delivery: { kind: "queued_offline" } })
+  expect(steer).toMatchObject({ kind: "error", error: { code: "turn_conflict" } })
+  expect(target.runtime.enqueueCalls).toHaveLength(0)
+}, 30000)
+
+test("a dead owner whose connects are refused is offline to send and steer without waiting out the listing budget", async () => {
+  const w = await world()
+  const target = await w.owner("a")
+  target.runtime.beginUserTurn()
+  await target.crash()
+  await leaveStaleSocket(target.socketPath)
+  const started = performance.now()
+  const [send, steer] = await Promise.all([
+    w.send(),
+    w.sdk.send({ thread: "target", text: "steer the dead", mode: "steer", expected_turn_id: target.runtime.epoch }),
+  ])
+  expect(performance.now() - started).toBeLessThan(ENDPOINT_LIST_TIMEOUT_MS)
+  expect(send).toMatchObject({ kind: "ok", delivery: { kind: "queued_offline" } })
+  expect(steer).toMatchObject({ kind: "error", error: { code: "turn_conflict" } })
   expect(target.runtime.enqueueCalls).toHaveLength(0)
   expect(w.discovery()).toBe(0)
-}, 10000)
+}, 15000)
 
 test("reused socket with a different live identity queues offline without delivery", async () => {
   const w = await world()
@@ -181,3 +223,19 @@ test("reused socket with a different live identity queues offline without delive
   expect(target.runtime.enqueueCalls).toHaveLength(0)
   expect(w.discovery()).toBe(0)
 })
+
+test("a slow reused socket with a different identity never receives the target's send or steer", async () => {
+  const w = await world()
+  const target = await w.owner("a")
+  target.runtime.beginUserTurn()
+  target.listing.durableId = "unrelated"
+  target.listing.delayMs = 1800
+  const [send, steer] = await Promise.all([
+    w.send(),
+    w.sdk.send({ thread: "target", text: "steer the stranger", mode: "steer", expected_turn_id: target.runtime.epoch }),
+  ])
+  expect(send).toMatchObject({ kind: "ok", delivery: { kind: "queued_offline" } })
+  expect(steer).toMatchObject({ kind: "error", error: { code: "turn_conflict" } })
+  expect(target.runtime.enqueueCalls).toHaveLength(0)
+  expect(w.discovery()).toBe(0)
+}, 15000)
