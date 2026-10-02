@@ -112,8 +112,8 @@ describe("backgroundWidgetRows", () => {
         category: "unspecified-high",
         resolved_model: {
           provider: "anthropic",
-          model_id: "claude-opus-5",
-          display: "anthropic/claude-opus-5",
+          model_id: "claude-opus-5-5",
+          display: "anthropic/claude-opus-5-5",
           reasoning_effort: "xhigh",
           source: "category",
         },
@@ -121,7 +121,7 @@ describe("backgroundWidgetRows", () => {
     ], new Map([["st_wide", "running read src/library.ts"]]), now, () => stats, 220)[0] ?? ""
 
     expect(row).toContain("Plan the complete Spider-Man media library migration")
-    expect(row).toContain("category:unspecified-high(anthropic/claude-opus-5:xhigh)")
+    expect(row).toContain("category:unspecified-high(anthropic/claude-opus-5-5:xhigh)")
     expect(row).toContain("turn 2 (4 tools)")
     expect(row).toContain("$0.1303")
     expect(row).not.toContain("CH:")

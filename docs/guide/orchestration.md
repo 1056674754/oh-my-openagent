@@ -257,7 +257,7 @@ Team mode is for overlapping lanes that need to exchange discoveries mid-flight.
 {
   "agents": {
     "plan-consultant": {
-      "models": ["anthropic/claude-opus-5"]
+      "models": ["anthropic/claude-opus-5-5"]
     },
     "plan-reviewer": {
       "models": ["openai/gpt-5.6-sol"],
@@ -272,7 +272,7 @@ Team mode is for overlapping lanes that need to exchange discoveries mid-flight.
       "models": ["anthropic/claude-haiku-4-5"]
     },
     "writing": {
-      "models": ["anthropic/claude-opus-5"]
+      "models": ["anthropic/claude-opus-5-5"]
     }
   }
 }

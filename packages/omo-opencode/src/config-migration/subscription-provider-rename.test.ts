@@ -17,12 +17,12 @@ describe("subscription provider rename migration", () => {
   it("#given the metered API-key lanes #when migrated #then openai and anthropic are untouched", () => {
     const { document } = transformSubscriptionProviderRename({
       a: "openai/gpt-6-astra",
-      b: "anthropic/claude-opus-5",
+      b: "anthropic/claude-opus-5-5",
       c: { openai: { x: 1 }, anthropic: { y: 2 } },
     })
     expect(document).toEqual({
       a: "openai/gpt-6-astra",
-      b: "anthropic/claude-opus-5",
+      b: "anthropic/claude-opus-5-5",
       c: { openai: { x: 1 }, anthropic: { y: 2 } },
     })
   })

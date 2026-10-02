@@ -50,7 +50,7 @@ interface Outcome {
  * shims) - the first version of this harness did that and both cases hung to the 30 s budget on
  * Windows while passing on POSIX. The workflow text itself stays untouched.
  */
-function runReadiness(options: { readonly metadataReadyAfterViews: number; readonly tarballReadyAfterHeads: number }): Outcome {
+function runReadiness(options: { readonly metadataReadyAfterViews: number; readonly tarballReadyAfterHeads: number }, channel: { version: string; distTag: string } = { version: "5.0.0-0.beta.42", distTag: "beta" }): Outcome {
   const root = mkdtempSync(join(tmpdir(), "publish-readiness-"))
   try {
     const counter = join(root, "npm-views")
@@ -90,7 +90,8 @@ function runReadiness(options: { readonly metadataReadyAfterViews: number; reado
         SLEEPS: sleeps,
         METADATA_READY_AFTER: String(options.metadataReadyAfterViews),
         TARBALL_READY_AFTER: String(options.tarballReadyAfterHeads),
-        OMO_AI_VERSION: "5.0.0-0.beta.42",
+        OMO_AI_VERSION: channel.version,
+        OMO_AI_DIST_TAG: channel.distTag,
         ALREADY_PUBLISHED: "false",
       },
     })
@@ -119,6 +120,12 @@ describe("publish.yml post-publish-verify registry readiness", () => {
     expect(outcome.curlCalls).toBe(21)
     expect(outcome.sleeps).toBe(20)
     expect(outcome.stdout).toContain("metadata and tarball are ready")
+  })
+
+  test("#given a stable release on the latest dist-tag #when the registry catches up #then readiness passes on the same budget", () => {
+    const outcome = runReadiness({ metadataReadyAfterViews: 3 * 20, tarballReadyAfterHeads: 0 }, { version: "5.0.0", distTag: "latest" })
+    expect(outcome.status).toBe(0)
+    expect(outcome.stdout).toContain("omo-ai@5.0.0 metadata and tarball are ready")
   })
 
   test(

@@ -21,7 +21,7 @@ function registry(models: readonly FakeModel[]): TaskModelRegistry {
 const CONFIG: OmoConfig = {
   categories: {
     quick: { model: "kimi-coding/kimi-for-coding-highspeed-unlocked", reasoningEffort: "minimal" },
-    "deep-low": { model: "anthropic/claude-opus-5", reasoningEffort: "high" },
+    "deep-low": { model: "anthropic/claude-opus-5-5", reasoningEffort: "high" },
   },
 }
 
@@ -46,7 +46,7 @@ describe("category config generations at the planner seam", () => {
     // given
     const models: FakeModel[] = [
       { provider: "kimi-coding", id: "kimi-for-coding-highspeed-unlocked" },
-      { provider: "anthropic", id: "claude-opus-5" },
+      { provider: "anthropic", id: "claude-opus-5-5" },
     ]
     const { generations, planner } = harness(() => models)
 
@@ -66,7 +66,7 @@ describe("category config generations at the planner seam", () => {
     // given
     const models: FakeModel[] = [
       { provider: "kimi-coding", id: "kimi-for-coding-highspeed-unlocked" },
-      { provider: "anthropic", id: "claude-opus-5" },
+      { provider: "anthropic", id: "claude-opus-5-5" },
     ]
     const { generations, planner } = harness(() => models)
     plan(planner, "quick")
@@ -103,26 +103,26 @@ describe("category config generations at the planner seam", () => {
   test("#given a resolved category #when canonicalized #then the value encodes provider, model and reasoning", () => {
     // given
     const generations = createCategoryConfigGenerations()
-    const models: readonly FakeModel[] = [{ provider: "anthropic", id: "claude-opus-5" }]
+    const models: readonly FakeModel[] = [{ provider: "anthropic", id: "claude-opus-5-5" }]
 
     // when
     const snapshot = generations.observe({
-      omoConfig: { categories: { "deep-low": { model: "anthropic/claude-opus-5", reasoningEffort: "high" } } },
+      omoConfig: { categories: { "deep-low": { model: "anthropic/claude-opus-5-5", reasoningEffort: "high" } } },
       registry: registry(models),
     })
 
     // then
-    expect(snapshot.categories["deep-low"]).toBe("anthropic/claude-opus-5/high")
+    expect(snapshot.categories["deep-low"]).toBe("anthropic/claude-opus-5-5/high")
   })
 
   test("#given an injected masking function #when a category resolves to an unknown provider #then the canonical value is masked", () => {
     // given
     const generations = createCategoryConfigGenerations(() => ({ provider: "custom", model_id: "custom" }))
-    const models: readonly FakeModel[] = [{ provider: "anthropic", id: "claude-opus-5" }]
+    const models: readonly FakeModel[] = [{ provider: "anthropic", id: "claude-opus-5-5" }]
 
     // when
     const snapshot = generations.observe({
-      omoConfig: { categories: { "deep-low": { model: "anthropic/claude-opus-5", reasoningEffort: "high" } } },
+      omoConfig: { categories: { "deep-low": { model: "anthropic/claude-opus-5-5", reasoningEffort: "high" } } },
       registry: registry(models),
     })
 

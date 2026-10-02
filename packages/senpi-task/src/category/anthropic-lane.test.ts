@@ -43,7 +43,7 @@ function expectResolvedAgent(result: ReturnType<typeof resolveAgent>): Extract<t
   return result
 }
 
-const CLAUDE_IDS = ["claude-fable-5-1", "claude-opus-5", "claude-sonnet-4-6"] as const
+const CLAUDE_IDS = ["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-4-6"] as const
 
 // The metered lane is listed FIRST so registry order cannot be what picks the subscription lane.
 function subscriptionAndMeteredRegistry(): FakeRegistry {
@@ -68,8 +68,8 @@ describe("builtin Claude rungs under the senpi harness", () => {
 
     // then
     expect(resolved.spec.provider).toBe("anthropic-subscription")
-    expect(resolved.spec.modelId).toBe("claude-opus-5")
-    expect(resolved.spec.variant).toBe("xhigh")
+    expect(resolved.spec.modelId).toBe("claude-opus-5-5")
+    expect(resolved.spec.variant).toBe("medium")
   })
 
   test("#given anthropic-subscription and opencode both serve Fable 5.1 #when plan-consultant resolves #then the subscription lane wins", () => {
@@ -90,7 +90,7 @@ describe("builtin Claude rungs under the senpi harness", () => {
       model("opencode", "claude-sonnet-4-6"),
       model("anthropic", "claude-sonnet-4-6"),
     ])
-    const meteredOnlyRegistry = registry([model("opencode", "claude-fable-5-1"), model("opencode", "claude-opus-5")])
+    const meteredOnlyRegistry = registry([model("opencode", "claude-fable-5-1"), model("opencode", "claude-opus-5-5")])
 
     // when
     const architect = expectResolvedCategory(resolveCategory("architect", {}, apiKeyRegistry))
@@ -114,9 +114,9 @@ describe("builtin Claude rungs under the senpi harness", () => {
       fallbackEntry: { model: "claude-fable-5-1", variant: "max" },
     })
     expect([meteredHigh.spec.provider, meteredHigh.spec.modelId, meteredHigh.spec.variant]).toEqual([
-      "opencode", "claude-opus-5", "xhigh",
+      "opencode", "claude-opus-5-5", "medium",
     ])
-    expect(meteredHigh.spec.requested_model?.display).toBe("anthropic/claude-opus-5")
+    expect(meteredHigh.spec.requested_model?.display).toBe("anthropic/claude-opus-5-5")
     expect(planConsultant.model).toBe("anthropic/claude-fable-5-1")
     expect(planConsultant.resolved_model?.display).toBe("anthropic/claude-fable-5-1")
     expect(planConsultant.fallback_models).toBeUndefined()

@@ -14,6 +14,7 @@ import { installOmobLauncher, isCurrentOmobBuild } from "./omob-launcher"
 import { writeProvenanceMarker } from "./omob-provenance"
 import { pruneOmobRuntimes } from "./omob-runtime-prune"
 import { resetSenpiWorkspaceInstalls } from "./omob-senpi-workspace-reset"
+import { installSenpiTarball } from "./omob-senpi-install"
 export { installOmobLauncher, isCurrentOmobBuild } from "./omob-launcher"
 
 export interface OmobOptions {
@@ -325,7 +326,7 @@ export function resolveCachedSenpiPackage(cacheDir: string, commit: string): str
 	return readSenpiArtifactCache(cacheDir, commit)
 }
 
-function buildSenpiPackage(senpiDir: string, cacheDir: string, commit: string): string {
+async function buildSenpiPackage(senpiDir: string, cacheDir: string, commit: string): Promise<string> {
 	const cached = readSenpiArtifactCache(cacheDir, commit)
 	if (cached !== undefined) {
 		console.error(`[omob] reusing senpi artifact ${commit}`)
@@ -344,20 +345,12 @@ function buildSenpiPackage(senpiDir: string, cacheDir: string, commit: string): 
 	const tarballName = packSoleSenpiTarball(tarballDir, () =>
 		run("bun", ["pm", "pack", "--destination", tarballDir], join(senpiDir, "packages", "coding-agent")),
 	)
-	// Isolated production install: the tarball plus its registry deps, resolved under
-	// a dedicated root so the resulting tree can be dropped into omo's node_modules.
 	const installRoot = join(cacheDir, "artifacts", "senpi", commit, "install")
-	rmSync(installRoot, { recursive: true, force: true })
-	mkdirSync(installRoot, { recursive: true })
-	writeFileSync(join(installRoot, "package.json"), `${JSON.stringify({ private: true, dependencies: { "@code-yeongyu/senpi": `file:${resolve(tarballDir, tarballName)}` } }, undefined, "\t")}\n`)
-	run("bun", ["install", "--production", "--ignore-scripts"], installRoot)
-	nestHoistedDeps(installRoot)
-	const packageRoot = join(installRoot, "node_modules", "@code-yeongyu", "senpi")
+	const packageRoot = await installSenpiTarball(resolve(tarballDir, tarballName), installRoot)
 	writeSenpiArtifactCache(cacheDir, { commit, packageRoot, tarballName })
 	return packageRoot
 }
 
-/** Moves the isolated install's hoisted deps under the senpi package, mirroring the published nested layout. */
 /**
  * senpi's publish staging (prepare-senpi-bundled-workspaces.mjs) reads npm lock
  * entries shaped "packages/<workspace>/node_modules/<pkg>" and expects those
@@ -389,31 +382,6 @@ function materializeNestedLockDeps(senpiRoot: string): void {
 		if (existsSync(nestedPath)) continue
 		mkdirSync(dirname(nestedPath), { recursive: true })
 		cpSync(sourcePath, nestedPath, { recursive: true })
-	}
-}
-
-function nestHoistedDeps(installRoot: string): void {
-	const senpiNodeModules = join(installRoot, "node_modules", "@code-yeongyu", "senpi", "node_modules")
-	const topLevel = join(installRoot, "node_modules")
-	mkdirSync(senpiNodeModules, { recursive: true })
-	for (const entry of readdirSync(topLevel)) {
-		if (entry.startsWith(".") || entry === "@code-yeongyu") continue
-		// A scope directory may already exist under the package from bundling; moving the
-		// whole scope would silently drop its hoisted siblings, so merge child by child.
-		if (entry.startsWith("@")) {
-			const scopeTarget = join(senpiNodeModules, entry)
-			mkdirSync(scopeTarget, { recursive: true })
-			for (const child of readdirSync(join(topLevel, entry))) {
-				const childTarget = join(scopeTarget, child)
-				if (existsSync(childTarget)) continue
-				renameSync(join(topLevel, entry, child), childTarget)
-			}
-			continue
-		}
-		const from = join(topLevel, entry)
-		const to = join(senpiNodeModules, entry)
-		if (existsSync(to)) continue
-		renameSync(from, to)
 	}
 }
 
@@ -482,7 +450,7 @@ async function runBuild(options: OmobOptions): Promise<number> {
 	console.error(`[omob] building: omo ${omoInfo.commit} + senpi ${senpiInfo.commit}`)
 	ensureCacheClone(senpiUrl, senpiSpec.directory, options.senpiRef, true)
 	ensureCacheClone(omoUrl, omoSpec.directory, options.omoRef, true)
-	const builtSenpiRoot = buildSenpiPackage(senpiSpec.directory, options.cacheDir, senpiInfo.commit)
+	const builtSenpiRoot = await buildSenpiPackage(senpiSpec.directory, options.cacheDir, senpiInfo.commit)
 	// The omo prepare chain materializes gitignored plugin/skills from the shared-skills
 	// upstream submodules; a caller's OMO_SKIP_MATERIALIZE=1 would skip that and break the
 	// build, so the dev-binary install always runs the full materialization.
@@ -502,6 +470,9 @@ async function runBuild(options: OmobOptions): Promise<number> {
 	const target = RELEASE_BINARY_TARGETS.find((entry) => entry.target === options.target)
 	if (target === undefined) throw new Error(`unknown target: ${options.target}`)
 	const omoAiVersion = deriveOmobAiVersion(omoInfo.commit, senpiInfo.commit)
+	// The compiled binary embeds the Rust desktop engine; build-omo-binary only stages it.
+	const { ensureDesktopEngine } = await import("./omob-desktop-engine")
+	ensureDesktopEngine(omoSpec.directory, target.target)
 	const outDir = join(options.cacheDir, "out")
 	rmSync(outDir, { recursive: true, force: true })
 	// Build INSIDE the cache clone: build-omo-binary.ts derives repoRoot from its own

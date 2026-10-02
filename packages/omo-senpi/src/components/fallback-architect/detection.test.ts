@@ -123,7 +123,7 @@ describe("fallback-architect detection", () => {
 
     describe("#when the id is another model", () => {
       it("#then does not match", () => {
-        expect(isFableFiveSelector("anthropic/claude-opus-5")).toBe(false)
+        expect(isFableFiveSelector("anthropic/claude-opus-5-5")).toBe(false)
         expect(isFableFiveSelector("kimi-coding/kimi-k3-unlocked")).toBe(false)
         expect(isFableFiveSelector("")).toBe(false)
       })
@@ -135,7 +135,7 @@ describe("fallback-architect detection", () => {
       it("#then the guard accepts it", () => {
         const payload = {
           type: "model_select",
-          model: { provider: "anthropic", id: "claude-opus-5" },
+          model: { provider: "anthropic", id: "claude-opus-5-5" },
           previousModel: { provider: "anthropic", id: "claude-fable-5" },
           source: "fallback",
         }

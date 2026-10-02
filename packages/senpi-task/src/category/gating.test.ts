@@ -21,7 +21,7 @@ function registry(models: readonly FakeModel[]) {
 
 const MODELS_THE_PRE_GATING_CHAINS_WOULD_HAVE_ACCEPTED = [
   model("google", "gemini-3.1-pro"),
-  model("anthropic", "claude-opus-5"),
+  model("anthropic", "claude-opus-5-5"),
   model("opencode-go", "glm-5.2"),
   model("kimi-coding", "k3"),
 ] as const
@@ -74,6 +74,18 @@ describe("category activation gating", () => {
       expect(result.availableCategories).toContain("architect")
     })
 
+    test("#when the registry offers gpt-6-sol alone #then deep-low is unavailable, because GPT-6 Sol is not a deep-low model", () => {
+      // given
+      const models = registry([model("openai", "gpt-6-sol")])
+
+      // when
+      const result = resolveCategory("deep-low", {}, models)
+
+      // then
+      expect(result.kind).toBe("model_unavailable")
+      expect(result.availableCategories).not.toContain("deep-low")
+    })
+
     test("#when the gate model is absent but omo.json configures the category #then the explicit entry bypasses the gate", () => {
       // given
       const models = registry([model("kimi-coding", "k3")])
@@ -93,7 +105,7 @@ describe("category activation gating", () => {
 
     test("#when the gate model is absent and omo.json only sets a description #then the gate is bypassed and the category stays listed", () => {
       // given
-      const models = registry([model("anthropic", "claude-opus-5")])
+      const models = registry([model("anthropic", "claude-opus-5-5")])
 
       // when
       const result = resolveCategory(
@@ -222,19 +234,19 @@ describe("category activation gating", () => {
 
     test("#when the gate model is absent but omo.json configures the category #then the explicit entry bypasses the gate", () => {
       // given
-      const models = registry([model("anthropic", "claude-opus-5")])
+      const models = registry([model("anthropic", "claude-opus-5-5")])
 
       // when
       const result = resolveCategory(
         "deep-low",
-        { categories: { "deep-low": { model: "anthropic/claude-opus-5" } } },
+        { categories: { "deep-low": { model: "anthropic/claude-opus-5-5" } } },
         models,
       )
 
       // then
       expect(result.kind).toBe("resolved")
       if (result.kind !== "resolved") throw new Error("Expected resolved")
-      expect(result.spec.modelId).toBe("claude-opus-5")
+      expect(result.spec.modelId).toBe("claude-opus-5-5")
     })
   })
 
@@ -304,7 +316,7 @@ describe("category activation gating", () => {
       expect(result.availableCategories).not.toContain("ultrabrain")
     })
 
-    test("#when a real vercel gateway id is present #then the gate still opens", () => {
+    test("#when only an unlisted gateway re-publishes the gate model #then the gate stays closed", () => {
       // given
       const models = registry([model("vercel", "openai/gpt-5.6-sol")])
 
@@ -312,15 +324,15 @@ describe("category activation gating", () => {
       const result = resolveCategory("ultrabrain", {}, models)
 
       // then
-      expect(result.kind).toBe("resolved")
-      expect(result.availableCategories).toContain("ultrabrain")
+      expect(result.kind).toBe("model_unavailable")
+      expect(result.availableCategories).not.toContain("ultrabrain")
     })
   })
 
   describe("#given an ungated builtin category", () => {
     test("#when the registry offers only a chain rung #then the pre-gating fallback behavior is unchanged", () => {
       // given
-      const models = registry([model("chatgpt-subscription", "gpt-5.6-luna-fast")])
+      const models = registry([model("chatgpt-subscription", "gpt-6-luna-fast")])
 
       // when
       const result = resolveCategory("quick", {}, models)
@@ -328,13 +340,13 @@ describe("category activation gating", () => {
       // then
       expect(result.kind).toBe("resolved")
       if (result.kind !== "resolved") throw new Error("Expected resolved")
-      expect(result.spec.modelId).toBe("gpt-5.6-luna-fast")
+      expect(result.spec.modelId).toBe("gpt-6-luna-fast")
       expect(result.availableCategories).toContain("quick")
     })
 
     test("#when a gated category is unmet #then other categories stay listed as available", () => {
       // given
-      const models = registry([model("chatgpt-subscription", "gpt-5.6-luna-fast")])
+      const models = registry([model("chatgpt-subscription", "gpt-6-luna-fast")])
 
       // when
       const result = resolveCategory("quick", {}, models)

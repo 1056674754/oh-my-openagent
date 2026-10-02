@@ -10,7 +10,7 @@ import { FALLBACK_ARCHITECT_NOTICE_TYPE } from "./notice"
 
 const FABLE = { provider: "anthropic", id: "claude-fable-5" }
 const FABLE_51 = { provider: "anthropic", id: "claude-fable-5-1" }
-const OPUS = { provider: "anthropic", id: "claude-opus-5" }
+const OPUS = { provider: "anthropic", id: "claude-opus-5-5" }
 const KIMI = { provider: "kimi-coding", id: "kimi-k3-unlocked" }
 const DISABLED_FLAG = "omo-senpi-fallback-architect-disabled"
 
@@ -90,7 +90,7 @@ describe("fallback-architect component", () => {
         expect(injected).toHaveLength(1)
         expect(injected[0]?.["display"]).toBe(false)
         expect(String(injected[0]?.["content"])).toContain("anthropic/claude-fable-5")
-        expect(String(injected[0]?.["content"])).toContain("anthropic/claude-opus-5")
+        expect(String(injected[0]?.["content"])).toContain("anthropic/claude-opus-5-5")
         expect(String(injected[0]?.["content"])).toContain('task(category: "architect")')
       })
 
@@ -102,10 +102,10 @@ describe("fallback-architect component", () => {
         const shown = notices(pi)
         expect(shown).toHaveLength(1)
         expect(shown[0]?.["display"]).toBe(true)
-        expect(String(shown[0]?.["content"])).toContain("anthropic/claude-opus-5")
+        expect(String(shown[0]?.["content"])).toContain("anthropic/claude-opus-5-5")
         expect(shown[0]?.["details"]).toEqual({
           from: "anthropic/claude-fable-5",
-          to: "anthropic/claude-opus-5",
+          to: "anthropic/claude-opus-5-5",
         })
       })
 
@@ -159,7 +159,7 @@ describe("fallback-architect component", () => {
         const injected = directives(pi)
         expect(injected).toHaveLength(1)
         expect(String(injected[0]?.["content"])).toContain("anthropic/claude-fable-5-1")
-        expect(String(injected[0]?.["content"])).toContain("anthropic/claude-opus-5")
+        expect(String(injected[0]?.["content"])).toContain("anthropic/claude-opus-5-5")
         expect(notices(pi)).toHaveLength(1)
       })
 
@@ -180,7 +180,7 @@ describe("fallback-architect component", () => {
         await selectModel(pi, { model: KIMI, previousModel: OPUS, source: "fallback" })
 
         expect(directives(pi)).toHaveLength(1)
-        expect(String(directives(pi)[0]?.["content"])).toContain("anthropic/claude-opus-5")
+        expect(String(directives(pi)[0]?.["content"])).toContain("anthropic/claude-opus-5-5")
         expect(String(directives(pi)[0]?.["content"])).toContain("kimi-coding/kimi-k3-unlocked")
         expect(notices(pi)).toHaveLength(1)
       })
@@ -229,7 +229,7 @@ describe("fallback-architect component", () => {
         expect(String(injected[1]?.["content"])).toContain("kimi-coding/kimi-k3-unlocked")
 
         await sendInput(pi)
-        expect(String(reminders(pi)[0]?.["content"])).toContain("anthropic/claude-opus-5")
+        expect(String(reminders(pi)[0]?.["content"])).toContain("anthropic/claude-opus-5-5")
       })
     })
   })

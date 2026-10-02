@@ -1,3 +1,13 @@
+import type { AgentSession } from "@code-yeongyu/senpi"
+
+import type { TaskStartFailureKind, TaskStartFailureReason } from "../../state/start-failure"
+
+/** How the engine settled a steer/follow-up: delivered to the running turn, or queued behind it. */
+export type QueuedInputDisposition = Awaited<ReturnType<AgentSession["steer"]>>
+
+// ChildHandle.steer settles with no value: the manager does not consume the engine disposition.
+const ignoreQueuedInputDisposition = (_disposition: QueuedInputDisposition): void => undefined
+
 export type ChildSessionEvent = {
   readonly type: string
   readonly message?: unknown
@@ -10,8 +20,8 @@ export type ChildSessionListener = (event: ChildSessionEvent) => void
 export type ChildSession = {
   readonly sessionId: string
   prompt(text: string): Promise<void>
-  steer(text: string): Promise<void>
-  followUp(text: string): Promise<void>
+  steer(text: string): Promise<QueuedInputDisposition>
+  followUp(text: string): Promise<QueuedInputDisposition>
   abort(): Promise<void>
   subscribe(listener: ChildSessionListener): () => void
   getLastAssistantText(): string | undefined
@@ -23,28 +33,18 @@ export type ChildSession = {
  * ever derived from child output, so it is the one part of a failure that is safe to surface and
  * persist verbatim - and `manager.ts` still treats it only as a lookup key, never as text to echo.
  */
-export type RunnerFailureReason =
-  | "model_not_in_child_profile"
-  | "catalog_probe_timed_out"
-  | "catalog_probe_failed"
+export type RunnerFailureReason = TaskStartFailureReason
 
 export type RunnerFailure = {
   // The snake_case kinds map 1:1 onto the manager's respawn disposition codes (todo 12): a resume
   // rebuild failure is TYPED and retryable, never a silently weakened tool set or transcript.
-  readonly kind:
-    | "child-prompt-failed"
-    | "child-turn-failed"
-    | "session-create-failed"
-    | "depth-exceeded"
-    | "model_unavailable"
-    | "tools_unavailable"
-    | "session_unavailable"
-    // The shared task daemon cannot host this child and no per-child fallback was allowed
-    // (`runners/rpc-host/daemon.ts`): the client fails closed instead of starting a second host.
-    | "host_unavailable"
+  readonly kind: TaskStartFailureKind
   readonly message: string
   readonly reason?: RunnerFailureReason
   readonly cause?: unknown
+  // Set only with `launch_spec_insecure`: the refused spec path omo resolved itself, never child
+  // output, so the public start failure may name the file and its fix (#9208).
+  readonly launch_spec_path?: string
   /**
    * Structured exit facts for the internal event log, when the child actually reached a process exit.
    *
@@ -264,7 +264,7 @@ function createTrackedChildHandle(
   const handle: ChildHandle = {
     task_id: taskId,
     sessionId: session.sessionId,
-    steer: (text) => session.steer(text),
+    steer: (text) => session.steer(text).then(ignoreQueuedInputDisposition),
     followUp: async (text) => {
       // While a turn is running, a follow-up is queued and delivered when the agent settles. Once
       // the child is idle/resident, a follow-up REVIVES it: drive a fresh turn and re-arm tracking.

@@ -36,7 +36,7 @@ describe("AGENT_MODEL_REQUIREMENTS", () => {
     expect(sisyphus.requiresAnyModel).toBe(true)
     expect(primary).toEqual({
           providers: ["anthropic", "github-copilot", "opencode"],
-          model: "claude-opus-5",
+          model: "claude-opus-5-5",
           variant: "max",
         })
     expect(second).toEqual({
@@ -54,85 +54,22 @@ describe("AGENT_MODEL_REQUIREMENTS", () => {
     expect(last?.model).toBe("big-pickle")
   })
 
-  test("librarian keeps no-thinking Kimi HighSpeed primary, then fast OpenAI, before qwen, minimax, haiku, and nano fallbacks", () => {
-    // given
-    const librarian = AGENT_MODEL_REQUIREMENTS["librarian"]
+  for (const agent of ["librarian", "explore"] as const) {
+    test(`${agent} runs no-thinking Kimi HighSpeed, Luna Fast, DeepSeek V4.1 Flash, Qwen 3.7 Plus, M2.7, then Haiku`, () => {
+      // given
+      const requirement = AGENT_MODEL_REQUIREMENTS[agent]
 
-    // when
-    const [primary, second, third, fourth, fifth, sixth, seventh, eighth, ninth] = librarian.fallbackChain
-
-    // then
-    expect(librarian.fallbackChain).toHaveLength(9)
-    expect(primary).toEqual({
-          providers: ["kimi-for-coding"],
-          model: "kimi-for-coding-highspeed",
-          variant: "off",
-        })
-    expect(second).toEqual({
-          providers: ["openai", "chatgpt-subscription"],
-          model: "gpt-5.6-luna-fast",
-          variant: "low",
-        })
-    expect(third?.providers).toContain("deepseek")
-    expect(third?.model).toBe("deepseek-v4-flash")
-    expect(fourth?.providers).toContain("opencode-go")
-    expect(fourth?.providers).toContain("bailian-coding-plan")
-    expect(fourth?.model).toBe("qwen3.7-plus")
-    expect(fifth?.providers).toContain("opencode-go")
-    expect(fifth?.model).toBe("minimax-m3")
-    expect(sixth).toEqual({
-          providers: ["minimax-coding-plan", "minimax-cn-coding-plan"],
-          model: "MiniMax-M3",
-        })
-    expect(seventh?.providers).toContain("opencode-go")
-    expect(seventh?.model).toBe("minimax-m2.7")
-    expect(eighth?.providers).toContain("anthropic")
-    expect(eighth?.model).toBe("claude-haiku-4-5")
-    expect(ninth).toEqual({
-          providers: ["openai", "chatgpt-subscription"],
-          model: "gpt-5.4-nano",
-        })
-  })
-
-  test("explore keeps no-thinking Kimi HighSpeed primary, then fast OpenAI, before qwen, minimax, haiku, and nano fallbacks", () => {
-    // given
-    const explore = AGENT_MODEL_REQUIREMENTS["explore"]
-
-    // when
-    const [primary, second, third, fourth, fifth, sixth, seventh, eighth, ninth] = explore.fallbackChain
-
-    // then
-    expect(explore.fallbackChain).toHaveLength(9)
-    expect(primary).toEqual({
-          providers: ["kimi-for-coding"],
-          model: "kimi-for-coding-highspeed",
-          variant: "off",
-        })
-    expect(second).toEqual({
-          providers: ["openai", "chatgpt-subscription"],
-          model: "gpt-5.6-luna-fast",
-          variant: "low",
-        })
-    expect(third?.providers).toContain("deepseek")
-    expect(third?.model).toBe("deepseek-v4-flash")
-    expect(fourth?.providers).toContain("opencode-go")
-    expect(fourth?.providers).toContain("bailian-coding-plan")
-    expect(fourth?.model).toBe("qwen3.7-plus")
-    expect(fifth?.providers).toContain("opencode-go")
-    expect(fifth?.model).toBe("minimax-m3")
-    expect(sixth).toEqual({
-          providers: ["minimax-coding-plan", "minimax-cn-coding-plan"],
-          model: "MiniMax-M3",
-        })
-    expect(seventh?.providers).toContain("opencode-go")
-    expect(seventh?.model).toBe("minimax-m2.7")
-    expect(eighth?.providers).toContain("anthropic")
-    expect(eighth?.model).toBe("claude-haiku-4-5")
-    expect(ninth).toEqual({
-          providers: ["openai", "chatgpt-subscription"],
-          model: "gpt-5.4-nano",
-        })
-  })
+      // then
+      expect(requirement.fallbackChain).toEqual([
+        { providers: ["kimi-for-coding"], model: "kimi-for-coding-highspeed", variant: "off" },
+        { providers: ["openai", "chatgpt-subscription"], model: "gpt-6-luna-fast", variant: "low" },
+        { providers: ["deepseek"], model: "deepseek-flash", variant: "max" },
+        { providers: ["opencode-go", "bailian-coding-plan"], model: "qwen3.7-plus" },
+        { providers: ["opencode-go"], model: "minimax-m2.7" },
+        { providers: ["anthropic", "github-copilot"], model: "claude-haiku-4-5" },
+      ])
+    })
+  }
 
   test("multimodal-looker keeps vision-capable fallback order", () => {
     // given
@@ -159,19 +96,24 @@ describe("AGENT_MODEL_REQUIREMENTS", () => {
         })
   })
 
-  test("prometheus uses Fable 5.1 xhigh before Kimi K3 max", () => {
+  test("prometheus uses Fable 5.1 xhigh, then Opus 5.5 max, before Kimi K3 max", () => {
     // given
     const prometheus = AGENT_MODEL_REQUIREMENTS["prometheus"]
 
     // when
-    const [primary, kimiFallback] = prometheus.fallbackChain
+    const [primary, opusFallback, kimiFallback] = prometheus.fallbackChain
 
     // then
-    expect(prometheus.fallbackChain).toHaveLength(2)
+    expect(prometheus.fallbackChain).toHaveLength(3)
     expect(primary).toEqual({
           providers: ["anthropic", "github-copilot", "opencode"],
           model: "claude-fable-5-1",
           variant: "xhigh",
+        })
+    expect(opusFallback).toEqual({
+          providers: ["anthropic", "github-copilot", "opencode"],
+          model: "claude-opus-5-5",
+          variant: "max",
         })
     expect(kimiFallback).toEqual({
           providers: ["opencode-go", "kimi-for-coding", "moonshotai", "opencode"],
@@ -196,7 +138,7 @@ describe("AGENT_MODEL_REQUIREMENTS", () => {
         })
     expect(opusFallback).toEqual({
           providers: ["anthropic", "github-copilot", "opencode"],
-          model: "claude-opus-5",
+          model: "claude-opus-5-5",
           variant: "max",
         })
     expect(kimiFallback).toEqual({
@@ -232,7 +174,7 @@ describe("AGENT_MODEL_REQUIREMENTS", () => {
         })
     expect(opusFallback).toEqual({
           providers: ["anthropic", "github-copilot", "opencode"],
-          model: "claude-opus-5",
+          model: "claude-opus-5-5",
           variant: "max",
         })
     expect(momus.fallbackChain.some((entry) => entry.model.startsWith("gpt-5.6-"))).toBe(false)
@@ -303,16 +245,21 @@ describe("AGENT_MODEL_REQUIREMENTS", () => {
     expect(hephaestus.requiresAnyModel).toBe(true)
   })
 
-  test("hephaestus has one merged gpt-5.6-sol medium rung", () => {
+  test("hephaestus leads with one merged gpt-6-sol medium rung over its gpt-5.6-sol predecessor", () => {
     // given
     const hephaestus = AGENT_MODEL_REQUIREMENTS["hephaestus"]
 
     // when
-    const [primary] = hephaestus.fallbackChain
+    const [primary, fallback] = hephaestus.fallbackChain
 
     // then
-    expect(hephaestus.fallbackChain).toHaveLength(1)
+    expect(hephaestus.fallbackChain).toHaveLength(2)
     expect(primary).toEqual({
+          providers: ["openai", "chatgpt-subscription", "github-copilot", "opencode"],
+          model: "gpt-6-sol",
+          variant: "medium",
+        })
+    expect(fallback).toEqual({
           providers: ["openai", "chatgpt-subscription", "github-copilot", "opencode"],
           model: "gpt-5.6-sol",
           variant: "medium",

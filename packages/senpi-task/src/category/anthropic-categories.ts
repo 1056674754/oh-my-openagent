@@ -1,7 +1,7 @@
 import type { BuiltinCategoryDefinition } from "./types"
 
 // Ported from packages/omo-opencode/src/tools/delegate-task/anthropic-categories.ts.
-// unspecified-high lives in openai-categories.ts even though its default is claude-opus-5 again:
+// unspecified-high lives in openai-categories.ts even though its default is claude-opus-5-5 again:
 // that file owns the GPT-6 Astra prompt-append hook the category still carries for a user override
 // onto a GPT-6 model (#8616).
 const ARCHITECT_CATEGORY_PROMPT_APPEND = `<Category_Context>
