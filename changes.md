@@ -1,3 +1,13 @@
+## 2026-10-03 - LazyCodex spawns a project's own registered agent roles (lazycodex#171, lazycodex#164)
+
+Reported by @aconley-vultr. On the LazyCodex surface, `spawnRoleDenial()` (`packages/omo-codex/plugin/components/ulw-loop/src/spawn-role-guard.ts`) accepted only the 12 bundled role names, and `applySpawnGuards()` ran it on every spawn before the plan and budget checks. A project's own roles in `.codex/agents/*.toml`, which Codex offers as valid `agent_type` choices, were denied even with no LazyCodex plan active.
+
+The guard now also accepts an `agent_type` that Codex has a role file for, read the way Codex reads them (`ulw-loop/src/registered-agent-roles.ts`): a standalone `agents/*.toml` keyed by its `name` (else the file name), or an `[agents.<name>]` table in `config.toml`, under `CODEX_HOME` and under the `.codex/` of the working directory and its ancestors. A missing `agent_type`, or a name with no role file, is still denied, so a LazyCodex workflow never falls back to a generic agent (#134). The denial lists the registered roles as well as the bundled ones. Bundled roles are matched before any disk read, and the plan and budget guards are unchanged.
+
+The bundled Hephaestus rule's `multi_agent_v2` `spawn_agent` example (`components/rules/bundled-rules/hephaestus/{gpt-5.5,gpt-5.6,gpt-6}.md`) now passes `"agent_type":"<role>"`, so a session copying it is no longer denied (lazycodex#164). The v1 examples already did.
+
+`ulw-loop/test/spawn-role-registered.test.ts` covers project roles from a nested cwd, keying by declared name, a role file without a name field, `CODEX_HOME` roles in both forms, and the denials (no role file, no `agent_type`, a role registered only in another project). Five of its eight cases fail on `dev`. `spawn-role-matrix.test.ts` now isolates `CODEX_HOME`.
+
 ## 2026-10-02 - The skill tool lists skills and commands in a stable order (#9432)
 
 Reported by @kimchupa-l10n, with relay captures that pinned the cause. `sortByScopePriority` in `packages/skills-loader-core/src/tools/skill/scope-priority.ts` compared scope priority only, so items in the same scope kept their discovery order, and that order varies between processes. The OpenCode edition's skill tool description (`packages/omo-opencode/src/tools/skill/description-formatter.ts`) is built from that sort, so the tool definition changed from one session to the next and every new session and subagent missed the Anthropic prompt cache.
