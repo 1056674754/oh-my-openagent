@@ -29,11 +29,18 @@ When `OMO_BROWSER_ENGINE` is set (the OmO desktop app sets it for every session)
 | `none` | Do not do browser work. Say that agent browser access is off for this project |
 | unset | The table above, as before (terminal use) |
 
-Under `connected`, `loadOmowright()` returns a guarded library: the app sees what the browser is doing, and
-before a click, Enter or script that sends, posts, pays, orders, subscribes, deletes or closes an account it asks
-the user first. A "No" fails the action with `BrowserActionDeclinedError`: report that, never retry it or go around it
-(`session.tool()` and `evaluate` are guarded too). If the user presses Stop, the next call throws
-`BrowserUserStoppedError`: tell the user browser use was stopped and start no new session this turn.
+While any engine is set, `loadOmowright()` returns a guarded library. The owned engine (`connectPipe`,
+`connectCloakProfile`, `connect`) and every other export that acts on a browser is refused, so the table above
+does not apply: do not look for a way around it, and tell the user what the session allows. Under `connected`
+the app sees what the browser is doing, and before a click, Enter or script that sends, posts, pays, orders,
+subscribes, deletes or closes an account, and before Enter in a message box, it asks the user first. A "No" fails the action with
+`BrowserActionDeclinedError`: report that, never retry it or go around it (`session.tool()` lets only reads
+through; `evaluate` is guarded too). If the user presses Stop, the next call throws `BrowserUserStoppedError`: tell
+the user browser use was stopped and start no new session this turn.
+
+The guard prevents mistakes by a cooperating agent. It is not a security boundary: code that imports the raw
+entry (`resolveOmowrightEntry()`) is not guarded, and a host without the `omo_browser_bridge` tool cannot show state or
+honor Stop, though questions are still asked.
 
 ## Step 1 — load omowright and prove the stack
 
@@ -111,7 +118,7 @@ changing the extension's automation settings.
   out everywhere. No flow here needs it.
 - **`focused: false` by default.** The browser belongs to someone who is probably using it.
 - **One short, named session per task,** always stopped.
-- **Bot-scored or WAF targets go to the owned engine.** The attached engine's daemon enables console
+- **Bot-scored or WAF targets go to the owned engine** (not while `OMO_BROWSER_ENGINE` is set: then say the site needs a browser the session does not allow). The attached engine's daemon enables console
   capture on every tab it drives, which is a known automation signal; CloakBrowser through
   `connectCloakProfile()` is the stealth path.
 

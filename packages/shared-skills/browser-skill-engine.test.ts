@@ -90,7 +90,28 @@ function fakeRaw(connect: () => Promise<unknown>) {
       raw.launched.push("connectPipe")
       return {}
     },
+    connectCloakProfile: async () => {
+      raw.launched.push("connectCloakProfile")
+      return {}
+    },
+    connect: async () => {
+      raw.launched.push("connect")
+      return {}
+    },
+    createCua: () => {
+      raw.launched.push("createCua")
+      return {}
+    },
+    emulate: async () => {
+      raw.launched.push("emulate")
+    },
+    futureLauncher: async () => {
+      raw.launched.push("futureLauncher")
+    },
+    compactSnapshot: (tree: string) => tree.trim(),
     bskDoctor: async () => ({ ready: true }),
+    BskRpcError: DaemonError,
+    DEVICE_PRESETS: { phone: { width: 390 } },
   }
   return raw
 }
@@ -258,54 +279,62 @@ describe("browser engine selection", () => {
     expect(raw.connectCalls).toEqual([])
   })
 
-  test("#given the owned-engine entry points #when an engine is chosen #then they are left alone, so QA flows that launch their own browser keep working", async () => {
-    const raw = fakeRaw(async () => fakeSession())
-    const guarded = guardOmowright(raw, { env: { OMO_BROWSER_ENGINE: "none" }, host: fakeHost() })
-
-    await guarded.connectPipe()
-
-    expect(raw.launched).toEqual(["connectPipe"])
-  })
 })
 
-describe("a session built on private class fields", () => {
-  class PrivateFieldSession {
-    #stopped = false
-    readonly sessionId = "priv"
-    readonly clicks: unknown[] = []
-    get stopped() {
-      return this.#stopped
-    }
-    async click(target: unknown) {
-      if (this.#stopped) throw new Error("session is stopped")
-      this.clicks.push(target)
-      return { ok: true }
-    }
-    async evaluate() {
-      return { ok: true, value: { tag: "button", text: "Next" } }
-    }
-    async tabList() {
-      return { tabs: [] }
-    }
-    async stop() {
-      this.#stopped = true
-      return null
+describe("the owned browser and every other way to reach a browser", () => {
+  const creators = ["connectPipe", "connectCloakProfile", "connect"] as const
+  const engines = ["none", "connected", "builtin", "chrome"] as const
+
+  for (const engine of engines) {
+    for (const creator of creators) {
+      test(`#given ${engine} #when ${creator} is called #then no owned browser starts and the refusal names the engine`, async () => {
+        const raw = fakeRaw(async () => fakeSession())
+        const guarded = guardOmowright(raw, { env: { OMO_BROWSER_ENGINE: engine }, host: fakeHost() })
+
+        const error = await (guarded as unknown as Record<string, () => Promise<unknown>>)[creator]?.().then(() => undefined, (cause: unknown) => cause)
+
+        expect(error).toBeInstanceOf(BrowserEngineRefusal)
+        expect((error as BrowserEngineRefusal).code).toBe("browser_engine_owned_blocked")
+        expect((error as BrowserEngineRefusal & { engine?: string }).engine).toBe(engine)
+        expect(raw.launched).toEqual([])
+      })
     }
   }
 
-  test("#given a real class session #when it is clicked and stopped through the guard #then its private state is reached and reported", async () => {
-    const host = fakeHost()
-    const session = new PrivateFieldSession()
-    const guarded = guardOmowright(fakeRaw(async () => session), { env: { OMO_BROWSER_ENGINE: "connected" }, host })
-    const guardedSession = await guarded.connectBrowserSkill({})
+  test("#given an engine is chosen #when an export the guard does not know is called #then it is refused instead of passed through", async () => {
+    const raw = fakeRaw(async () => fakeSession())
+    const guarded = guardOmowright(raw, { env: { OMO_BROWSER_ENGINE: "connected" }, host: fakeHost() }) as unknown as Record<string, () => Promise<unknown>>
 
-    expect(guardedSession.stopped).toBe(false)
-    await guardedSession.click("#next")
-    await guardedSession.stop()
+    const future = await guarded.futureLauncher?.().then(() => undefined, (cause: unknown) => cause)
+    const page = await guarded.emulate?.().then(() => undefined, (cause: unknown) => cause)
+    const driver = await guarded.createCua?.().then(() => undefined, (cause: unknown) => cause)
 
-    expect(session.clicks).toEqual(["#next"])
-    expect(guardedSession.stopped).toBe(true)
-    expect(statusActions(host.events).at(-1)).toEqual(["stopped", null])
+    expect(future).toBeInstanceOf(BrowserEngineRefusal)
+    expect((future as BrowserEngineRefusal).code).toBe("browser_engine_export_blocked")
+    expect(page).toBeInstanceOf(BrowserEngineRefusal)
+    expect(driver).toBeInstanceOf(BrowserEngineRefusal)
+    expect(raw.launched).toEqual([])
+  })
+
+  test("#given an engine is chosen #when setup, error classes, pure helpers and data are used #then they still work", async () => {
+    const raw = fakeRaw(async () => fakeSession())
+    const guarded = guardOmowright(raw, { env: { OMO_BROWSER_ENGINE: "none" }, host: fakeHost() })
+
+    expect(await guarded.bskDoctor()).toEqual({ ready: true })
+    expect(guarded.BskRpcError).toBe(DaemonError)
+    expect(guarded.compactSnapshot("  tree  ")).toBe("tree")
+    expect(guarded.DEVICE_PRESETS).toEqual({ phone: { width: 390 } })
+  })
+
+  test("#given no engine is chosen #when the owned browser is launched #then terminal use is exactly as before", async () => {
+    const raw = fakeRaw(async () => fakeSession())
+
+    const guarded = guardOmowright(raw, { env: {}, host: fakeHost() })
+    await guarded.connectPipe()
+    await guarded.connectCloakProfile()
+
+    expect(guarded).toBe(raw)
+    expect(raw.launched).toEqual(["connectPipe", "connectCloakProfile"])
   })
 })
 
@@ -655,13 +684,111 @@ describe("what the policy cannot be bypassed through", () => {
     expect(asked(host)).toHaveLength(1)
   })
 
-  test("#given Enter in a multi-line field #when pressed #then nothing is asked", async () => {
+  test("#given Shift+Enter in a message box #when pressed #then nothing is asked, since it only adds a line", async () => {
     const host = fakeHost()
-    const { session, guardedSession } = await connected(host, { descriptors: [{ tag: "textarea", text: "" }] })
+    const { session, guardedSession } = await connected(host, { descriptors: [{ tag: "textarea", text: "", editable: true }] })
+
+    await guardedSession.press("Shift+Enter")
+
+    expect(asked(host)).toHaveLength(0)
+    expect(session.calls.map((call) => call[0])).toContain("press")
+  })
+
+  test.each([
+    ["a textarea composer", { tag: "textarea", text: "", editable: true }],
+    ["a contenteditable composer", { tag: "div", text: "", editable: true }],
+    ["a role=textbox composer", { tag: "div", text: "", editable: true }],
+    ["a composer inside a POST form", { tag: "textarea", text: "", editable: true, form: { action: "/comments", method: "post", submitLabels: ["Go"] } }],
+  ])("#given Enter in %s #when pressed #then the user is asked, since that sends in many apps", async (_name, descriptor) => {
+    const host = fakeHost({ answers: ["Allow"] })
+    const { session, guardedSession } = await connected(host, { descriptors: [descriptor] })
+
+    await guardedSession.press("Enter")
+
+    expect(asked(host)).toHaveLength(1)
+    expect(session.calls.map((call) => call[0])).toContain("press")
+  })
+
+  test("#given a No on Enter in a message box #when pressed #then the message is not sent", async () => {
+    const host = fakeHost({ answers: ["Don't allow"] })
+    const { session, guardedSession } = await connected(host, { descriptors: [{ tag: "div", text: "", editable: true }] })
+
+    const error = await guardedSession.press("Enter").then(() => undefined, (cause: unknown) => cause)
+
+    expect(error).toBeInstanceOf(BrowserActionDeclinedError)
+    expect(session.calls.map((call) => call[0])).not.toContain("press")
+  })
+
+  test("#given Enter in a search box inside a GET form #when pressed #then nothing is asked", async () => {
+    const host = fakeHost()
+    const { session, guardedSession } = await connected(host, {
+      descriptors: [{ tag: "input", text: "", editable: true, form: { action: "/search", method: "get", submitLabels: ["Search"] } }],
+    })
 
     await guardedSession.press("Enter")
 
     expect(asked(host)).toHaveLength(0)
     expect(session.calls.map((call) => call[0])).toContain("press")
+  })
+
+  test("#given Enter on a daemon ref to a contenteditable composer #when pressed #then the user is asked, and a plain button is not", async () => {
+    const editable = fakeHost({ answers: ["Allow"] })
+    const composer = await connected(editable, { html: '<div contenteditable="true" role="textbox"></div>' })
+    await composer.guardedSession.press("Enter", { target: "@e4" })
+    expect(asked(editable)).toHaveLength(1)
+
+    const plain = fakeHost()
+    const button = await connected(plain, { html: "<button>Next</button>" })
+    await button.guardedSession.press("Enter", { target: "@e5" })
+    expect(asked(plain)).toHaveLength(0)
+  })
+})
+
+describe("what else a cooperating session could do by accident", () => {
+  test.each(["observe", "snapshot", "get_html", "screenshot", "tab_list", "console", "network"])("#given the daemon's raw %s tool #when called #then it is a read and passes", async (name) => {
+    const host = fakeHost()
+    const { session, guardedSession } = await connected(host)
+
+    await guardedSession.tool(name, {})
+
+    expect(session.calls.filter((call) => call[0] === "tool").map((call) => call[1])).toEqual([name])
+  })
+
+  test.each(["click", "press", "evaluate", "fill", "select", "wheel", "tab_close", "navigate", "some_future_acting_tool"])("#given the daemon's raw %s tool #when called #then it is refused, since only reads are allowed through it", async (name) => {
+    const host = fakeHost()
+    const { session, guardedSession } = await connected(host)
+
+    const error = await guardedSession.tool(name, {}).then(() => undefined, (cause: unknown) => cause)
+
+    expect(error).toBeInstanceOf(BrowserEngineRefusal)
+    expect((error as BrowserEngineRefusal).code).toBe("browser_tool_blocked")
+    expect(session.calls.filter((call) => call[0] === "tool")).toEqual([])
+  })
+
+  test("#given a script that beacons data out #when evaluated #then the user is asked, since sendBeacon always posts", async () => {
+    const host = fakeHost({ answers: ["Allow"] })
+    const { guardedSession } = await connected(host)
+
+    await guardedSession.evaluate("navigator.sendBeacon('/track', data)")
+
+    expect(asked(host)).toHaveLength(1)
+  })
+
+  test.each(["Submit", "Submit order", "Confirm purchase", "Checkout", "Transfer funds", "Approve request", "Merge pull request", "Sign contract", "승인", "송금"])("#given a %s control #when clicked #then the user is asked first", async (label) => {
+    const host = fakeHost({ answers: ["Allow"] })
+    const { guardedSession } = await connected(host, { descriptors: [{ tag: "button", text: label }] })
+
+    await guardedSession.click("#control")
+
+    expect(asked(host)).toHaveLength(1)
+  })
+
+  test.each(["Sign in", "Sign up", "Log in", "Continue", "Learn more"])("#given a %s control #when clicked #then nothing is asked", async (label) => {
+    const host = fakeHost()
+    const { guardedSession } = await connected(host, { descriptors: [{ tag: "button", text: label }] })
+
+    await guardedSession.click("#control")
+
+    expect(asked(host)).toHaveLength(0)
   })
 })

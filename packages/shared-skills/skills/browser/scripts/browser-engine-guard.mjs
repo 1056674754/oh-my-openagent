@@ -9,7 +9,44 @@ const CLASSIFY_HTML_BYTES = 4096
 const QUESTION_HEADER = "Browser"
 const ALLOW = "Allow"
 const DECLINE = "Don't allow"
-const RAW_TOOLS_THAT_ACT = new Set(["click", "press", "evaluate", "fill", "select"])
+const READ_ONLY_RAW_TOOLS = new Set(["observe", "snapshot", "get_html", "screenshot", "tab_list", "console", "network"])
+
+const OWNED_SESSION_CREATORS = new Set(["connect", "connectPipe", "connectCloakProfile"])
+const PASSTHROUGH_FUNCTIONS = new Set([
+  "bskDoctor",
+  "bskOnboard",
+  "installBskCli",
+  "readDaemonInfo",
+  "resolveBskHome",
+  "listBrowsers",
+  "catalogBrowsers",
+  "detectBrowsers",
+  "identifyBrowser",
+  "probeBrowserSignals",
+  "findCloakBrowserPath",
+  "resolveCloakProfile",
+  "registerExternalExtension",
+  "unregisterExternalExtension",
+  "externalExtensionEntry",
+  "buildSnapshotExpression",
+  "buildCloakBrowserArgs",
+  "compactSnapshot",
+  "snapshotTokens",
+  "describeLayers",
+  "layersHeader",
+  "decodeFrames",
+  "encodeFrame",
+  "reconcileFrames",
+  "normalizeDialogPolicy",
+  "resolveDialogAction",
+  "sanitizeCookies",
+  "toHar",
+  "BskRpcError",
+  "BridgeProtocolError",
+  "BridgeUnavailableError",
+  "BrowserCdpCommandError",
+  "UnsupportedOperationError",
+])
 
 class CodedError extends Error {
   constructor(name, code, message, options) {
@@ -45,16 +82,18 @@ export class BrowserActionDeclinedError extends CodedError {
 
 const IRREVERSIBLE_LABELS = [
   /\b(send|post|publish|tweet|reply)\b/i,
-  /\b(pay|purchase|buy|subscribe|donate)\b/i,
+  /\b(pay|purchase|buy|subscribe|donate|checkout|submit|confirm|transfer|approve|merge)\b/i,
+  /\b(e-?sign|sign\s+(the\s+|this\s+|your\s+)?(document|contract|agreement|transaction|petition|form))\b/i,
   /\border\b(?!\s+(history|status|details|number|tracking))/i,
   /\b(delete|remove|unsubscribe|deactivate)\b/i,
   /\bcancel\s+(my\s+|your\s+)?(subscription|membership|plan|account)\b/i,
   /\bclose\s+(my\s+|your\s+)?account\b/i,
-  /결제|구매|주문|구독|삭제|제거|탈퇴|전송|발송|게시|발행/,
+  /결제|구매|주문|구독|삭제|제거|탈퇴|전송|발송|게시|발행|제출|승인|송금|이체|병합/,
 ]
 const IRREVERSIBLE_ACTION_PATH = /\/(send|post|publish|pay|purchase|order|subscribe|delete|remove)\b/i
 const SCRIPT_DRIVES_UI = /\.(click|submit|requestSubmit)\s*\(|\bdispatchEvent\b/
-const SCRIPT_REACHES_NETWORK = /\b(fetch|XMLHttpRequest|sendBeacon)\b/
+const SCRIPT_BEACON = /\bsendBeacon\s*\(/
+const SCRIPT_REACHES_NETWORK = /\b(fetch|XMLHttpRequest)\b/
 const SCRIPT_WRITES = /["'`](POST|PUT|PATCH|DELETE)["'`]/i
 const ENTER_KEY = /(^|\+)(Enter|Return)$/i
 const SENDING_CHORD = /(^|\+)(Control|Ctrl|Meta|Cmd|Command)\+/i
@@ -67,6 +106,10 @@ function labelsOf(descriptor) {
   return [descriptor?.text, descriptor?.ariaLabel, descriptor?.title, descriptor?.value].filter((label) => typeof label === "string" && label.length > 0)
 }
 
+function markupIsEditable(html) {
+  return /\bcontenteditable\b(?!\s*=\s*["']?false)|\brole\s*=\s*["']textbox["']|<textarea\b/i.test(html)
+}
+
 function labelsFromMarkup(html) {
   const labels = []
   for (const match of html.matchAll(/\b(?:aria-label|title|value|alt)\s*=\s*"([^"]*)"/gi)) labels.push(match[1])
@@ -76,7 +119,7 @@ function labelsFromMarkup(html) {
 
 function scriptNeedsConfirmation(expression) {
   if (typeof expression !== "string") return false
-  if (SCRIPT_DRIVES_UI.test(expression)) return true
+  if (SCRIPT_DRIVES_UI.test(expression) || SCRIPT_BEACON.test(expression)) return true
   return SCRIPT_REACHES_NETWORK.test(expression) && SCRIPT_WRITES.test(expression)
 }
 
@@ -88,6 +131,7 @@ function describeElementExpression(selector) {
   const form = el.form || (el.closest ? el.closest("form") : null)
   return {
     tag: el.localName,
+    editable: el.isContentEditable === true || el.localName === "textarea" || el.getAttribute("role") === "textbox",
     text,
     ariaLabel: el.getAttribute("aria-label") || undefined,
     title: el.getAttribute("title") || undefined,
@@ -241,7 +285,8 @@ function wrapSession(rawSession, context, bridge, host) {
     try {
       if (kind.kind === "ref") {
         const reply = await rawSession.getHtml({ ref: kind.ref, maxBytes: CLASSIFY_HTML_BYTES })
-        return { unknown: false, labels: labelsFromMarkup(String(reply?.html ?? "")) }
+        const html = String(reply?.html ?? "")
+        return { unknown: false, labels: labelsFromMarkup(html), editable: markupIsEditable(html) }
       }
       const reply = await rawSession.evaluate(describeElementExpression(kind.selector), { returnByValue: true, awaitPromise: false })
       if (!reply || reply.ok === false) return { unknown: true, labels: [] }
@@ -263,10 +308,13 @@ function wrapSession(rawSession, context, bridge, host) {
   const preflightPress = async (key, options) => {
     if (typeof key !== "string" || !ENTER_KEY.test(key)) return undefined
     if (SENDING_CHORD.test(key)) return confirm("press", `press ${key}, which sends in many apps`)
+    if (/(^|\+)Shift\+/i.test(key)) return undefined
+    const sendsFromMessageBox = () => confirm("press", "press Enter in a message box, which sends in many apps")
     const target = options?.target
     if (target !== undefined && targetKind(target).kind !== "selector") {
       const read = await readTarget(target)
       if (read.unknown) return confirm("press", "press Enter on a control that could not be read")
+      if (read.editable) return sendsFromMessageBox()
       const label = read.labels.find(isIrreversibleLabel)
       return label === undefined ? undefined : confirm("press", `press Enter on "${label}"`)
     }
@@ -281,10 +329,11 @@ function wrapSession(rawSession, context, bridge, host) {
     } catch {
       return confirm("press", "press Enter in a field that could not be read")
     }
-    if (described === null || described === undefined || described.tag === "textarea") return undefined
+    if (described === null || described === undefined) return undefined
+    const form = described.form
+    if (described.editable === true && (form === undefined || form.method !== "get")) return sendsFromMessageBox()
     const own = labelsOf(described).find(isIrreversibleLabel)
     if (own !== undefined && described.tag !== "input") return confirm("press", `press Enter on "${own}"`)
-    const form = described.form
     if (form === undefined) return undefined
     const submit = (form.submitLabels ?? []).find(isIrreversibleLabel)
     if (submit !== undefined) return confirm("press", `submit a form with "${submit}"`)
@@ -344,8 +393,8 @@ function wrapSession(rawSession, context, bridge, host) {
         preflight: () => (scriptNeedsConfirmation(expression) ? confirm("evaluate", "run a script that can click, submit or send in your browser") : undefined),
       }),
     tool: async (name, params) => {
-      if (RAW_TOOLS_THAT_ACT.has(name)) {
-        throw new BrowserEngineRefusal("browser_tool_blocked", `session.tool("${name}") skips the confirmation policy; call session.${name}() instead.`)
+      if (!READ_ONLY_RAW_TOOLS.has(name)) {
+        throw new BrowserEngineRefusal("browser_tool_blocked", `session.tool("${name}") skips the confirmation policy; only reads go through it. Call the matching session method instead.`)
       }
       return await rawSession.tool(name, params)
     },
@@ -413,5 +462,45 @@ export function guardOmowright(raw, { env = process.env, host } = {}) {
 
   const bskSnapshot = (session, options) => raw.bskSnapshot(GUARDED_SESSIONS.get(session) ?? session, options)
 
-  return { ...raw, connectBrowserSkill, bskSnapshot }
+  return allowlistedLibrary(raw, engine, { connectBrowserSkill, bskSnapshot })
+}
+
+function ownedBrowserRefusal(engine) {
+  const why =
+    engine === "none"
+      ? "Agent browser access is off for this project."
+      : engine === "builtin"
+        ? "This session uses the app's built-in browser."
+        : engine === "connected"
+          ? "This session drives the user's own browser only."
+          : `${BROWSER_ENGINE_ENV} is "${engine}", which is not connected, builtin or none.`
+  const refusal = new BrowserEngineRefusal("browser_engine_owned_blocked", `${why} Do not launch an owned browser; tell the user instead.`)
+  refusal.engine = engine
+  return refusal
+}
+
+function blockedExport(name, engine) {
+  const blocked = function () {
+    const refusal = new BrowserEngineRefusal(
+      OWNED_SESSION_CREATORS.has(name) ? "browser_engine_owned_blocked" : "browser_engine_export_blocked",
+      OWNED_SESSION_CREATORS.has(name)
+        ? ownedBrowserRefusal(engine).message
+        : `omowright.${name} is not available while ${BROWSER_ENGINE_ENV} is set; it can act on a browser without the engine and confirmation policy.`,
+    )
+    refusal.engine = engine
+    if (new.target !== undefined) throw refusal
+    return Promise.reject(refusal)
+  }
+  Object.defineProperty(blocked, "name", { value: name })
+  return blocked
+}
+
+function allowlistedLibrary(raw, engine, guarded) {
+  const library = {}
+  for (const [name, value] of Object.entries(raw)) {
+    if (typeof value !== "function") library[name] = value
+    else if (PASSTHROUGH_FUNCTIONS.has(name)) library[name] = value
+    else library[name] = blockedExport(name, engine)
+  }
+  return Object.assign(library, guarded)
 }
