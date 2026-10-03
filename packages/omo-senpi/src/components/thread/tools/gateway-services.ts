@@ -33,13 +33,18 @@ export type GatewayServices = {
  */
 export function createGatewayResolver(options: Omit<ThreadToolSurfaceOptions, "store">, view: () => Promise<ThreadHostView>): GatewayResolve {
   return async (address, request) => {
-    const current = await sendView(options, address, view)
+    const current = await view()
     return await resolveFromEntries(() => toGatewayAddressEntries(sendAddressBook(options, current, address, request.all_scope)), options.callerWorkspaceRoot)(address, request)
   }
 }
 
 export function createGatewayServices(options: ThreadToolSurfaceOptions, view: () => Promise<ThreadHostView>): GatewayServices {
-  const resolve = createGatewayResolver(options, view)
+  // The SDK and tools send through a fresh `list_sessions` on only the target's socket (#9222's
+  // single-lookup rule); the extension path shares the plain live-and-disk resolver (no store).
+  const resolve: GatewayResolve = async (address, request) => {
+    const current = await sendView(options, address, view)
+    return await resolveFromEntries(() => toGatewayAddressEntries(sendAddressBook(options, current, address, request.all_scope)), options.callerWorkspaceRoot)(address, request)
+  }
   const store = options.store
   const now = options.now ?? store.now
   const endpoints = options.host.gateway ?? UNREACHABLE
