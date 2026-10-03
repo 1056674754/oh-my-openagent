@@ -35,6 +35,11 @@ Builds on #9406 (Dante-dan), which reports a recovery `continued` only after the
   desktop observer fix removes the directory writer; this lookup change alone is
   not evidence that first-turn project writes are fixed.
 
+## 2026-10-01 - Relay typed child computer permission events through task ownership (omo-desktop-app#1437)
+
+- Add a separate, validated child extension-event channel for `computer.permission_required`; keep `AgentSessionEvent` and its listeners unchanged. Invalid permission records are dropped.
+- Preserve denials received before the manager subscribes, forward daemon events across transport replacement, and retire subscriptions with their owning handles. The manager supplies trusted task ownership rather than accepting session identities from the child record.
+
 ## 2026-10-01 - Builtin chain rungs name thinking levels their models accept (#9378)
 
 - `category/fallback-chains.ts`: `quick` opencode-go `minimax-m3` / `minimax-m2.7` drop `variant: "max"` (the child now inherits the

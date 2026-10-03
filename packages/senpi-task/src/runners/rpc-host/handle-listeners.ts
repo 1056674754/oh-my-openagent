@@ -1,9 +1,11 @@
 import type { ChildEventListener } from "../types"
+import { createChildExtensionEvents } from "../child-extension-events"
 import type { HostSessionParked } from "./session-client"
 
 type ChildEvent = Parameters<ChildEventListener>[0]
 
 export interface HandleListeners {
+  readonly extensionEvents: ReturnType<typeof createChildExtensionEvents>
   subscribe(listener: ChildEventListener): () => boolean
   onParked(listener: (event: HostSessionParked) => void): () => boolean
   onTurnResumed(listener: () => void): () => boolean
@@ -17,12 +19,14 @@ export interface HandleListeners {
 
 /** Listener registries that survive a transport replacement and retire with the active handle. */
 export function createHandleListeners(): HandleListeners {
+  const extensionEvents = createChildExtensionEvents()
   const eventListeners = new Set<ChildEventListener>()
   const parkedListeners = new Set<(event: HostSessionParked) => void>()
   const turnResumedListeners = new Set<() => void>()
   const resumedListeners = new Set<() => void>()
 
   return {
+    extensionEvents,
     subscribe: (listener) => {
       eventListeners.add(listener)
       return () => eventListeners.delete(listener)
@@ -52,6 +56,7 @@ export function createHandleListeners(): HandleListeners {
       for (const listener of resumedListeners) listener()
     },
     clearActive: () => {
+      extensionEvents.clear()
       eventListeners.clear()
       turnResumedListeners.clear()
       resumedListeners.clear()
