@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
 import { artifactsMatch } from "./build-artifact.mjs"
-import { buildExtension, COMPUTER_PRELUDE_ASSET_NAME, extensionBuildPaths, resolveOutputs } from "./build-extension-core.mjs"
+import { buildExtension, COMPUTER_PRELUDE_ASSET_NAME, extensionBuildPaths, GATEWAY_STORE_WORKER_NAME, resolveOutputs, THREAD_SDK_RELATIVE_PATH } from "./build-extension-core.mjs"
 import { findStaleRuntimePersona } from "./persona-artifacts.mjs"
 
 export async function checkExtensionCurrent(options = {}) {
@@ -16,6 +16,8 @@ export async function checkExtensionCurrent(options = {}) {
     toolkitSdkOutput,
     rollbackRuntimeOutput,
     computerUseOutput,
+    gatewayStoreWorkerOutput,
+    threadSdkOutput,
   } = resolveOutputs(options)
   const currentToolkitSdk = await readBuiltEntry(toolkitSdkOutput)
   if (currentToolkitSdk === undefined) return { ok: false, reason: "missing-output", output: toolkitSdkOutput }
@@ -33,6 +35,10 @@ export async function checkExtensionCurrent(options = {}) {
   if (currentAdvisorRuntime === undefined) return { ok: false, reason: "missing-output", output: advisorRuntimeOutput }
   const currentComputerUse = await readBuiltEntry(computerUseOutput)
   if (currentComputerUse === undefined) return { ok: false, reason: "missing-output", output: computerUseOutput }
+  const currentGatewayStoreWorker = await readBuiltEntry(gatewayStoreWorkerOutput)
+  if (currentGatewayStoreWorker === undefined) return { ok: false, reason: "missing-output", output: gatewayStoreWorkerOutput }
+  const currentThreadSdk = await readBuiltEntry(threadSdkOutput)
+  if (currentThreadSdk === undefined) return { ok: false, reason: "missing-output", output: threadSdkOutput }
 
   const tempRoot = await mkdtemp(join(tmpdir(), "omo-senpi-build-check-"))
   const expected = {
@@ -44,6 +50,8 @@ export async function checkExtensionCurrent(options = {}) {
     toolkitSdkOutputPath: join(tempRoot, "runtime", "agent-toolkit-sdk", "sdk.js"),
     rollbackRuntimeOutputPath: join(tempRoot, "runtime", "rollback-migrate.js"),
     computerUseOutputPath: join(tempRoot, "omo-computer-use.js"),
+    gatewayStoreWorkerOutputPath: join(tempRoot, GATEWAY_STORE_WORKER_NAME),
+    threadSdkOutputPath: join(tempRoot, THREAD_SDK_RELATIVE_PATH),
   }
   try {
     await buildExtension(expected)
@@ -56,6 +64,8 @@ export async function checkExtensionCurrent(options = {}) {
       [currentSupervisor, expected.supervisorOutputPath, supervisorOutput],
       [currentAdvisorRuntime, expected.advisorRuntimeOutputPath, advisorRuntimeOutput],
       [currentComputerUse, expected.computerUseOutputPath, computerUseOutput],
+      [currentGatewayStoreWorker, expected.gatewayStoreWorkerOutputPath, gatewayStoreWorkerOutput],
+      [currentThreadSdk, expected.threadSdkOutputPath, threadSdkOutput],
     ]) {
       if (!artifactsMatch(current, await readFile(built, "utf8"))) {
         return { ok: false, reason: "stale-output", output: outputFile }
@@ -68,7 +78,7 @@ export async function checkExtensionCurrent(options = {}) {
     if (currentPrelude !== expectedPrelude) {
       return { ok: false, reason: "stale-output", output: join(dirname(output), COMPUTER_PRELUDE_ASSET_NAME) }
     }
-    return { ok: true, output, taskOutput, memberOutput, advisorRuntimeOutput, computerUseOutput }
+    return { ok: true, output, taskOutput, memberOutput, advisorRuntimeOutput, computerUseOutput, gatewayStoreWorkerOutput, threadSdkOutput }
   } finally {
     await rm(tempRoot, { recursive: true, force: true })
   }
