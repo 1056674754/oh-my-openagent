@@ -1,54 +1,49 @@
 import { describe, expect, test } from "bun:test"
 
 import providerMap from "../bin/lib/provider-map.json"
-import { formatCredentialGuidance } from "../bin/lib/setup-guidance.js"
+import { credentialGuidance } from "../bin/lib/setup-guidance.js"
 
-function guidance(skippedOauth: string[], skippedUnmapped: string[]): string {
-  return formatCredentialGuidance({ skippedOauth, skippedUnmapped }, providerMap)
+function guidance(skippedOauth: string[], skippedUnmapped: string[], existing: Record<string, { type: string }> = {}) {
+  return credentialGuidance({ skippedOauth, skippedUnmapped }, providerMap, existing)
 }
 
 describe("omo setup credential guidance", () => {
   describe("#given an OAuth credential that omo signs in for", () => {
-    describe("#when the guidance renders", () => {
-      test("#then it names the interactive /login command and the engine provider id", () => {
-        const text = guidance(["openai", "anthropic", "github-copilot"], [])
+    describe("#when the guidance is built", () => {
+      test("#then each names the engine provider id to /login to", () => {
+        const { logins } = guidance(["openai", "anthropic", "github-copilot"], [])
 
-        expect(text).toContain("/login chatgpt-subscription")
-        expect(text).toContain("/login anthropic")
-        expect(text).toContain("/login github-copilot")
-        // `omo auth` has no sign-in subcommand: it prints or checks existing credentials only.
-        expect(text).not.toContain("omo auth")
+        expect(logins).toEqual([
+          { provider: "openai", target: "chatgpt-subscription", state: "login" },
+          { provider: "anthropic", target: "anthropic", state: "login" },
+          { provider: "github-copilot", target: "github-copilot", state: "login" },
+        ])
+      })
+    })
+  })
+
+  describe("#given the user already signed in to the omo provider", () => {
+    describe("#when the guidance is built", () => {
+      test("#then that login is not asked for again", () => {
+        const { logins } = guidance(["openai"], [], { "chatgpt-subscription": { type: "oauth" } })
+
+        expect(logins).toEqual([{ provider: "openai", target: "chatgpt-subscription", state: "signed-in" }])
       })
     })
   })
 
   describe("#given an OAuth credential with no omo provider", () => {
-    describe("#when the guidance renders", () => {
-      test("#then it says so instead of naming a command that cannot work", () => {
-        const text = guidance(["some-unknown-oauth"], [])
-
-        expect(text).toContain("some-unknown-oauth")
-        expect(text).not.toContain("/login some-unknown-oauth")
+    describe("#when the guidance is built", () => {
+      test("#then it has no /login target", () => {
+        expect(guidance(["some-unknown-oauth"], []).logins).toEqual([{ provider: "some-unknown-oauth", state: "unsupported" }])
       })
     })
   })
 
   describe("#given an API key whose provider id matches no omo provider", () => {
-    describe("#when the guidance renders", () => {
-      test("#then it gives the reason and the next step", () => {
-        const text = guidance([], ["unknown-gateway"])
-
-        expect(text).toContain("unknown-gateway")
-        expect(text).toContain("models.json")
-        expect(text).toContain("/login")
-      })
-    })
-  })
-
-  describe("#given nothing was skipped", () => {
-    describe("#when the guidance renders", () => {
-      test("#then it is empty", () => {
-        expect(guidance([], [])).toBe("")
+    describe("#when the guidance is built", () => {
+      test("#then it is listed as unmapped", () => {
+        expect(guidance([], ["unknown-gateway"])).toEqual({ logins: [], unmapped: ["unknown-gateway"] })
       })
     })
   })

@@ -111,7 +111,7 @@ function run(item: Fixture, args: string[], ttyInput?: string) {
   // child; a surfaced spawn error must fail here instead of being read as empty output.
   const result = ttyInput === undefined
     ? spawnSync(process.execPath, [item.launcher, ...args], { encoding: "utf8", env })
-    : spawnSync("python3", [TTY_DRIVER, ttyInput, "[y/N]", process.execPath, item.launcher, ...args], { encoding: "utf8", env })
+    : spawnSync("python3", [TTY_DRIVER, ttyInput, "[Y/n]", process.execPath, item.launcher, ...args], { encoding: "utf8", env })
   if (result.error) throw result.error
   transcripts.push(`${result.stdout}${result.stderr}`)
   expectSourcesUntouched(before)

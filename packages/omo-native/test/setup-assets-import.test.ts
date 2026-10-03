@@ -188,7 +188,7 @@ describe("omo setup opencode asset import", () => {
         expect(result.status).toBe(0)
         expect(existsSync(join(item.agentDir, "skills", "git-master"))).toBe(false)
         expect(existsSync(join(item.agentDir, "skills", "mine-only", "SKILL.md"))).toBe(true)
-        expect(result.stdout).toContain("skills-skipped-bundled: git-master")
+        expect(result.stdout).toContain("skills-skipped-bundled: 1")
       })
     })
   })
