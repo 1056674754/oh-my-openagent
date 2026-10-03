@@ -159,7 +159,7 @@ export class HostSessionClient {
     // An older host would ignore the field and run the child on its own settings; leave it off there
     // and report that the chain was not applied, so the caller can say so once.
     const profileHonored = identity.capabilities.includes(RETRY_FALLBACK_PROFILE_CAPABILITY)
-    const retryFallbackDropped = !profileHonored && input.retryFallback?.modelFallback === true
+    const retryFallbackDropped = !profileHonored && input.retryFallback !== undefined
     const wire = toWireOpen(profileHonored ? input : withoutRetryFallback(input))
     const opened = await client.openSession(wire).catch(async (error: unknown) => {
       this.client = undefined

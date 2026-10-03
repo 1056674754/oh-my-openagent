@@ -6,13 +6,22 @@
 
 ## 2026-10-04 - A daemon-hosted child gets its own fallback chain on open_session (#9512)
 
-A child run on the shared task host never got its configured fallback models: `RpcRunnerSpec` had no field for them, the host session ran on the host's settings, and its in-session fallback refused to switch once the turn had made tool calls. The rpc runner spec now carries `fallbackModels` as `provider/model[:thinking]` selectors (`modelSelector`, shared with the in-process runner). `runner.ts` sets them on a fresh start, and both respawn paths in `manager-respawn.ts` set them from the record. `open-session.ts` sends them as `open_session.retryFallback` (`{ modelFallback, fallbackChains: { <model>: [...] } }`).
+A child run on the shared task host never got its configured fallback models. `RpcRunnerSpec` had no field for them, the host session ran on the host's settings, and its in-session fallback refused to switch once the turn had made tool calls.
 
-A host that advertises `retry_fallback_profile` (senpi 2026.10.6, senpi#2672) holds that chain for the one session, in memory only. **Behavior change:** a child with no fallback models is sent `modelFallback: false` there, the same rule the in-process runner applies (#6478), instead of inheriting the host's settings. An older host gets no field and runs as before. When a child's chain is actually lost that way, `session-open.ts` warns once per runner, naming the host's engine version.
+The rpc runner spec now carries `fallbackModels` as `provider/model[:thinking]` selectors, through `modelSelector`, shared with the in-process runner. They are set on a fresh start in `runner.ts` and on both respawn paths in `manager-respawn.ts`, which read the record. `open-session.ts` sends them as `open_session.retryFallback` (`{ modelFallback: true, fallbackChains: { <model>: [...] } }`). A host advertising `retry_fallback_profile` (senpi 2026.10.6, senpi#2672) holds that chain for that one session, in memory only.
 
-Not covered: the per-child process runner. A separate `senpi --mode rpc` process has no CLI or classic-RPC way to receive an in-memory fallback chain, so that needs its own engine change.
+**Who sees a change:** only children that have fallback models of their own. Today their chain is ignored; now they fall back through it. A child without fallback models sends no profile, so it keeps falling back through the user's settings exactly as before.
 
-Tests: `rpc-host-retry-fallback.test.ts` drives the real `RpcHostRunner` against the fake host. It covers the chain on a capable host, fallback off for a child without one, an older host (no field, one warning for two children), and a reopen carrying the same chain. `runner.test.ts` covers selector threading with thinking, and `host-session-park.test.ts` the respawn path. All six fail on dev, and each source change goes red when reverted.
+When a child's chain cannot reach it, the user is warned once, with no silent loss:
+- **Older host:** a host without the capability gets no field, and `session-open.ts` warns once per runner, naming the host's engine version.
+- **Process runner:** a per-child `senpi --mode rpc` process has no CLI, environment or classic-RPC way to receive an in-memory chain. `rpc-process.ts` warns once per runner that such children fall back only through the user's settings. omo-senpi passes its host warning hook to that runner too.
+
+Tests:
+- `rpc-host-retry-fallback.test.ts` drives the real `RpcHostRunner` against the fake host. It covers the chain on a capable host, no profile for a child without a chain, an older host (no field, one warning for two children), and a reopen carrying the same chain.
+- `rpc-process-fallback-chain.test.ts` covers one warning for two process children with a chain, and none without one.
+- `runner.test.ts` covers selector threading, and `host-session-park.test.ts` the respawn path.
+
+Each source change goes red when reverted.
 
 ## 2026-10-03 - A kill is the one the runner issued; Windows external terminations are reported as crashes (#9471)
 

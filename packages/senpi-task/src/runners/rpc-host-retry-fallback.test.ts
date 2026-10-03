@@ -34,8 +34,9 @@ describe("a daemon-hosted child's own fallback chain (#9512)", () => {
     await handle.terminate()
   })
 
-  test("#given a host that honors per-session fallback #when a child without fallback models starts #then fallback is off for it instead of inheriting the host's settings", async () => {
-    // given
+  test("#given a host that honors per-session fallback #when a child without fallback models starts #then open_session carries no profile, so the child keeps the fallback chain the user's settings give it", async () => {
+    // given - the host builds each session's settings from the user's settings files; a child with no
+    // chain of its own must keep falling back through them exactly as it did before #9512
     const host = await fakeHost({ capabilities: PROFILE_CAPABLE })
     const runner = runnerOver(host)
 
@@ -43,7 +44,7 @@ describe("a daemon-hosted child's own fallback chain (#9512)", () => {
     const handle = await runner.start(childSpec())
 
     // then
-    expect(openPayloads(host.commands)[0]?.["retryFallback"]).toEqual({ modelFallback: false, fallbackChains: {} })
+    expect(openPayloads(host.commands)[0]).not.toHaveProperty("retryFallback")
     await handle.terminate()
   })
 

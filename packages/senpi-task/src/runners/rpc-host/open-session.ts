@@ -33,7 +33,7 @@ export async function openTaskHostSession(input: {
       ...buildChildContext(input.spec),
       retainOnDisconnect: true,
       autoTitle: false,
-      retryFallback: childRetryFallback(input.spec),
+      ...childRetryFallback(input.spec),
     })
   } catch (error) {
     if (error instanceof HostUnavailableError) throw error
@@ -63,13 +63,13 @@ function sessionFailureReason(error: unknown): TaskStartFailureReason | undefine
 }
 
 /**
- * The child's own fallback policy, as the in-process runner builds it (#6478): the chain after its model
- * when it has one, otherwise fallback off - never the host's settings, which are the user's, not the child's.
+ * The child's own fallback chain after its model, when it has one. A child without a chain sends no
+ * profile, so the host keeps applying the fallback the user's settings give that session.
  */
-function childRetryFallback(spec: RpcRunnerSpec): HostRetryFallbackProfile {
+function childRetryFallback(spec: RpcRunnerSpec): { readonly retryFallback?: HostRetryFallbackProfile } {
   const chain = spec.fallbackModels ?? []
-  if (spec.model === undefined || chain.length === 0) return { modelFallback: false, fallbackChains: {} }
-  return { modelFallback: true, fallbackChains: { [spec.model]: [...chain] } }
+  if (spec.model === undefined || chain.length === 0) return {}
+  return { retryFallback: { modelFallback: true, fallbackChains: { [spec.model]: [...chain] } } }
 }
 
 function splitModelRef(model: string | undefined): { readonly provider: string; readonly modelId: string } | undefined {
