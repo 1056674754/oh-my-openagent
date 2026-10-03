@@ -135,6 +135,8 @@ async function setup() {
   }
   /** senpi `emitAskUserClosed`. */
   const closeLocally = (request: string) => pi.events.emit("ask-user:closed", { requestId: request, status: "answered" })
+  /** senpi `startQuestion` announcing a newly opened question (`ASK_USER_ASKED_EVENT`). */
+  const askLocally = (request: string) => pi.events.emit("ask-user:asked", { request: { requestId: request } })
   /** Resolves once the outbox marker names `cursor` (the write the close makes); subscribe before the action that writes it. */
   const markerFor = (cursor: number) => {
     const marker = gatewayOutboxMarkerPath(agentDir)
@@ -159,7 +161,7 @@ async function setup() {
     if (page.kind !== "ok") throw new Error(JSON.stringify(page))
     return page.rows[0]
   }
-  return { sdk, bindingId, relay, closeLocally, markerFor, question, connectorStore, closes }
+  return { sdk, bindingId, relay, closeLocally, askLocally, markerFor, question, connectorStore, closes }
 }
 
 test("#given a session relayed two ask_user questions to its chat thread #when it answers one in its own client #then that question is no longer pending, a chat answer to it is already_answered, and the other stays pending", async () => {
@@ -235,6 +237,7 @@ test("#given a session's ask_user question closes while its relay report is stil
 
 test("#given a session's ask_user question closes before its relay report starts #when the report then runs #then the row it writes is closed and a chat answer to it is already_answered", async () => {
   const s = await setup()
+  s.askLocally("ask-before")
   s.closeLocally("ask-before")
   const written = await s.relay("ask-before")
   expect(s.closes).toHaveLength(1)
@@ -242,4 +245,13 @@ test("#given a session's ask_user question closes before its relay report starts
   expect(await s.question(written.cursor)).toMatchObject({ question_state: "answered", answered_by: null })
   const late = await s.sdk.answer({ binding_id: s.bindingId, reply_token: written.reply_token, answer: "option two" })
   expect(late).toMatchObject({ kind: "error", error: { code: "already_answered" } })
+}, 30_000)
+
+test("#given an ask_user request closed before any report #when a new question opens under the same request id and is reported #then the new row stays pending", async () => {
+  const s = await setup()
+  s.closeLocally("ask-reused")
+  s.askLocally("ask-reused")
+  const written = await s.relay("ask-reused")
+  expect(s.closes).toHaveLength(0)
+  expect(await s.question(written.cursor)).toMatchObject({ question_state: "pending", answer_state: null })
 }, 30_000)

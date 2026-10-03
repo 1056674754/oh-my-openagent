@@ -112,6 +112,8 @@ function waitingQuestionCallOf(event: unknown): string | undefined {
 
 /** senpi `ask-user/notify.js` ASK_USER_CLOSED_EVENT: every terminal outcome of an ask_user question, `{ requestId, status, resolvedBy? }`. */
 const ASK_USER_CLOSED_EVENT = "ask-user:closed"
+/** senpi `ask-user/notify.js` ASK_USER_ASKED_EVENT: a question opened, `{ ctx, request: { requestId, ... }, variant }`. */
+const ASK_USER_ASKED_EVENT = "ask-user:asked"
 /** Recently closed ask_user requests remembered for a question report still being written or not yet started; bounded. */
 const CLOSED_REQUESTS_KEPT = 64
 
@@ -257,6 +259,11 @@ export function createThreadComponent(options: ThreadComponentOptions = {}): Omo
           // Closed while its report was still being written: close the row that report just wrote.
           if (closedEarly.delete(report.request)) closeRelayed(report.request, report.durableId)
           else relayed.set(report.request, report.durableId)
+        })
+        events.on(ASK_USER_ASKED_EVENT, (payload) => {
+          // A new question under a request id that closed before it was relayed: that close is not this question's.
+          const request = (payload as { readonly request?: { readonly requestId?: unknown } } | undefined)?.request?.requestId
+          if (typeof request === "string") closedEarly.delete(request)
         })
         events.on(ASK_USER_CLOSED_EVENT, (payload) => {
           // Also fired when a relayed thread_answer resolved it: closing first is harmless, the relay's confirm then records that answer.
