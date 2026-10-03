@@ -1,3 +1,10 @@
+export class GatewaySchemaVersionError extends Error {
+  readonly code = "gateway_schema_too_new"
+  constructor(readonly found: number, readonly supported: number, scope = "Gateway") {
+    super(`${scope} schema ${found} is newer than this binary's supported version ${supported}.`)
+  }
+}
+
 export const GATEWAY_MIGRATIONS: readonly (readonly string[])[] = [
   [
     `CREATE TABLE deliveries (
@@ -177,6 +184,14 @@ export const GATEWAY_MIGRATIONS: readonly (readonly string[])[] = [
     "ALTER TABLE session_meta ADD COLUMN endpoint_socket TEXT",
     "ALTER TABLE session_meta ADD COLUMN endpoint_kind TEXT CHECK (endpoint_kind IS NULL OR endpoint_kind IN ('tui', 'rpc_host'))",
   ],
+  // v6: the store extension registry (each extension's applied migration version) and the connector
+  // author an extension enqueue records on its delivery (`actor_user_id`, NULL without an author).
+  [
+    "CREATE TABLE extension_schema (name TEXT PRIMARY KEY, version INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
+    "ALTER TABLE deliveries ADD COLUMN actor_user_id TEXT",
+    "CREATE TABLE extension_objects (type TEXT NOT NULL, name TEXT NOT NULL, owner TEXT, PRIMARY KEY (type, name))",
+    "INSERT INTO extension_objects (type, name, owner) SELECT type, name, NULL FROM sqlite_schema",
+  ],
 ]
 
-export const GATEWAY_TABLES = ["deliveries", "receipts", "causal_roots", "causal_edges", "rate_buckets", "session_meta", "bindings", "outbox", "gateway_meta", "outbox_cursors", "completion_arms"] as const
+export const GATEWAY_TABLES = ["deliveries", "receipts", "causal_roots", "causal_edges", "rate_buckets", "session_meta", "bindings", "outbox", "gateway_meta", "outbox_cursors", "completion_arms", "extension_schema", "extension_objects"] as const
