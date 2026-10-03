@@ -1,4 +1,5 @@
 import type { RunnerOutcome } from "../in-process/child-handle"
+import type { ChildExtensionListener } from "../child-extension-events"
 import type {
   ChildEventListener,
   RpcChildHandle,
@@ -33,6 +34,7 @@ export interface HostSessionPort {
   send(command: HostSessionCommand): Promise<void>
   getState(): Promise<HostSessionLiveness>
   onEvent(listener: ChildEventListener): () => void
+  onExtensionEvent?(listener: ChildExtensionListener): () => void
   onParked(listener: (event: HostSessionParked) => void): () => void
   onClosed(listener: (event: HostSessionClosed) => void): () => void
   getEntries(since?: string): Promise<RpcEntriesResult>
