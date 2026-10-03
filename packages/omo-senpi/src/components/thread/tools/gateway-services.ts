@@ -19,6 +19,7 @@ export type GatewayServices = {
   readonly endpoints: GatewayEndpointPort
   readonly engine: GatewayEngine
   readonly relay: GatewayRelay
+  readonly resolve: GatewayResolve
   /** The endpoint serving a session right now, or null when nothing answers for it. */
   readonly locate: (durableId: string) => Promise<GatewayEndpointRef | null>
 }
@@ -30,20 +31,29 @@ export type GatewayServices = {
  * one that answers even when nothing is live): a target no endpoint lists resolves from disk
  * (`sendAddressBook`) and is queued offline.
  */
+export function createGatewayResolver(options: Omit<ThreadToolSurfaceOptions, "store">, view: () => Promise<ThreadHostView>): GatewayResolve {
+  return async (address, request) => {
+    const current = await view()
+    return await resolveFromEntries(() => toGatewayAddressEntries(sendAddressBook(options, current, address, request.all_scope)), options.callerWorkspaceRoot)(address, request)
+  }
+}
+
 export function createGatewayServices(options: ThreadToolSurfaceOptions, view: () => Promise<ThreadHostView>): GatewayServices {
-  const store = options.store
-  const now = options.now ?? store.now
-  const endpoints = options.host.gateway ?? UNREACHABLE
-  const entries = async () => toGatewayAddressEntries(addressBook(options, await view()))
+  // The SDK and tools send through a fresh `list_sessions` on only the target's socket (#9222's
+  // single-lookup rule); the extension path shares the plain live-and-disk resolver (no store).
   const resolve: GatewayResolve = async (address, request) => {
     const current = await sendView(options, address, view)
     return await resolveFromEntries(() => toGatewayAddressEntries(sendAddressBook(options, current, address, request.all_scope)), options.callerWorkspaceRoot)(address, request)
   }
+  const store = options.store
+  const now = options.now ?? store.now
+  const endpoints = options.host.gateway ?? UNREACHABLE
+  const entries = async () => toGatewayAddressEntries(addressBook(options, await view()))
   const engine = createGatewayEngine({ store, endpoints, resolve, now })
   const locate = async (durableId: string): Promise<GatewayEndpointRef | null> => {
     const entry = (await entries()).find((candidate) => candidate.thread_id === durableId)
     return entry === undefined || entry.liveness !== "routable" ? null : entry.endpoint
   }
   const relay = createGatewayRelay({ store, engine, endpoints, locate, now })
-  return { store, endpoints, engine, relay, locate }
+  return { store, endpoints, engine, relay, locate, resolve }
 }

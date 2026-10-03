@@ -148,6 +148,104 @@ and pid. Shell-launched engines report themselves; application-launched engines 
 responsible application. Failed resolution is explicitly unresolved and labels the engine path
 only as diagnostic context, never as a guessed TCC identity.
 
+## 2026-10-01 - Store extensions survive a worker restart and share the hourly retention sweep (#9331)
+
+Rebased onto the gateway's failed-open recovery and retention sweep. A store handle whose worker
+exits now registers the extensions the previous worker held on the fresh worker before serving
+the next call, instead of answering `extension_unknown_name`; only registrations that worker
+actually held are restored, so a refused downgrade or reserved name stays unregistered. The
+sweep's hourly schedule is kept per connection, so an extension call joining core operations no
+longer sweeps on every call. The sweep never deletes extension rows or a core row an extension
+can still act on; a foreign key from an extension table to a core table is refused on write,
+so none can cascade. Docs state that an operation's time budget equals the writers' lock-wait
+bound, and the CHANGELOG names `gateway_schema_too_new` for core and extension downgrades.
+
+## 2026-10-01 - Refuse extension schema downgrades without changing registration (#9331)
+
+An extension whose stored version exceeds the caller's migration count now returns
+gateway_schema_too_new under the migration lock. Refusal preserves stored rows, metadata,
+ownership and any existing compatible registration; core service remains usable. Other
+migration failures keep the existing lazy-retry behavior. Fresh-handle and replacement
+regressions cover the refusal, unchanged SQLite data version and subsequent valid writes.
+
+## 2026-10-01 - Exercise direct extension guards and document transaction behavior (#9331)
+
+Direct SQLite authorization tests assert the trigger/view create decisions without the
+statement lexer or schema-diff guard masking them. Caught constraint errors must roll back
+prior writes, and table-valued sources remain refused. The SDK smoke uses a real disk-session
+record and exercises clone recovery, shared target resolution and schema-version refusal.
+The reference documents the shipped SDK entry point, owned DDL, deadlines and commit effects.
+
+## 2026-10-01 - Refuse unsupported newer gateway schemas (#9331)
+
+Core schema reads reject versions newer than this binary supports before migration or
+normal operations. Core callers receive a typed gateway_schema_too_new error; extension
+registration and calls receive that code as a refusal. The stored version and rows remain
+unchanged. The check is also performed on the version re-read under the migration lock.
+
+## 2026-10-01 - Normalize SQLite ownership and make namespace overlap symmetric (#9331)
+
+Ownership checks fold identifier and schema-label ASCII case like SQLite, while retaining
+the registry boundary around core and foreign objects. New ownership rows use canonical
+names and schema changes replace legacy mixed-case rows. Overlapping extension namespaces
+can register in either order; only unowned prefixed lookalikes block first registration.
+
+## 2026-10-01 - Tokenize SQL parameters without changing quoted text (#9331)
+
+The statement-free SQLite binder and extension statement guard share a tokenizer for
+strings, quoted identifiers and comments. Literal question marks remain unchanged and
+do not consume parameters. Row queries keep trailing line comments separate from their
+generated wrapper. Regression coverage exercises each quote/comment form through the
+real store worker, including escaped quotes and identifiers containing a question mark.
+
+## 2026-10-01 - Refuse uncloneable extension arguments before posting (#9331)
+
+Extension calls snapshot their arguments before crossing the worker boundary and return
+invalid_arguments when cloning fails. A failed post also removes and rejects its pending
+request rather than leaving an unhandled rejection for disposal. Function and symbol
+arguments now leave the worker alive, preserve its registration and allow core calls.
+
+## 2026-10-01 - Preserve relay validation and committed extension results (#9331)
+
+Extension enqueue resolves its binding target with the relay's shared live-and-disk
+address book over a worker request port. Missing sessions return not_found; receivers
+are still signaled only after commit. Post-commit effects run independently, reporting
+failed markers through extension_error store events without misreporting committed data
+as a refused operation. Pending resolution requests are released on operation completion.
+Tests cover missing/present targets, blocked markers followed by healthy markers, and
+unawaited resolution failures and timeouts without late writes or worker loss.
+
+## 2026-10-01 - Bound extension operations and revoke expired transactions (#9331)
+
+Extension operations and pending helpers share the store's lock-wait budget. On expiry,
+their transaction is revoked and rolled back and the worker accepts the next request.
+Retained transactions raise typed errors; late asynchronous helper calls reject promises
+instead of throwing synchronously. The worker reports an unhandled expired-transaction
+error as a store event without losing core service. Other uncaught errors remain fatal.
+
+## 2026-10-01 - Own automatic indexes through their extension tables (#9331)
+
+Extension migrations now accept SQLite's automatic indexes for TEXT and composite primary
+keys and UNIQUE constraints. Authorization requires the owning table; schema validation
+checks the automatic index's table and records its extension owner atomically. Core
+automatic indexes remain core-owned and inaccessible to extension operations.
+
+## 2026-09-30 - Session gateway extension contract and actor identity (Refs #9143)
+
+Core schema v5 adds `extension_schema` and nullable `deliveries.actor_user_id`, populated from
+`author.user_id` without adding a CLI flag. The exported store-extension types define registration,
+worker operations, namespaced SQL, joined relay transactions and typed refusals. The v4 migration
+preserves existing rows. Registration and calls apply pending steps under the bounded core write
+lock. SQLite authorization and schema-effect checks protect other namespaces and core objects.
+The transaction adapter reuses relay/engine validation and budgets, defers file effects until
+commit, and rolls back both kinds of writes on failure. Object ownership is persisted in
+`extension_objects`, with the core schema captured before any extension runs; matching a prefix
+never grants access. Core-colliding names, triggers and views are refused, and DELETE without a
+WHERE clause is checked against the same ownership registry. The public thread SDK forwards the API.
+Tests cover cross-process ensure, namespace violations, all refusals and continued core service,
+relay parity, rollback, actor attribution, and lock bounds. The v2 fixture now removes v5 additions
+when constructing its historical database. PR #9331 stacks on #9222.
+
 ## 2026-10-01 - ultrawork reuses evidence per target, spawns a new reviewer per round, and scopes defects to the blast radius (#9294)
 
 The directive's Constraints bullet ("own every defect met mid-run ... never deferred as a follow-up", from #7674)
