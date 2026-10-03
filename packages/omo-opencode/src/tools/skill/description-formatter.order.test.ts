@@ -51,4 +51,14 @@ describe("formatCombinedDescription ordering", () => {
     expect(projectIndex).toBeGreaterThan(-1)
     expect(configIndex).toBeGreaterThan(projectIndex)
   })
+
+  it("orders same-scope names by code unit, so the listing does not depend on the machine's locale", () => {
+    const result = formatCombinedDescription(discoveredSkills().toReversed(), [], { includeSkills: true })
+
+    // Code units put uppercase first; most locales would sort alpha-lower before Zeta-upper.
+    const upperIndex = result.indexOf("<name>/Zeta-upper</name>")
+    const lowerIndex = result.indexOf("<name>/alpha-lower</name>")
+    expect(upperIndex).toBeGreaterThan(-1)
+    expect(lowerIndex).toBeGreaterThan(upperIndex)
+  })
 })
