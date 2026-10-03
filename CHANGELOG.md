@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+The session-gateway store supports namespaced extensions: compiled operations can update their registered objects and enqueue messages through bindings, bind conversations, or acknowledge outbox rows in one transaction. A persistent ownership registry protects core and other extensions' objects; matching a name prefix never grants access. Core-colliding names, triggers and views are refused. Migrations are coordinated across processes, forbidden schema changes roll back, and marker effects wait for commit. Failures return typed refusals without stopping the worker. Schema v5 preserves existing rows and records `author.user_id` as nullable `deliveries.actor_user_id`. ([#9331](https://github.com/code-yeongyu/oh-my-openagent/pull/9331), Refs [#9143](https://github.com/code-yeongyu/oh-my-openagent/issues/9143))
+
+A session-gateway store or store extension whose schema is newer than the running omo is refused with `gateway_schema_too_new` and left untouched: an older binary neither migrates nor lowers the core `user_version`, and an extension that registers fewer migrations than its stored version keeps its stored version, data and existing registration. ([#9331](https://github.com/code-yeongyu/oh-my-openagent/pull/9331))
+
 ## [5.1.13] - 2026-10-03
 
 **MCP tools work again when memory is on.** Since 5.1.10, a finished memory child or delegated task shut the shared MCP servers down for the whole process, so every MCP call failed with `MCP server <name> is disabled`. This release runs on senpi 2026.10.3, which gives each session its own binding to the shared servers; it was verified with the shipped bundle. If you can't update yet, turn memory off until you do: set `"memory": { "enabled": false }` in `~/.omo/omo.json`, or start omo with `--omo-senpi-memory-disabled=true`.
@@ -36,10 +42,6 @@ A message to a published terminal session that the engine still reports as not a
 ### Added
 
 _The session gateway entries below are its store foundation; the thread tools become usable with 5.1.14._
-
-The session-gateway store supports namespaced extensions: compiled operations can update their registered objects and enqueue messages through bindings, bind conversations, or acknowledge outbox rows in one transaction. A persistent ownership registry protects core and other extensions' objects; matching a name prefix never grants access. Core-colliding names, triggers and views are refused. Migrations are coordinated across processes, forbidden schema changes roll back, and marker effects wait for commit. Failures return typed refusals without stopping the worker. Schema v5 preserves existing rows and records `author.user_id` as nullable `deliveries.actor_user_id`. ([#9331](https://github.com/code-yeongyu/oh-my-openagent/pull/9331), Refs [#9143](https://github.com/code-yeongyu/oh-my-openagent/issues/9143))
-
-A session-gateway store or store extension whose schema is newer than the running omo is refused with `gateway_schema_too_new` and left untouched: an older binary neither migrates nor lowers the core `user_version`, and an extension that registers fewer migrations than its stored version keeps its stored version, data and existing registration. ([#9331](https://github.com/code-yeongyu/oh-my-openagent/pull/9331))
 
 **Every session can reach every other one, terminal sessions included.** ([#9143](https://github.com/code-yeongyu/oh-my-openagent/issues/9143)) Messages between sessions now go through a session gateway: one small database in the agent directory, with no daemon to run and nothing to configure. A terminal session opens a private control socket, so a Desktop thread, a task child or a script can list it, read it and send to it; the thread tools list terminal sessions with their real names and times. A message never interrupts what you are doing: while you are typing, or a submission of yours is on its way, it waits, and the session shows one line saying a remote message is queued. A message to a session that is not running is kept for 24 hours and taken when the session runs again. Fixed limits stop runaway loops: a session cannot message itself or reply straight back into the chain that messaged it, a chain of messages stops after 4 hops or 64 messages, one turn reaches at most 16 sessions, and one sender gets a burst of 8 messages to a session, then one every 5 seconds.
 
