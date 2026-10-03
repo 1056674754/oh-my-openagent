@@ -56,4 +56,6 @@ test("#given malformed trigger text that passes the single-statement guard #when
   expect(await store.extensionCall("alpha", "sql", { sql: malformed })).toEqual(authorizerRefusal)
   expect(snapshot()).toEqual(before)
   expect(await store.list()).toEqual([])
-})
+  // Two migrations and two calls through the store worker, each answered in turn; no event to await,
+  // so a loaded runner only needs room past the 5 s default.
+}, 15_000)
