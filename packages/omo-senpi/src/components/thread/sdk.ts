@@ -106,7 +106,7 @@ export function createThreadSdk(options: ThreadSdkOptions): ThreadSdk {
   const now = options.now ?? store.now
   const surface: ThreadToolSurfaceOptions = { host, store, stateDirectory: options.agentDir, sessionsDirectory: () => join(options.agentDir, "sessions"), callerSessionId: () => UNKNOWN_CALLER, callerWorkspaceRoot: () => options.cwd, now }
   const view = () => hostView(surface)
-  const { engine, relay, endpoints, locate, resolve } = createGatewayServices(surface, () => hostView(surface, { offline: true }))
+  const { engine, relay, endpoints, locate } = createGatewayServices(surface, () => hostView(surface, { offline: true }))
   // An extension call resolves its target while the store worker runs that call's transaction, so it
   // takes the store-free live-and-disk resolver: the send path's `resolve` first asks this same store
   // for the session's owner, a request the busy worker would only answer after the call's budget.

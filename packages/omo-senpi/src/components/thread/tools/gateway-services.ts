@@ -19,9 +19,16 @@ export type GatewayServices = {
   readonly endpoints: GatewayEndpointPort
   readonly engine: GatewayEngine
   readonly relay: GatewayRelay
-  readonly resolve: GatewayResolve
   /** The endpoint serving a session right now, or null when nothing answers for it. */
   readonly locate: (durableId: string) => Promise<GatewayEndpointRef | null>
+}
+
+/** The store-free live-and-disk resolver for extension calls, which run inside the store worker's transaction. */
+export function createGatewayResolver(options: Omit<ThreadToolSurfaceOptions, "store">, view: () => Promise<ThreadHostView>): GatewayResolve {
+  return async (address, request) => {
+    const current = await view()
+    return await resolveFromEntries(() => toGatewayAddressEntries(sendAddressBook(options, current, address, request.all_scope)), options.callerWorkspaceRoot)(address, request)
+  }
 }
 
 /**
@@ -31,13 +38,6 @@ export type GatewayServices = {
  * one that answers even when nothing is live): a target no endpoint lists resolves from disk
  * (`sendAddressBook`) and is queued offline.
  */
-export function createGatewayResolver(options: Omit<ThreadToolSurfaceOptions, "store">, view: () => Promise<ThreadHostView>): GatewayResolve {
-  return async (address, request) => {
-    const current = await view()
-    return await resolveFromEntries(() => toGatewayAddressEntries(sendAddressBook(options, current, address, request.all_scope)), options.callerWorkspaceRoot)(address, request)
-  }
-}
-
 export function createGatewayServices(options: ThreadToolSurfaceOptions, view: () => Promise<ThreadHostView>): GatewayServices {
   // The SDK and tools send through a fresh `list_sessions` on only the target's socket (#9222's
   // single-lookup rule); the extension path shares the plain live-and-disk resolver (no store).
@@ -55,5 +55,5 @@ export function createGatewayServices(options: ThreadToolSurfaceOptions, view: (
     return entry === undefined || entry.liveness !== "routable" ? null : entry.endpoint
   }
   const relay = createGatewayRelay({ store, engine, endpoints, locate, now })
-  return { store, endpoints, engine, relay, locate, resolve }
+  return { store, endpoints, engine, relay, locate }
 }
