@@ -1,3 +1,9 @@
+## 2026-10-02 - OpenGateway defaults to unlimited provider concurrency
+
+- `src/manager/concurrency.ts`: the native task allocator uses an unlimited OpenGateway provider default before the generic lane limit. Explicit model and provider limits still win, and the global admission limit still applies.
+- `src/manager/concurrency-opengateway.test.ts`: exercises admissions beyond the generic limit, explicit caps and queued handoff, other providers' limits, global capacity, and lease cleanup.
+- `docs/reference/omo-json.md`: documents the built-in default and override precedence. No user configuration changes are required.
+
 ## 2026-10-02 - A killed Windows child stays killed when Bun's reaper advisory fills its stderr tail (#9228)
 
 - `runners/rpc/exit-mapping.ts`: on win32 a child ended by `TerminateProcess` exits with code 1 and no signal, and stderr that holds only Bun's `child reaper unavailable under Bun on win32 ...` advisory still counts as a kill. Bun prints that advisory once per terminated worker thread, and the handle classifies the last 4 KB of stderr (`client.stderrTail`), so with enough advisories the tail began mid-advisory, or the kill cut the last advisory mid-write; either fragment made the exit a crash, and the task ended `status=error killed=false` with the advisory as its error (the Windows RPC e2e `kill_marks_error_killed_true` check, timing-dependent). Those two fragments are now recognized: a cut first line that ends a full advisory line in the same tail, and a last line that is the start of the advisory. Any other text, whole or cut, still makes the exit a crash.
