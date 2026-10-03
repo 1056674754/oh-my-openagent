@@ -1,6 +1,6 @@
 ## 2026-10-02 - Adopt senpi 2026.10.2
 
-Every `@code-yeongyu/senpi` pin moves from 2026.10.1-3 to 2026.10.2: the root devDependency, `omo-native`, the `omo-senpi` and `senpi-task` peer and dev pins (with their `senpi-tui` and `senpi-ai` aliases), the pin tests and the engine named in `senpi-task`'s coverage test. This is the first senpi release carrying the upstream pi v1.0.0 engine sync; the generated plugin bundles are regenerated for it, and the omo code it touches is adjusted where the new engine changed behavior.
+Every `@code-yeongyu/senpi` pin moves from 2026.10.1-3 to 2026.10.2: the root devDependency, `omo-native`, the `omo-senpi` and `senpi-task` peer and dev pins (with their `senpi-tui` and `senpi-ai` aliases), the pin tests and the engine named in `senpi-task`'s coverage test. This is the first senpi release carrying the upstream pi v1.0.0 engine sync; the generated plugin bundles are regenerated for it on Linux. No omo source needed changes: the engine's builtin provider registry still matches `provider-map.json`, and the omo-senpi, senpi-task and omo-native suites pass against it.
 
 ## 2026-10-02 - In-process task children run session_shutdown before they are disposed (#9413)
 
