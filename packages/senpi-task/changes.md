@@ -1,3 +1,529 @@
+## 2026-10-03 - A kill is the one the runner issued; Windows external terminations are reported as crashes (#9471)
+
+`runners/rpc/exit-mapping.ts` `classifyChildExit` decided a signal-less exit was a kill on Windows when the child's stderr held nothing but Bun's child-reaper advisory. A killed child's teardown also writes diagnostics there: the memory component's `memory shutdown drain step failed` (EPERM on a state rename) and `memory shutdown drain hit its budget`. Those made a real kill read as a crash (`killed=false`), and the Windows RPC e2e `kill_marks_error_killed_true` failed intermittently on unrelated PRs.
+
+A kill now comes only from facts the runner owns: the handle's own `terminate()` (`terminationRequested`, passed as `terminatedByRunner`) or a POSIX signal. stderr is never read to decide it, and the Windows stderr heuristic (`hasOnlyWindowsStartupAdvisories`, `isWindowsExternalTermination`) is gone. **Behavior change:** on Windows, a child terminated from outside the runner (TerminateProcess, Task Manager, an OOM kill) exits with code 1 and no signal, exactly like a crash. It is now recorded as `status=error`, `killed=false`, with `RPC child exited unexpectedly (exit code N)` followed by the stderr tail. A process crash's message gains that lead line too, while a daemon session's exit keeps the host's reason as its whole message. A runner-issued signal-less kill reads `RPC child was terminated by its runner (exit code N, pid=…)`.
+
+Tests: `exit-mapping.test.ts` covers a runner-terminated child with the memory EPERM and drain-budget stderr (killed), a child that writes "killed" on its own (crashed), an external Windows termination with and without the advisory (crashed), the spawn-error precedence, and the messages. `handle-terminated-by-runner.test.ts` drives the real handle: `terminate()` followed by a code-1 exit is killed, and the same exit without `terminate()` is crashed. The e2e keeps the external SIGKILL check on POSIX, where the signal is the evidence, and on Windows proves the honest outcome as `external_termination_reports_unexpected_exit`.
+
+## 2026-10-03 - Task tool wording stops naming few-read investigations and small foreground children as delegation targets (#9499)
+
+- `src/tools/task/description.ts`: the run_in_background guideline is "Spawn children with run_in_background=true." The deleted clause ("pass false only for a short child whose result gates your very next call") contradicted the GPT-6 preset's foreground rule and named a small child as a routine spawn; `run_in_background=false` stays documented in the tool description body.
+- `src/category/openai-categories.ts`: the deep-low `Selection_Gate` now reads "Of the two deep lanes this is the default: the child settles its decisions from what it reads. When unsure, choose deep-low; a misrouted child returns `ESCALATE: deep-high` after one cheap attempt, and you re-spawn the same brief as deep-high with its findings." (the one-subsystem-plus-callers shape and "wide but mechanical work belongs here" are gone), and the deep-low description says "preferred over deep-high for 3D graphics, computer/browser use, CAPTCHA, multimodal, backend, logic, and algorithm work" without bold. Both strings are byte-identical to the omo-opencode twins.
+
+## 2026-10-03 - A pending task_cancel waits when the host cannot list its sessions (#9450)
+
+`finishPendingCancel` closes a child's host session before it marks a pending cancel finished (#9403). It decided whether there was a session to close with `sessionLive()`, and a `list_sessions` the daemon refused or did not answer read as an empty list (`runners/rpc-host/liveness.ts` returned `[]`). On a host that answers its probe but is too loaded to list, the cancel therefore finished, skipped the close, and left the session running until the TTL sweep. `liveSessionPaths` now reports a failed listing as an error, the probe (`lifecycle/host-session.ts`) keeps whether the listing succeeded and answers `sessionLiveness()` as `live`, `gone` or `unknown`, and `lifecycle/pending-cancel.ts` leaves the cancel pending on `unknown`, as it already does for an unconfirmed close. `sessionLive()` keeps its answer for reconcile, TTL and destroy.
+
+## 2026-10-02 - OpenGateway defaults to unlimited provider concurrency
+
+- `src/manager/concurrency.ts`: the native task allocator uses an unlimited OpenGateway provider default before the generic lane limit. Explicit model and provider limits still win, and the global admission limit still applies.
+- `src/manager/concurrency-opengateway.test.ts`: exercises admissions beyond the generic limit, explicit caps and queued handoff, other providers' limits, global capacity, and lease cleanup.
+- `docs/reference/omo-json.md`: documents the built-in default and override precedence. No user configuration changes are required.
+## 2026-10-02 - A killed Windows child stays killed when Bun's reaper advisory fills its stderr tail (#9228)
+
+- `runners/rpc/exit-mapping.ts`: on win32 a child ended by `TerminateProcess` exits with code 1 and no signal, and stderr that holds only Bun's `child reaper unavailable under Bun on win32 ...` advisory still counts as a kill. Bun prints that advisory once per terminated worker thread, and the handle classifies the last 4 KB of stderr (`client.stderrTail`), so with enough advisories the tail began mid-advisory, or the kill cut the last advisory mid-write; either fragment made the exit a crash, and the task ended `status=error killed=false` with the advisory as its error (the Windows RPC e2e `kill_marks_error_killed_true` check, timing-dependent). Those two fragments are now recognized: a cut first line that ends a full advisory line in the same tail, and a last line that is the start of the advisory. Any other text, whole or cut, still makes the exit a crash.
+- Tests (`exit-mapping.test.ts`): 40 advisories through the 4 KB tail and an advisory cut mid-write both classify as killed (both fail before this change); a diagnostic among the advisories (cut by the tail, after them, or cut mid-write) still classifies as crashed, and POSIX is unchanged.
+
+## 2026-10-01 - A child whose host connection drops resumes or fails within a bound; task_cancel really stops it (#9403)
+
+Builds on #9406 (Dante-dan), which reports a recovery `continued` only after the host takes the continuation; this entry is the rest of #9403.
+
+- `runners/rpc-host/transport-recovery.ts` + `handle-recovery.ts`: every lost-transport recovery runs under a bound (`TRANSPORT_RECOVERY_BOUND_MS`, 180 s, armed only by a closed connection, so a quiet healthy child is never failed). When the bound runs out first the child ends `error` with `transport lost: ...` (was: waiting forever on a reopen that never answered), its lane lease is released, and a connection a late reattach still produces ends the session on the host (abort + `close_session`) instead of being adopted, so the child's own processes end with it. The exhausted-retries exit carries the same readable reason instead of `transport_gone`.
+- `task_cancel` on a child whose connection is down answers `cancel_pending` ("cancel requested, child unreachable", also on `task_output`) instead of a false `cancelled`. The stop is applied on the recovered connection before anything else (no continuation is sent); only then is the record `cancelled`, the child torn down and its lane released. Cancelling a child this process holds no handle for (parked, or let go) now closes its session on the host (`lifecycle/destroy.ts`), and a cancelled task releases every lease it holds at any epoch (`TaskConcurrency.releaseTask`).
+- `task_send` to a parked child that was still `running` reopens its session and delivers the message as a follow-up. Before, the send reserved the run's next lane slot and the revival's reattach then refused that same slot, so every send answered `lane_capacity` even on an empty lane. A child that ended `transport lost` answers `not_continuable` naming the loss.
+- Lane leases are held only in the parent's in-memory lane manager (`manager/concurrency.ts`); none are persisted, so a parent restart already starts with none. A dead child's lease is now released by its bounded failure or its cancel, without restarting the parent; a live child's lease is never touched.
+- Tests (real unix sockets to the fake host, a hand-driven recovery clock, no sleeps): `rpc-host-transport-loss.test.ts` (socket close + rejoin, silent reopen -> `transport lost` + next child admitted, host restart with an unanswered continuation, the session process closed on the host, the quiet healthy child, the stopped host with a pending child), `rpc-host-cancel-stop.test.ts` (cancel while unreachable, cancel of a parked live session) and one `rpc-host-host-park.test.ts` case (send to a parked running child). The fake host can give each session a real long-running process (`sessionProcesses`) and re-allow a withheld reply.
+- Review round (#9407): an accepted cancel is final on every path. A pending cancel is durable (`cancel_requested` on the record): a parent that shuts down, or a host shard that crashes, before the stop lands no longer gets the child back - every revival (`lifecycle/reconcile-reclamation.ts` `reviveClaimed`, via `lifecycle/pending-cancel.ts`) finishes the cancel instead, closing the session on its host. A cancel accepted while the child is reachable marks the handle stopping first, so crash recovery that reopens the session ends it there rather than resuming it (a live repro: a cancelled child's shard crashed and recovery ran it on for ~20 minutes). The deferred stop always settles: a recovery that exhausts its attempts or is refused stops the child locally, the cancel's record write is covered by a `finally`, and the outcome tracker waits on the stop and writes `cancelled` itself if that write failed (`manager/pending-stops.ts`). `interruptTask` and a repeat `task_cancel` defer to the pending cancel; `task_send` refuses a child whose cancel is pending; a parent shutdown no longer waits out the recovery bound on such a child's abort. `task_send` to a parked running child (`steering/revive-running.ts`) fences delivery on the reopened run before and after the follow-up, and a refused message hands the child back parked with its lanes free. A deadline-edge result is reported expired (`withinBound`, the reattach race). `abort: "skip"` releases every lease of a task with no live handle. `task_output` shows the pending-cancel note only while the record is running. Steering reads the loss reason from the shared `state/transport-loss.ts`. Tests: `rpc-host-cancel-pending.test.ts`, `rpc-host-cancel-crash.test.ts`, `rpc-host-revive-running.test.ts`, `rpc-host/transport-recovery.test.ts`, a `cancel_pending` renderer row.
+
+## 2026-10-01 - Empty project scaffolding does not select legacy runtime storage
+## 2026-10-01 - Empty project scaffolding does not select legacy runtime storage (#9395)
+
+- `store/project-state-directory.ts` keeps the agent-directory store when old
+  observers have created only empty project directories. Populated legacy stores,
+  a store root that is a symlink or a file, symlink entries, unreadable subtrees
+  and malformed artifact filenames retain their existing location so live state
+  and diagnostics remain reachable.
+- A legacy store seen holding records is marked with `.in-project`, so it stays
+  selected after its records are expunged and one project's records never split
+  across the project and the agent directory.
+- The resolver tests cover empty scaffolding, symlinked records, root symlink and
+  file stores, and adoption that survives expunge. The malformed-artifact case
+  goes through the real record store, and `omo-senpi`'s engine test composes the
+  task engine over empty scaffolding and checks nothing is written into it. The
+  DAG fixture marks its legacy store rather than depending on empty directories
+  selecting it.
+- Preserves and extends drakeo338's state-lookup work from PR #9367. The separate
+  desktop observer fix removes the directory writer; this lookup change alone is
+  not evidence that first-turn project writes are fixed.
+
+## 2026-10-01 - Relay typed child computer permission events through task ownership (omo-desktop-app#1437)
+
+- Add a separate, validated child extension-event channel for `computer.permission_required`; keep `AgentSessionEvent` and its listeners unchanged. Invalid permission records are dropped.
+- Preserve denials received before the manager subscribes, forward daemon events across transport replacement, and retire subscriptions with their owning handles. The manager supplies trusted task ownership rather than accepting session identities from the child record.
+
+## 2026-10-01 - Builtin chain rungs name thinking levels their models accept (#9378)
+
+- `category/fallback-chains.ts`: `quick` opencode-go `minimax-m3` / `minimax-m2.7` drop `variant: "max"` (the child now inherits the
+  `quick` lane's `low`); `unspecified-low` `mimo-v2.6-pro`, `qwen3.8-max-preview` and `mimo-v2.5-pro` go from `max` to `high`, the level
+  senpi already clamped them to. Every other rung in this file and in `agents/builtin/fallback-chains.ts` names a level its catalog model
+  accepts. A new header bullet records the deliberate divergence from `model-core`, which keeps `max` for OpenCode.
+- `runners/builtin-chain-thinking-level.test.ts` drives `resolveCategory` -> the child's thinking level and child-local
+  `retry.fallbackChains` into a real senpi `AgentSession` over the real catalog, faking only the logged-in providers: the `quick` child runs
+  `minimax-m3` at `low` (was a silent clamp to `high`); repeated loads of every category an opencode-go plus xiaomi machine serves leave
+  `fallback.log` free of `validation_warning` (four on the pre-fix chains); a user `models[]` entry with an unsupported level still warns once
+  and still runs at an accepted level. The fixture's `assistant`/`streamMessage` helpers are exported for that last case.
+- Pins updated to the new variants: `fallback-chains`, `category-routing-policy`, `unspecified-low-chain`,
+  `in-process-runtime-fallback`, `manager-runtime-fallback`.
+
+## 2026-10-02 - A split or repeated Bun reaper advisory is still a Windows kill (#9228)
+
+- `runners/rpc/exit-mapping.ts` `hasOnlyWindowsStartupAdvisories` now matches the sentence senpi's `startHostChildReaper` writes (`packages/coding-agent/src/modes/rpc/child-reaper.ts`, ending `until this host exits`) as source text: one or more copies, each either whole on one line or split across lines at any point with only its own remaining words after it. Before, every line had to start with the sentence's first 119 characters, so a copy whose tail (`host exits`) arrived on its own line made the kill a crash (dev run 36881640066, `kill_marks_error_killed_true`).
+- Any other text still makes the exit a crash: a real error line before or after the advisory, the advisory's head followed by other words, or a lone piece of the sentence with no copy started before it. Combined with #9443's rules for the 4 KB tail the handle classifies: when stderr fills that tail, its first line may be any piece of a copy the tail cut, and that copy's remaining words must follow; the last copy may stop short anywhere when the kill cut it mid-write (no line end after it), and otherwise once it reaches `until this`, as #9347 accepted.
+- The N-copy tests used a guessed `until this runtime exits` ending; they now use the source sentence. New cases: the dev CI excerpt with `host exits` on the next CRLF line, three split points repeated beside a whole copy (both crashed on the base, killed now), and six advisory-plus-other-text shapes that stay crashed. The tail and mid-write tests from #9443 use the source sentence too.
+
+## 2026-10-01 - In-process task children honor the caller's settings (#9353)
+
+- `runners/in-process/runtime-fallback-settings.ts` `createRuntimeFallbackSettings` now takes the caller's settings source (`cwd`, `agentDir`, `projectTrusted`) and gives the child a private in-memory copy of the caller's global and project settings, replacing only the fallback policy: `retry.modelFallback`, `retry.fallbackChains` and `retry.fallbackRevertPolicy` come from the child's own chain, and the child's `maxRetries`/`baseDelayMs` override wins over both caller scopes. Before, the child got an in-memory manager holding only that policy (#6478), so `retry.provider.streamStartTimeoutMs`, `retry.provider.timeoutMs`, `httpIdleTimeoutMs`, `compaction.*` and `thinkingBudgets` fell back to the engine defaults (a 300 s first-event guard and a 300 s request idle timeout). Children now also honor the caller's compaction and thinking settings, matching process children.
+- The project layer reaches the child only when the parent session trusted the project: `ChildSpec.projectTrusted` comes from the parent's `ctx.isProjectTrusted()` through `InProcessSessionContext`; an unknown decision counts as untrusted. Child writes stay in the in-memory copy, so the caller's settings files are never written.
+- `in-process-caller-settings.test.ts` drives a real child through `InProcessRunner`: a caller `streamStartTimeoutMs` of 150 ms cuts a silent provider at 150 ms (on the base the guard never fired within 10 s), the request carries the caller's `httpIdleTimeoutMs` (base: 300000), a caller fallback chain is never used by a child without its own chain, a child with its own chain falls back only to it, and the caller's settings file stays byte-identical.
+
+## 2026-10-01 - Repeated Bun Windows advisories remain external termination output (#9228)
+
+- `runners/rpc/exit-mapping.ts` accepts any positive number of known Bun child-reaper startup advisory lines in the Windows exit-code-1/no-signal case. A different stderr line still classifies the child as crashed.
+- Focused cases pin N advisory-only lines to `killed: true` and advisory lines plus one real error to `crashed`.
+
+## 2026-10-01 - Windows child parity regression (#9274, #6709)
+
+- `builtin-tool-parity.integration.test.ts` reloads the in-process child loader beside the `DefaultResourceLoader` policy used by process children and compares their builtin registrations directly. This removes both Windows CLI cold starts while pinning equal platform-specific builtin counts, exact names, and `web_search`; shared parent and session-default tool policy remains covered by the existing surface tests.
+
+## 2026-09-30 - In-process task children load senpi's builtin tools (#9274, #6709)
+
+- `runners/in-process/child-loader.ts` now uses senpi's `DefaultResourceLoader` with every path-loaded extension and resource disabled, so in-process children receive the same builtin extension factories as process children without re-running the parent's omo-senpi or project extensions. The child binds the loaded extensions so model-aware variants settle before its first request, keeps process-mode's `--no-ask-user` flag, and preserves category/agent allow and deny policy. Shared task/workpool tools now follow process mode; lead-only workflow/team and question tools remain excluded.
+- `builtin-tool-parity.integration.test.ts` drives both execution modes through a local OpenAI-compatible provider and compares the actual tool payloads. Before the fix the in-process child had 11 tools versus 27 in process mode and lacked `web_search`; after bundle regeneration both payloads are identical.
+
+## 2026-10-01 - deep-high runs GPT-6 Astra at high (#9372)
+
+- `category/fallback-chains.ts` `deep-high` and `category/openai-categories.ts` (builtin default
+  `chatgpt-subscription/gpt-6-astra`): variant `high` (was `xhigh`). The chain stays one Astra rung on all four GPT lanes and the
+  gate stays `gpt-6-astra`, so the two deep lanes still never substitute each other's model.
+- Tests that pinned `xhigh` for deep-high (`fallback-chains`, `openai-categories`, `openai-lane`, `gating`, `resolve-category`)
+  now expect `high`.
+- `manager/credential-failure.ts` `terminalFailureMessage`: a task that ends on a spent usage limit no longer ends on the bare
+  provider error. The text adds `<provider>/<model> reached its usage limit, so this task stopped.`, then
+  `No other model in its fallback chain could take over.` when `runtimeFallbackCandidates` leaves nothing (a deep-high child
+  whose every Astra lane is spent), then the recovery: retry after the reset or point the category elsewhere in omo.json. A
+  live deep-high run against a ChatGPT-subscription Astra that answers `access_terminated_error` returns exactly that text to
+  the parent. `credential-failure.test.ts` covers the exhausted chain, a limit with rungs left (no exhaustion claim) and an
+  ordinary error (unchanged).
+
+## 2026-09-30 - The foreground task wait is bounded at 900 s (#8759 cluster, senpi#2323)
+
+- `tools/task/foreground-wait.ts` `waitForForegroundTask`: the wait before a foreground child is promoted to background
+  is now `min(prompt-cache safe-wait budget, MAX_FOREGROUND_WAIT_SECONDS)`, with `MAX_FOREGROUND_WAIT_SECONDS = 900`.
+  The cap applies to both budget sources (`ctx.getPromptCacheSafeWaitSeconds()` and `PI_PROMPT_CACHE_SAFE_WAIT_SECONDS`).
+  The budget is already TTL - 30 s, so a 5 min TTL still waits 270 s and a 1 h TTL waits 900 s instead of 3570 s.
+  Without the cap, senpi#2323 (1 h TTL on the Claude SDK lane) would block a parent turn for up to ~59.5 min.
+- `promoted.budgetSeconds` reports the effective (capped) wait. No separate raw-budget field: its only consumers,
+  `execute-single.ts` and `execute-batch.ts`, pass it to `backgroundConversionText`, which renders the seconds the parent
+  actually waited, and 900 s is still inside the cache-safe window.
+- No-op today: every current budget is 270 s.
+- `foreground-wait-cap.test.ts`: getter 3570 and env 3570 schedule the deadline at 900_000 ms and promote with 900,
+  getter 270 stays at 270_000 ms, and the task tool notice states 900 s. Removing the cap fails the three 3570 cases.
+
+## 2026-09-30 - deep-low leads with GPT-6.1 Sol at medium (#9214)
+
+- `category/fallback-chains.ts` `deep-low`: `gpt-6.1-sol` (medium) on `chatgpt-subscription|openai`, then `gpt-6.1-sol-fast`
+  (medium) on the same lanes, then the unchanged `gpt-5.6-sol` (medium, all four GPT lanes) and `gpt-5.6-sol-fast` (medium)
+  rungs. The comment above the chain says why: 6.1 Sol is served only on the two OpenAI lanes, so 5.6 Sol keeps Copilot,
+  OpenCode Zen and a registry without 6.1 on the lane at the same effort.
+- `category/openai-categories.ts`: the builtin default becomes `chatgpt-subscription/gpt-6.1-sol` medium and
+  `DEEP_LOW_GATE_MODELS` becomes `gpt-6.1-sol`, `gpt-6.1-sol-fast`, `gpt-5.6-sol-fast`, `gpt-5.6-sol`, so a 5.6-Sol-only
+  registry still opens the lane. The task tool's listing annotation reads `(requires gpt-6.1-sol or gpt-6.1-sol-fast or
+  gpt-5.6-sol-fast or gpt-5.6-sol)`.
+- Tests: `fallback-chains.test.ts`, `resolve-category.test.ts` and `openai-categories.test.ts` pin the new chain, default and
+  gate; two new `openai-categories.test.ts` cases resolve `gpt-6.1-sol` over `gpt-5.6-sol` on the subscription lane and
+  the 6.1 Fast tier over plain 5.6 Sol; `gated-categories.test.ts` pins the new annotation. `scripts/manual-category-qa.ts`
+  expects the gate's attempted model `chatgpt-subscription/gpt-6.1-sol`.
+
+## 2026-09-29 - A refused launch spec is a typed start failure that names the file and its fix (#9208)
+
+- `runners/rpc-host/daemon.ts` `loadDaemonLaunchSpec`: a `DaemonLaunchSpecError("launch_spec_insecure")` from
+  `readDaemonLaunchSpec` becomes `HostUnavailableError("launch_spec_insecure")` with `fallbackAllowed: false` and the
+  spec path. `rejectInsecureMode` is unchanged. Before, the error was not a `HostUnavailableError`, so `RpcHostRunner`
+  wrapped it as `host_unavailable` with no reason and every surface said only "The task host is unavailable."
+- `launch_spec_insecure` joins `HOST_START_FAILURE_REASONS`; `RunnerFailure.launch_spec_path` carries the path omo
+  resolved itself (never child output). `manager/start-failure.ts` `describeStartFailure` names it, home-relative, in
+  the public message with `chmod 644 <path>`, so the task record's `failure_reason` / `error_message`, the task tool
+  result and the `team_create` error (`member '<name>' failed to start: ...`) all show it. Rollback to R0 drops the new
+  reason like every post-R0 reason.
+- `TaskDaemonPorts.launchSpecPath` lets a test point the ensure at a spec file on disk.
+- `runners/rpc-host-launch-spec.test.ts`: a 0664 spec fails typed with the path and never falls back, the same spec at
+  0644 opens on the host, and the record plus the team error name the reason, the path and the fix.
+
+## category: quick ends with glm-5.3-flash and mimo-v2.6-flash, so a Z.ai-only or Xiaomi-only machine has a quick model (#9202)
+
+- `CATEGORY_FALLBACK_CHAINS.quick` appends `zai|zai-coding-cn/glm-5.3-flash (low)` and `xiaomi/mimo-v2.6-flash (low)`
+  after `claude-haiku-4-5`. Trailing keeps every provider set that resolved quick before on the same model. `low` is
+  the lowest effort both accept: `glm-5.3-flash` maps `off` to null and `mimo-v2.6-flash` cannot disable thinking.
+- `quick-single-provider.test.ts` resolves quick on a `zai`, `zai-coding-cn` and `xiaomi` registry (red on dev: no
+  rung, `model_unavailable`) and pins that haiku still wins when a Claude login is present. `coverage.test.ts` now
+  lists quick as usable on a Z.ai-only machine; `dead-chain.test.ts` and `fallback-chains.test.ts` list the new rungs.
+
+## store: task state moves out of the user's repository (#9201, DESKTOP-31)
+
+- `store/project-state-directory.ts`: `resolveProjectStateDirectory(projectDir, name)` puts a project's runtime state at
+  `<agent dir>/projects/<folder>-<sha256 of the path, 12 hex>/<name>`, the agent dir being the first of
+  `OMO_`/`SENPI_`/`PI_CODING_AGENT_DIR`, else `<HOME>/.omo/agent`. The path hash keeps two same-named projects apart. A
+  `<project>/.omo/<name>` an earlier release created keeps winning, so in-flight tasks and resumable DAG runs recorded there
+  stay reachable. The module imports only node builtins so QA drivers load it directly.
+- `store/state-dir.ts` `resolveStateDir` uses it; an explicit `task.state_dir` still wins. Before, the default was
+  `<project>/.omo/senpi-task`, an untracked folder in every repository a session ran in.
+- Tests that pinned the old default read the resolved directory instead; `claim-race.test.ts` passes its environment to the
+  spawned children so they resolve under the hermetic test HOME.
+
+## lifecycle: a reopened parent reclaims its live daemon child when the host that owned it died (#9183)
+
+- `lifecycle/reconcile.ts` `hasForeignLiveOwner`: a resident host-session record whose daemon session is still live stayed
+  foreign-owned forever once the process that ran its task manager died. With one engine host per parent session that owner
+  is the parent's own host, so killing it left the finished child recorded `running`/`resident` and every surface kept
+  showing a working subagent. The record's own parent session now reclaims it when `host_pid` names a dead foreign process;
+  any other session, and a live owner, still defer (`foreign_live_owner`), and a dead session still falls through (#8659).
+  `host-session-revival.test.ts` pins both sides: dead owner -> resumed on the recorded session path, live owner -> deferred.
+
+## docs: the operator surface names `adopt`, not `attach`
+
+`AGENTS.md`'s operator-surface line is `omo daemon run|adopt|status|stop|handoff|gc|rollback-prepare`; every command but `run` and `adopt` covers every endpoint. Docs only.
+
+## unspecified-low opens on Claude Sonnet 5.5; deep-low opens on plain GPT-5.6 Sol
+
+`CATEGORY_FALLBACK_CHAINS["unspecified-low"]` and the builtin category config now lead with
+`anthropic-subscription|anthropic|anthropic-api|github-copilot|opencode/claude-sonnet-5-5 (medium)`; every earlier rung
+follows in its previous order, so the chain is 8 rungs. `CATEGORY_FALLBACK_CHAINS["deep-low"]` swaps its two rungs: plain
+`gpt-5.6-sol (medium)` on `chatgpt-subscription|openai|github-copilot|opencode` first, `gpt-5.6-sol-fast (medium)` on
+`chatgpt-subscription|openai` second, and the builtin config is `chatgpt-subscription/gpt-5.6-sol`. `DEEP_LOW_GATE_MODELS`
+is unchanged (either tier opens the lane). `unspecified-low-chain.test.ts` proves order against a registry that serves every
+rung at once: sonnet-5-5 wins, then mimo-v2.6-pro once it is removed, then grok-4.7. omo#9144.
+
+## category, agents: builtin chains resolve only on the providers they list (#9146)
+
+- A machine whose only provider was a gateway (OpenRouter, opengateway, a Vercel gateway) ran builtin categories and agents
+  on that gateway's copy of the rung model, so an OpenRouter key was billed for Opus 5.5, GPT-6 Astra and, where the gateway
+  spells it `claude-fable-5-1`, Fable. `delegate-core` no longer matches a rung on an unlisted provider unless the caller
+  passes `allowUnlistedProviders` (only the omo-senpi `model_profile` matcher does), and `category/builtins.ts` gates and
+  chain viability count only models served by a provider the chain lists (`resolver.ts` dropped the gateway-id unwrap
+  `modelIdsOf`). A gateway-only machine now sees every builtin as unavailable and hidden; an explicit
+  `categories.<name>.model`/`models` or agent `model` naming the gateway still resolves on it, and a mixed registry picks
+  the listed provider. `category/listed-providers-only.test.ts` pins it on OpenRouter- and opengateway-shaped registries.
+
+## lifecycle: the revival selector names the children it leaves suspended `deferred`
+
+- `lifecycle/revival-selection.ts` / `residency.ts`: `selectRevivalBatch` returns `{ selected, deferred }` (was `overflow`): the
+  suspended children past the parent's residency cap that wait for the next revival. Rename only; no behavior change.
+  The rpc-host-sharding plan's audit forbids cap/overflow vocabulary in production code because per-parent task hosts
+  have no shard limit, and this name read like one.
+
+## manager: the auto execution-mode gate admits the task store before its first ask
+
+- `manager/execution-mode.ts`: `ExecutionModeGateHooks.admit` runs before the gate's first ask, which may ensure the
+  session's task host. With `task.default_execution_mode: "auto"` both the task tool (`tools/task/execute-spec.ts`) and
+  the manager ask the gate before the host runner's own store admission, so an agent dir whose store index could not
+  be written still got a host started before the spawn failed `store_index_unavailable`. A false `admit` answers
+  `process` without asking and settles nothing: the spawn reaches the host runner, whose admission fails it exactly as
+  before (same code, same record), and the next spawn asks again. `execution-mode.test.ts` pins it (rpc-host-sharding
+  todo 14 B1; the duty chose failing over an in-process fallback because an unwritable index usually means a broken
+  agent dir, and an in-process child would lose the index that `task_output`, cancel and resume rely on).
+
+## runners: warm a task host with its `warm` command; export the store-index registration
+
+- `runners/rpc-host/host-warmup.ts`: `warmTaskHost({ socket, cwd })` sends `warm { cwd, kind: "worker", context }` with
+  the same `child`-role, temp-`state_dir`, `host_warmup` context the warm-up session carried, and answers `warmed` /
+  `already_warm`. An engine that does not know the command (a refusal outside `host_draining`, `warm_failed`,
+  `invalid_session_kind`, `invalid_session_context`, `invalid_path` - an older router answers `missing_session_id`)
+  or cannot warm (`state: "unsupported"`) gets the previous warm-up session (`warm_up_session`). A known refusal or no
+  answer rejects with `HostWarmRefusedError`. The temp directory is removed on every path. `warmHostSession` is no
+  longer exported.
+- `runners/rpc-host/host-request.ts` (new): `askHost(socket, request, timeoutMs)`, the one-connection request
+  `liveness.ts` used privately, now returning refusals too; `liveSessionPaths` keeps its answers.
+- Barrel: `registerStoreIndex`, `StoreIndexUnavailableError`, `warmTaskHost`, `HostWarmRefusedError`, `TaskHostWarmth`.
+- `__fixtures__/fake-host*.ts`: a `warm` answer option and a fixed `socketPath` option.
+
+Tests: `host-warmup.test.ts`.
+
+## runners: warm a fresh task host with one throwaway session; the auto gate can warm without deciding (rpc-host-sharding PR-A)
+
+- `runners/rpc-host/host-warmup.ts` (new): `warmHostSession({ socket, cwd })` opens one `worker` session with the
+  `child` role, a private temp `state_dir` and session file, and the `host_warmup` context key, closes it at once,
+  and removes the temp directory on every path (a refused open included). It is never retained. A host's first session
+  compiles the extensions and loads the task runtime; measured, the first child on a fresh host opened in ~0.95 s and
+  the second in ~0.15 s, and after a child-role warm-up the first child opened in ~0.12-0.3 s.
+- `session-role.ts`: `HOST_WARMUP_CONTEXT` and `isHostWarmupSession(pi)`.
+- `manager/execution-mode.ts`: `ExecutionModeGate.warm()` - a speculative ask whose success is kept like
+  `ensure()`'s and whose failure is dropped (`hooks.onWarmFailure`), so a pre-warm can never settle the session on
+  in-process; an `ensure()` during a warm joins it. `createExecutionModeGate(resolve, hooks)` gains
+  `onEnsureFailure` for the notice a failed `ensure()` owes.
+
+Tests: `host-warmup.test.ts` (new), `execution-mode.test.ts`, `execute-auto-mode-gate.test.ts`.
+
+## A store index or sidecar waiter outlasts a slow durable rewrite
+
+`store/record-lock.ts`: `withTaskRecordLockAsync` takes an optional `holderWaitMs`, the time ONE live holder
+may keep the lock before a waiter gives up (default unchanged: 1 s, sized for a record read-modify-write).
+`runners/rpc-host/durable-json.ts` exports `DURABLE_JSON_LOCK_OPTIONS` (10 s), and `store-index.ts`
+(register, prune) and `shard-sidecar.ts` (write, register store) pass it: their holders rewrite and fsync
+the whole file, and a loaded host (a windows-latest runner here) keeps a live holder on the index lock
+past 1 s, so a waiter behind it failed `store_index_unavailable`. A stalled holder still times the waiter
+out; the task record, workpool and lease locks keep the 1 s budget.
+
+Tests: `runners/rpc-host/store-index.test.ts` (a live holder that keeps the index lock for 1.5 s: the
+registration behind it waits and lands; it timed out at 1 s before). The 32-process x 25-store
+throughput case runs on POSIX only: the host runner the index serves is never used on win32 (plan U6),
+and the runner's 800 serialized fsynced rewrites take over 60 s there.
+
+## AGENTS: the host runner opens children on their parent session's own host
+
+`AGENTS.md` describes `RpcHostRunner` as opening a child on its parent session's own host
+(`<shardRoot>/p-<shardKey("p", rootSessionId)>.sock`, `rpc-host/shard-socket.ts`) instead of the one machine-wide
+host: new children ask `shardResolver`, a child inside a host passes `tree_key`/`shard_key` to its own children,
+revival opens only the recorded socket, and `OMO_RPC_SOCKET*` serve the operator commands and thread tools only.
+The operator surface now lists `gc` and `rollback-prepare`. No code changes.
+
+## A host that dies inside the ensure cache window is re-ensured, not trusted
+
+`runners/rpc-host/daemon.ts`: `ensureTaskDaemon` caches a successful ensure per socket for
+`TASK_DAEMON_CACHE_TTL_MS` (5 s), and nothing dropped the entry when its host died: a spawn in that
+window reused the dead answer, skipped the re-ensure and failed `host_unreachable`, and a live child's
+reattach did the same until the window ran out. `forgetTaskDaemon(socket, instanceId?)` drops the entry
+(kept when it already vouches for a different generation; the entry now records the generation its
+ensure learned). `runners/rpc-host/live-children.ts` calls it on every observed transport loss, before
+the reattach re-ensures. `runners/rpc-host.ts`: when the OPEN on a freshly ensured (non-recorded,
+non-attach-only) endpoint fails `host_unreachable` - no probe answer, or the transport went away during
+`open_session` - the start forgets the entry, ensures and opens once more.
+
+Tests: `runners/rpc-host-ensure-cache.test.ts` (new: a spawn right after the host died re-ensures and
+runs; a live child's reattach after its host died re-ensures instead of ending `lost`),
+`runners/rpc-host/daemon.test.ts` (a loss of the cached generation re-probes, a stale generation's loss
+does not).
+
+## The task daemon ensure releases the engine's attach hold (#9041)
+
+`runners/rpc-host/daemon.ts`: senpi #2242 makes `ensureHost()` return an attach hold - the readiness
+connection stays open and the host counts the ensuring process as attached - until `release()` is
+called. `ensureTaskDaemon` releases it once, right after its own capability probe (in a `finally`, so
+a failed probe still releases) and before it returns: its result is cached and shared by the
+single-flight, and the transient daemon would otherwise never start its idle window while omo runs.
+Every ensure path (spawn, revival, reattach, pre-warm, shard routing) goes through this one call.
+`lazy/senpi-barrel.ts`: `EnsuredSenpiHost.release` is optional, so the current engine pin (no hold)
+keeps working.
+
+Tests: `runners/rpc-host/daemon.test.ts` ("ensureTaskDaemon attach hold": a started host is released
+after its capability probe, a reused one once, a throwing probe still releases, concurrent and cached
+ensures release the one engine ensure once, a hold-less pin still ensures).
+
+## A session the host parks parks its task record
+
+`manager/manager-outcome.ts`: every park of a daemon session now reaches the record, not only the ones
+the child initiates. When the HOST parks a session - its idle sweep (`session_parked`, or
+`session_closed{idle_evicted}`) or a generation handoff (`session_closed{handoff_parked}`) - the record
+parks at `rpc_detached` with `suspension_reason` naming the cause, keeps its status (a host park is
+never a failure, and a completed child keeps its result), drops `host_pid`, and the run is released
+(`forget`: lease, live handle, run stats), so `task_output`, revival and reconcile see a parked child
+instead of a resident one whose outcome never settles. The park watch is armed per task with each
+tracked run and outlives the run's outcome, so a child that stays resident after its turn is covered;
+`OutcomeTracker.release` (called from `manager.forget`) ends it.
+
+`runners/rpc-host/session-client.ts` + `exit-mapping.ts` + `handle.ts`: `HostSessionParked.reason` is
+required and carries the host's cause (`HostParkCause`: `idle_evicted` | `handoff_parked`) as well as
+the child-side `HostParkReason`s; `classifySessionExit` returns `{ disposition: "parked", cause }`.
+New suspension reasons `idle_evicted`, `handoff_parked` (`task_output` explains both). What a revived
+or resumed child does is unchanged.
+
+`manager/manager-reattach.ts`: reattaching a TERMINAL child (a `task_send` revival of a completed child)
+now restamps its identity from the reattached handle (`childIdentityOf`: `runner_kind`, `host_session`,
+`pid`), so a child a handoff parked and a newer generation reopened names that generation's
+`instance_id` and routing id instead of the old one. The host-world test fixture no longer stamps
+`host_session` itself on every start; the manager does, as in production.
+
+Tests: `runners/rpc-host-host-park.test.ts` (new: a fake host parks an attached child by idle sweep,
+by `idle_evicted` close and by handoff; a completed resident child parked by the idle sweep; revival
+after the park), `manager/host-session-park.test.ts` (host causes park the record; `release` and
+re-tracking leave one watch).
+
+## A holder that once failed to read its own start identity tries again
+
+`store/lock-owner.ts`: the process's own start identity (written into every lock it takes so others can
+prove it dead) was read once, and a failed read was cached as `unavailable` for the process lifetime -
+every later lock of that process could then only be reaped once its pid was gone. A success is still kept
+for the lifetime; a failure is now retried after 1 s, doubling to at most one minute between reads.
+
+Tests: `store/lock-owner.test.ts` (new: retry schedule and a kept success; the interval caps at one minute).
+
+## A reaped task record lock that Windows briefly refuses to unlink is retried
+
+`store/record-lock.ts`: the reaper's unlink of a dead holder's lock threw a Windows sharing violation
+(`EPERM`/`EBUSY`, while a scanner or the dead holder's last handle closes) straight out of the
+acquisition. It now retries three times 25 ms apart, as team-core's reclaim does (#9034), and if the
+file is still refused it waits on it like a held lock, so the waiter times out on that one holder instead of
+throwing.
+
+CI: `store/record-lock.test.ts`, `store/record-lock-reap-window.test.ts` and
+`runners/rpc-host/durable-json.test.ts` join the root serial quarantine
+(`script/root-test-serial-quarantine.ts`, both shard-2 commands in `ci.yml`, `bunfig.win2.parallel.toml`), so
+the start-identity proof (kernel32 on windows-latest) and the win32 no-directory-fsync branch run in one
+uncontended process on every OS.
+
+Tests: `store/record-lock.test.ts` (one refused unlink is retried and the lock is taken; a lock that stays
+refused times the waiter out and is left in place).
+
+## A busy store index lock no longer fails an admission
+
+`runners/rpc-host/store-index.ts`: registering a store that the index already lists is a read under the
+lock and nothing else - no rewrite, no fsync, the file keeps its inode and mtime. A new entry writes
+`last_seen` equal to `first_seen` (the field stays for version 1 readers; nothing consumes it).
+
+`store/record-lock.ts`: a waiter now gives up only when ONE holder keeps the lock for the whole wait
+budget (1 s), instead of after 1 s in total. Holders that each finish promptly hand the lock on, and a
+waiter queued behind any number of them keeps waiting, so heavy contention no longer surfaces as
+`store_index_unavailable` (32 processes x 100 new stores: 12-15 of 32 processes failed per run before,
+none after); a holder that stops making progress still times the waiter out, and is never reaped while
+it is alive. This applies to every task record, workpool, lease, sidecar and index lock.
+
+Tests: `runners/rpc-host/store-index.test.ts` (a registered store is not rewritten; 32 processes x 25 stores
+all present), `store/record-lock.test.ts` (a waiter behind live holders handing over every 100 ms for 1.5 s
+acquires).
+
+## The store index and shard sidecars survive a crash right after they are written
+
+`runners/rpc-host/durable-json.ts`: `writeTextDurably` fsynced the staged file and renamed it over the old
+one, but never fsynced the parent directory, so a crash right after the rename could lose the new name -
+an admission whose store index entry had already read back could come back without it. The directory is
+now fsynced after the rename (skipped on win32, which cannot open a directory for fsync; a filesystem that
+answers EINVAL/ENOTSUP for a directory fsync is accepted as is).
+
+Tests: `runners/rpc-host/durable-json.test.ts` (new: file fsync, rename, then directory fsync).
+
+## A task record lock is reaped only after its owner is proven dead
+
+`store/record-lock.ts` + `store/lock-owner.ts` (new) + `lifecycle/pid-liveness.ts` (new): the lock body now
+also carries the holder's process start identity and hostname (after the pid, time and token lines every
+earlier build wrote and still reads). A lock is removed by anyone but its holder only when that holder is
+PROVEN dead - its pid is gone, or a live pid's start identity contradicts the recorded one (the pid was
+recycled) - read synchronously (`/proc` on Linux, libproc and kernel32 through `bun:ffi`, no process
+spawn). Age no longer expires a lock: a live holder keeps it however old it is (an unknown liveness,
+another host, a legacy lock without an identity on a live pid all keep it), and a dead holder's lock is
+reaped at once instead of after five seconds. The only age rule left is for a lock with no parseable
+owner (its writer died between create and write). Reapers serialize on `<lock>.recovery` and unlink the
+primary only while it is still the very lock they judged dead, which closes the window where a fresh
+holder published between the judgement and the rename, plus a contender between rename and link-back,
+could give two holders; a recovery lock left by a dead reaper is reclaimed on the same proof and fenced
+by its token. The async holder still refreshes the mtime so older builds, which expire locks by age,
+leave a long-held lock alone.
+
+Tests: `store/record-lock.test.ts` (dead holder reaped fresh or old; a live pid's old lock - current or
+legacy format - is never reaped; a recycled pid is; another host's is not; an empty lock only once stale;
+a dead reaper's recovery lock is recovered).
+
+## One revival selector: `selectRevivalBatch`
+
+`lifecycle/revival-selection.ts` (new, exported as `selectRevivalBatch` / `RevivalSelection`) is the ONE
+definition of which suspended children a resumed session revives and in what order: parent match,
+`persisted_only` / `rpc_detached`, `pending` / `running` / `interrupted`, not killed; non-terminal first,
+then most recently updated, tie-break task id; `residency_max_children` minus current residents
+("unlimited" / 0 unbounded). `admitSuspendedBatch` (`residency.ts`) and the scoped revival
+(`reconcile-revival.ts`) now use it instead of their own copies, and omo's host pre-warm asks it which
+hosts the reconcile will actually need. No behavior change in the lifecycle.
+
+## Every task child opens on its parent session's own host; the shared-host route is gone
+
+`runners/rpc-host.ts` + `rpc-host/child-endpoint.ts`: `RpcHostRunnerOptions.shardResolver`, `storeDir`,
+`ownHostSocket` and `onNotice` are REQUIRED. A new child always opens on the socket the resolver names;
+the branch that let a runner without a resolver ensure the machine-wide `rpc.sock` (or whatever
+`OMO_RPC_SOCKET*` named) is deleted - a JavaScript caller that still omits the resolver fails
+`shard_identity_missing` before anything is ensured. `ensureTaskDaemon` without a `socket` remains for
+the operator commands only. Each open stamps `tree_key` / `shard_key` (the shard key; parsed back from a
+recorded `p-*` socket on revival) into the child's session context, so the child's own children reuse
+the host it lives on.
+
+A resolution marked `inherited` (a child inside its tree's host) or naming the session's own endpoint is
+ATTACH-ONLY: `attachOwnEndpoint` sends one `get_protocol_info` (`probeHost`, injectable) and accepts any
+generation that speaks this build's protocol - H1, or H2 after a handoff moved the public path - then opens
+there. A silent endpoint or a protocol mismatch is `own_host_unreachable`; no ensure, no start, no
+handoff, no per-child fallback. `createHostEndpointPort` now requires `ownHostSocket` and `onNotice`.
+New start-failure reasons: `own_host_unreachable`, `shard_identity_missing`.
+
+`tools/task/execute-spec.ts`: `ensureAutoExecutionMode(deps, targets)` skips the `auto` check when every
+target of the call already runs in-process without it (an agent configured in-process, e.g. `explore`),
+so such a call never ensures the session's host (IS-9). The kernel-tool grant path shares the skip; an
+unsettled `auto` still reads as in-process, so no grant widens. A call with any unsettled or `process`
+target settles the check once, before any spec, as before.
+
+Tests: `rpc-host-own-endpoint.test.ts` (new: inherited attach on H1/H2, silent and mismatched probes,
+foreign `host_socket`, tree/shard keys on the wire, missing resolver), `tools/task/execute-auto-mode-gate.test.ts`
+(new), runner fixtures carry the required routing.
+
+## The task record lock never deletes a lock another process holds
+
+`store/record-lock.ts`: a waiter that found the lock file gone (released between its failed create and its
+stat) treated it as stale and deleted the path - by then often a lock another process had just taken, so
+two writers ran the read-modify-write at once and one's update was lost (16 processes registering 25
+stores each in the store index lost up to 17 entries). A missing lock now just retries the create. An
+expired lock (mtime older than `LOCK_STALE_MS`) is renamed away and removed only when the renamed file is
+still the lock that was judged expired (device, inode, mtime and body); a lock a fresh holder published in
+between is linked back. Each acquisition writes a token, and release removes the lock only while it still
+carries that token, so a holder whose lock expired never deletes its successor's. The lock guards every
+task record, workpool, admission lease, store index and sidecar write.
+
+Tests: `store/record-lock.test.ts` (new), `rpc-host/store-index.test.ts` (16 writer processes x 25
+stores, `rpc-host/__fixtures__/register-stores.ts`).
+
+## A daemon child opens, reattaches and revives only on the endpoint its record names
+
+`runners/rpc-host/daemon.ts`: `ensureTaskDaemon` takes an explicit `socket` (the operator commands keep
+`resolveTaskHostSocket` when it is absent) and an `owner`; the ensured-host cache is keyed per socket; a
+`start` on a `p-*`/`i-*` shard writes its `.meta.json` sidecar (`shard-sidecar.ts`, stores a previous
+generation recorded are kept). An engine refusal naming `protocol`, `capability` or `legacy_host` stays
+that reason (`isHostIncompatible`) instead of collapsing to `ensure_failed`.
+
+`runners/rpc-host/store-index.ts` (new): `<agentDir>/rpc/task-stores.json` lists every task store that
+opened a child on a host of that agent dir. It is append-only, written under its own lock (staging file,
+fsync, rename) and read back; registering it is an admission precondition, so a failure is a typed
+`store_index_unavailable` before any ensure or open. The sidecar's `stores` copy is best-effort
+(`host_notice:store_register_failed`, once).
+
+`runners/rpc-host.ts` + `child-endpoint.ts` + `reattach-port.ts` (new): `RpcHostRunnerOptions` gains
+`shardResolver` (asked at every start), `storeDir`, `ownHostSocket` and `onNotice` (once per token and
+endpoint). A spec's `hostSocket` (the recorded endpoint) wins over the resolver and never falls back to the
+per-child runner: a host refusal there, whether the ensure or the OPEN answers it (a missing capability
+at open is the only check the own endpoint gets), parks the revival `host_incompatible` or fails it
+closed with its own reason, instead of reopening the retained session in a child process. A lost transport re-ensures only the recorded socket: an incompatible answer parks the
+child `host_incompatible` (never reopened elsewhere), and the session's own endpoint
+(`readOwnHostSocket(pi)`, `isOwnEndpoint`) is re-opened but never ensured - silent, the child parks
+`own_host_unreachable`. `isOwnEndpoint` canonicalises both sockets the way the host stamps `host_socket`
+(senpi #2245: the directory through its deepest existing ancestor, the missing tail re-appended), so a
+shard whose `rpc/shards/` does not exist yet still matches across `/tmp` vs `/private/tmp` spellings.
+`manager/manager-outcome.ts` parks the record (`rpc_detached` + the reason) when
+the child parks itself; a host-driven park is unchanged.
+
+`lifecycle/host-endpoint-reach.ts` (new): revival (`reviveClaimed`, `reconcileHostSessionOrphan`,
+`parkHostSessionOnDaemonLoss`) ensures a silent RECORDED socket through `LifecycleDeps.hostEndpoint`
+(`createHostEndpointPort`), outside the admission lease, and never the session's own endpoint.
+`manager/manager-respawn.ts` hands the runner `record.host_session.socket`, so a pre-migration child
+keeps living on `rpc/rpc.sock`. New suspension reasons `host_incompatible`, `own_host_unreachable`,
+`store_index_unavailable`; new start-failure reasons `legacy_host`, `host_incompatible`,
+`store_index_unavailable`. The omo-senpi task component wires these in a later change.
+
+Audit: `host_session.daemon_pid` has no reader outside the record parser round-trip
+(`store/record-blocks-parse.ts`) and no writer; `reconcile-crashed-resident.ts` and `dag/recovery.ts` read
+the PARENT `host_pid`. No single-daemon reader needed changing.
+
+Tests: `rpc-host-endpoint.test.ts`, `lifecycle/host-session-endpoint.test.ts`,
+`manager/host-session-park.test.ts`, `rpc-host/daemon-shard.test.ts`, `rpc-host/store-index.test.ts`,
+`rpc-host/own-endpoint.test.ts`.
+
+## 2026-09-29 - Runtime fallback tries another provider first after an account-wide usage limit (#8296)
+
+A task child that died on a usage limit (a Claude session or weekly limit, a monthly quota, a Codex usage limit) was handed to the next rung in list order, so a chain like `claude-fable-5-1 -> claude-opus-5-5 -> kimi-k3` on one Claude account spent a child start on Opus, which fails the same way, before reaching Kimi. `manager/credential-failure.ts` adds `usageLimitScope`: a limit that names a model, a model family or premium models is `model`-scoped and keeps list order, so a Fable-only weekly cap continues on Opus; any other usage limit is `account`-scoped and moves the spent provider's rungs behind every other provider's, keeping them as the last resort instead of dropping them. `runtimeFallbackCandidates` reports the scope as `limit`, and the `task_model_fallback` event records it as `usage_limit`. Credential rejections keep dropping the provider's rungs as before. The runtime-fallback QA driver gains `limit-account` and `limit-model` scenarios on a two-provider chain.
+
 ## `builtinCategoryChainCandidates`: a category's builtin chain against the live registry (#9111)
 
 `category/resolver.ts` exports `builtinCategoryChainCandidates(category, registry)`: the category's builtin fallback chain (retired names mapped to their replacement) with every rung resolved to its first available provider, in chain order. `model-chain.ts` `availableChainCandidates` is the shared rung resolution `chainRungCandidates` now uses for the rungs after the selection. `resolveCategory` is unchanged: a user-forced model still keeps its own chain for task routing; memory sidecars append these rungs themselves so a refused pin is not their only model.

@@ -2,7 +2,8 @@ import type { ExecuteTool } from "@oh-my-opencode/senpi-desktop-service";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ComputerActionsInput } from "../src/cua-actions";
 import { ComputerActionsParams } from "../src/cua-actions";
-import { computerActionsPermissionParser, createComputerActionsTool } from "../src/cua-adapter";
+import { createComputerActionsTool } from "../src/cua-adapter";
+import { computerActionsPermissionParser } from "../src/cua-definition";
 import { closeDesktops, desktopFixture, hostContext, methodsOf } from "./fixtures";
 
 // Every case waits on real child-process I/O; the guard only catches a hang, it never times behavior.
@@ -80,7 +81,13 @@ describe("computer_actions (gajae-code enforcement invariants)", HANG_GUARD, () 
 
 		// Then
 		expect(failureCode(result)).toBe("COMPUTER_PERMISSION_REQUIRED");
-		expect(textOf(result)).toContain("Grant Screen Recording and Accessibility");
+		expect(result.details.isError).toBe(true);
+		expect(Reflect.get(result.details.value ?? {}, "failure")).toMatchObject({
+			permission: "accessibility",
+			settingsUrl: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+			app: "QA App",
+			relaunchRequired: true,
+		});
 	});
 
 	it("display-stale: pointer input without a current frame is COMPUTER_DISPLAY_STALE", async () => {
@@ -92,6 +99,7 @@ describe("computer_actions (gajae-code enforcement invariants)", HANG_GUARD, () 
 
 		// Then
 		expect(failureCode(result)).toBe("COMPUTER_DISPLAY_STALE");
+		expect(result.details.isError).toBe(true);
 		expect(textOf(result)).toContain("Capture a fresh screenshot");
 	});
 
@@ -185,6 +193,7 @@ describe("computer_actions arguments", HANG_GUARD, () => {
 			code: "COMPUTER_INVALID_ARGUMENTS",
 			spawned: 0,
 		});
+		expect(result.details.isError).toBe(true);
 		expect(textOf(result)).toContain(reason);
 	});
 });

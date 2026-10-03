@@ -4,11 +4,13 @@ import { nowIso, TERMINAL_STATUSES, type LifecycleContext } from "./context"
 import { destroyResidentTask } from "./destroy"
 import { endClosingFallbackChild } from "./fallback-closing-child"
 import { isFallbackHandoff } from "./fallback-handoff"
+import { parkedReason, reachRecordedHost } from "./host-endpoint-reach"
 import { hostSessionResumePath, isHostSessionRecord } from "./host-session"
 import { clearSuspensionReason, markSuspensionReason } from "./host-session-record"
 import { detachTerminalResident } from "./reconcile-terminal"
 import { getLifecycleReattachPorts, type RespawnFailureCode, type RespawnPort, type RespawnResult } from "./port"
 import { markCrashedResident } from "./reconcile-crashed-resident"
+import { finishPendingCancel } from "./pending-cancel"
 import { reclaimOrphanedResident } from "./residency"
 import { deferred, disposeClaimed, markLost, rollbackOrDeferred, terminateOldRpc, type SuspendedResidency } from "./revive-rollback"
 import type { ReconcileDeferredReason, ReconcileOutcome } from "./types"
@@ -114,13 +116,21 @@ export async function reviveClaimed(
   if (!isClaimHeld(context, fresh, claimed.parent_session_id) || fresh.killed === true || (!REVIVABLE_STATUSES.has(fresh?.status ?? "pending") && !terminalAllowed)) {
     return rollbackOrDeferred(context, claimed.task_id, rollbackResidency, "foreign_live_owner", claimed)
   }
-
-  // A host session has no pid of its own; only the child-process runner ever leaves one behind.
+  // A host session has no pid of its own; only the child-process runner ever leaves one behind. A
+  // previous process's child is ended first, a cancelled one included: finishing a cancel never leaves
+  // its process running.
   if (fresh.execution_mode === "process" && fresh.pid !== undefined && !isHostSessionRecord(fresh)) {
     const terminated = await terminateOldRpc(context, fresh)
     if (!terminated) {
       return rollbackOrDeferred(context, fresh.task_id, rollbackResidency, "session_unavailable", fresh)
     }
+  }
+
+  // An accepted cancel is final: this claim finishes it rather than running the child again. A host
+  // that does not confirm the session closed leaves the cancel pending for the next revival.
+  if (fresh.cancel_requested !== undefined && !TERMINAL_STATUSES.has(fresh.status)) {
+    const finished = await finishPendingCancel(context, fresh)
+    return finished ?? rollbackOrDeferred(context, fresh.task_id, rollbackResidency, "host_unreachable", fresh)
   }
 
   if (!(await endClosingFallbackChild(context, fresh))) {
@@ -129,9 +139,10 @@ export async function reviveClaimed(
   // Everything above awaited: a stop or another owner that landed meanwhile ends this revival here.
   if (!isSameClaim(context, fresh)) return rollbackOrDeferred(context, fresh.task_id, rollbackResidency, "foreign_live_owner", fresh)
 
-  if (isHostSessionRecord(fresh) && !(await context.hostSessionProbe.daemonAlive(fresh.host_session))) {
-    const outcome = rollbackOrDeferred(context, fresh.task_id, rollbackResidency, "host_unreachable", fresh)
-    markSuspensionReason(context, fresh.task_id, "daemon_unavailable")
+  const reached = isHostSessionRecord(fresh) ? await reachRecordedHost(context, fresh.host_session) : "alive"
+  if (reached !== "alive") {
+    const outcome = rollbackOrDeferred(context, fresh.task_id, rollbackResidency, reached, fresh)
+    markSuspensionReason(context, fresh.task_id, parkedReason(reached))
     return outcome
   }
 
@@ -169,7 +180,7 @@ export async function reviveClaimed(
     reservation.release()
     if (respawned.disposition === "retryable") {
       const outcome = rollbackOrDeferred(context, fresh.task_id, rollbackResidency, deferredCode(respawned.code), fresh)
-      if (respawned.code === "host_draining") markSuspensionReason(context, fresh.task_id, "host_draining")
+      if (isSuspendingCode(respawned.code)) markSuspensionReason(context, fresh.task_id, respawned.code)
       return outcome
     }
     if (TERMINAL_STATUSES.has(fresh.status) && options.rollbackTerminalFailure !== true) {
@@ -254,6 +265,10 @@ export function isClaimHeld(
 
 function isSpawnSpecV1Record(record: TaskRecord): boolean {
   return record.spawn_spec !== undefined && isSpawnSpecV1(record.spawn_spec)
+}
+
+function isSuspendingCode(code: RespawnFailureCode): code is "host_draining" | "host_incompatible" | "store_index_unavailable" {
+  return code === "host_draining" || code === "host_incompatible" || code === "store_index_unavailable"
 }
 
 function deferredCode(code: RespawnFailureCode): ReconcileDeferredReason {

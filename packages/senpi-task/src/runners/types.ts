@@ -1,5 +1,6 @@
 import type { AgentSessionEvent, SessionEntry } from "@code-yeongyu/senpi"
 import type { RunnerOutcome } from "./in-process/child-handle"
+import type { ChildExtensionListener } from "./child-extension-events"
 
 export type RpcSwitchSessionResult = { readonly cancelled: boolean }
 
@@ -20,6 +21,13 @@ export type RpcRunnerSpec = {
   readonly state_dir: string
   readonly prompt: string
   readonly resumeSessionPath?: string
+  // The endpoint a daemon-hosted child's record names. A revival opens there and nowhere else; the
+  // per-child process runner ignores it.
+  readonly hostSocket?: string
+  // The tree and shard key a daemon-hosted child carries in its session context (`tree_key` /
+  // `shard_key`), so ITS children reuse the same host. Stamped by `RpcHostRunner`, never by callers.
+  readonly treeKey?: string
+  readonly shardKey?: string
   // The provider/modelId the child must resolve. A separate OS process cannot share the parent's
   // in-memory registry, so the model is threaded onto the child command line (`--model`).
   readonly model?: string
@@ -48,6 +56,7 @@ export type ChildHandle = {
   followUp(text: string): Promise<void>
   abort(): Promise<void>
   subscribe(listener: ChildEventListener): () => void
+  subscribeExtensionEvents?(listener: ChildExtensionListener): () => void
   waitForIdle(): Promise<void>
   waitForOutcome?(): Promise<RunnerOutcome>
   hasExited?(): boolean

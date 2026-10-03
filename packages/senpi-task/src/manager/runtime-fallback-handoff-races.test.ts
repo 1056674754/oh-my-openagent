@@ -9,6 +9,7 @@ import { TaskConcurrency } from "./concurrency"
 import { baseSpec, cleanupProjects, FakeRunner, settings, tempProject } from "./__fixtures__/manager-fakes"
 import { createTaskManager } from "./manager"
 import type { ManagedStartSpec } from "./types"
+import { NO_HOST_ENDPOINT } from "../lifecycle/host-session"
 
 // The runtime-fallback handoff is committed before the failed rung's session finishes closing. Every
 // way that window can end - another owner winning the handoff, an interrupt, a cancel - must leave
@@ -88,7 +89,7 @@ function lane(kind: "host-session" | "in-process" = "host-session") {
     }),
     destruction: { destroyResidentTask: (taskId, cause) => lifecycle.destroyResidentTask(taskId, cause) },
   })
-  const lifecycle = createTaskLifecycle({ store, config, hostPid: OWNER_PID, registry: createManagerResidencyRegistry(() => manager) })
+  const lifecycle = createTaskLifecycle({ hostEndpoint: NO_HOST_ENDPOINT, store, config, hostPid: OWNER_PID, registry: createManagerResidencyRegistry(() => manager) })
   const dispose = (): void => {
     runner.finishClose.resolve()
     lifecycle.dispose?.()

@@ -13,6 +13,7 @@ import { TaskConcurrency } from "./concurrency"
 import { baseSpec, cleanupProjects, FakeRunner, settings, tempProject } from "./__fixtures__/manager-fakes"
 import { createTaskManager } from "./manager"
 import type { ManagedStartSpec } from "./types"
+import { NO_HOST_ENDPOINT } from "../lifecycle/host-session"
 
 // Two revivals race the runtime-fallback close from the lifecycle side, where steering's closing fence
 // does not reach: a session reload that revives the task, and a cancel that lands while a dead owner's
@@ -72,7 +73,7 @@ describe("lifecycle revivals racing the runtime-fallback close", () => {
         planner: () => ({ kind: "resolved", plan: { model: "test/first", resolved_model: rung("first"), fallback_models: [rung("next")] } }),
         destruction: { destroyResidentTask: (taskId, cause) => lifecycle.destroyResidentTask(taskId, cause) },
       })
-      const lifecycle = createTaskLifecycle({ store, config, hostPid: 11_001, registry: createManagerResidencyRegistry(() => manager), signaller: { isAlive: (pid) => pid === 11_001, signal: () => undefined } })
+      const lifecycle = createTaskLifecycle({ hostEndpoint: NO_HOST_ENDPOINT, store, config, hostPid: 11_001, registry: createManagerResidencyRegistry(() => manager), signaller: { isAlive: (pid) => pid === 11_001, signal: () => undefined } })
       const task = await manager.start(baseSpec())
       if (task.kind !== "started") throw new Error("expected the task to start")
       const first = runner.handles.get(task.task_id)

@@ -8,7 +8,7 @@ import type { HostSessionOpenInput } from "./rpc-host/session-transport"
 import { isHostSessionHandle, type HostSessionChannel } from "./rpc-host"
 import { childSpec, ensuredDaemon, fakeFallbackRunner, hostRunnerHarness, stubChannel } from "./rpc-host.test-support"
 
-const { fakeHost, runnerOver, release } = hostRunnerHarness()
+const { fakeHost, runnerOver, runnerWithout, release } = hostRunnerHarness()
 const opened: HostSessionClient[] = []
 
 afterEach(async () => {
@@ -38,6 +38,55 @@ function realClient(host: FakeHost): HostSessionClient {
 }
 
 describe("RpcHostRunner busy host (omo#9067)", () => {
+  test("#given a busy child on a recorded shard #when the start retries #then ensure, probe and connect stay on that socket without fallback", async () => {
+    // given
+    const socket = "/tmp/p-0123456789abcdef.sock"
+    const ensured: Array<string | undefined> = []
+    const probes: string[] = []
+    const accepts: string[] = []
+    const fallback = fakeFallbackRunner()
+    let clock = 0
+    const runner = runnerWithout({
+      fallback,
+      now: () => clock,
+      admissionWaitMs: 1_000,
+      sleep: async (ms) => { clock += ms },
+      shardResolver: () => { throw new Error("a recorded child must not derive a new endpoint") },
+      ensureDaemon: async (input) => {
+        ensured.push(input.socket)
+        return ensuredDaemon(input.socket ?? "/tmp/rpc.sock")
+      },
+      createClient: (socketPath) => {
+        const client = new HostSessionClient({
+          socketPath,
+          ports: {
+            probeProtocolInfo: async (path) => {
+              probes.push(path)
+              return undefined
+            },
+            socketAccepts: async (path) => {
+              accepts.push(path)
+              return path === socket
+            },
+          },
+        })
+        opened.push(client)
+        return client
+      },
+    })
+
+    // when
+    const failure = await runner.start(childSpec({ hostSocket: socket, resumeSessionPath: "/tmp/recorded.jsonl" }))
+      .catch((error: unknown) => error)
+
+    // then
+    expect(RunnerError.is(failure) ? failure.failure.reason : undefined).toBe("host_busy")
+    expect(ensured).toEqual([socket, socket])
+    expect(probes).toEqual([socket, socket])
+    expect(accepts).toEqual([socket, socket])
+    expect(fallback.starts).toEqual([])
+  })
+
   test("#given the ensure refuses host_busy once #when a child starts #then the runner waits, ensures again and starts it on the same host", async () => {
     // given
     const host = await fakeHost()

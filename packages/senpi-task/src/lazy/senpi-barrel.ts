@@ -216,6 +216,19 @@ export function senpiEngineBuildIdentity(): EngineBuildIdentityFn {
   return requireHostSymbol<EngineBuildIdentityFn>("engineBuildIdentity")
 }
 
+export type CreateHostDaemonPathsFn = (target: { readonly socket: string; readonly agentDir?: string }) => { readonly dir: string }
+
+/**
+ * The engine's own answer to "which directory holds this endpoint's daemon state". Undefined while
+ * the barrel is not loaded yet or when the pinned engine predates the export: the caller keeps its
+ * own fallback instead of forcing the barrel onto a path that does not otherwise need it.
+ */
+export function senpiCreateHostDaemonPaths(): CreateHostDaemonPathsFn | undefined {
+  if (sharedState().module === undefined) return undefined
+  const value = barrelExports().createHostDaemonPaths
+  return isHostSymbol<CreateHostDaemonPathsFn>(value) ? value : undefined
+}
+
 /** The engine's RPC client constructor, for the per-child session client (one client per child). */
 export function senpiRpcClient(): SenpiBarrelModule["RpcClient"] {
   return requireHostSymbol<SenpiBarrelModule["RpcClient"]>("RpcClient")

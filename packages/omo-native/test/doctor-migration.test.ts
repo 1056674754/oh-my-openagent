@@ -374,7 +374,7 @@ describe("omo doctor migration checks", () => {
       expect(lines).toHaveLength(1)
       expect(lines[0]).toStartWith(`WARN more than one OmO install is on PATH: ${join(standaloneDir, "omo")} (standalone omo binary 5.0.1) runs when you type omo`)
       expect(lines[0]).toContain("omo-ai@5.0.0-0.beta.89")
-      expect(lines[0]).toContain("bun remove -g omo-ai")
+      expect(lines[0]).toContain(`BUN_INSTALL='${sandbox.bunRoot}' bun remove -g omo-ai`)
     })
 
     test("#then omo-ai ahead of the standalone binary names omo-ai as the one that runs", () => {
@@ -387,7 +387,7 @@ describe("omo doctor migration checks", () => {
 
       expect(lines).toHaveLength(1)
       expect(lines[0]).toContain("(omo-ai@5.0.0-0.beta.89) runs when you type omo")
-      expect(lines[0]).toContain(`remove ${join(standaloneDir, "omo")}`)
+      expect(lines[0]).toContain(`rm -f -- '${join(standaloneDir, "omo")}'`)
     })
 
     test("#then a symlink into binary-runtime is standalone even with no copy elsewhere", () => {
@@ -552,6 +552,34 @@ describe("omo doctor migration checks", () => {
       )
 
       expect(report(sandbox, [sandbox.bunBin], { npm_config_prefix: sandbox.npmPrefix })).toEqual([])
+    })
+  })
+
+  describe("#given OpenCode edition agent models in the [opencode] block", () => {
+    const withOmoConfig = (config: unknown): Sandbox => {
+      const sandbox = createSandbox()
+      installBunNative(sandbox)
+      writeFile(join(sandbox.home, ".omo", "omo.jsonc"), JSON.stringify(config))
+      return sandbox
+    }
+
+    test("#then one INFO line names each setting under its native key", () => {
+      const sandbox = withOmoConfig({ "[opencode]": { agents: { momus: { model: "zai-coding-plan/glm-5.2" }, oracle: { model: "openai/gpt-5.5" } } } })
+
+      const lines = report(sandbox, [sandbox.bunBin]).filter((line) => line.includes("momus"))
+
+      expect(lines).toHaveLength(1)
+      expect(lines[0]).toStartWith("INFO ")
+      for (const token of ["plan-reviewer", "zai/glm-5.2", "oracle", "openai/gpt-5.5"]) expect(lines[0]).toContain(token)
+    })
+
+    test("#then nothing is reported once Native sets them", () => {
+      const sandbox = withOmoConfig({
+        "[opencode]": { agents: { momus: { model: "zai-coding-plan/glm-5.2" } } },
+        "[native]": { agents: { "plan-reviewer": { model: "anthropic/claude-opus-5-5" } } },
+      })
+
+      expect(report(sandbox, [sandbox.bunBin])).toEqual([])
     })
   })
 })

@@ -1,4 +1,5 @@
 import type { HostSessionIdentity, TaskRecord } from "../../state"
+import { NO_HOST_ENDPOINT } from "../host-session"
 import type { LifecycleDeps, ResidentHandle } from "../port"
 import type { TaskRecordStore } from "../../store"
 import { FakeRegistry, settings, type CallLog } from "./lifecycle-fakes"
@@ -111,6 +112,7 @@ export function hostLifecycleDeps(input: HostLifecycleInput): HostLifecycleFixtu
       : await input.respawn(record, sessionPath)
   }
   const deps: LifecycleDeps = {
+    hostEndpoint: NO_HOST_ENDPOINT,
     store: input.store,
     registry,
     config: settings({ ttl_ms: 1_000, resident_idle_timeout_ms: 60_000, ...input.config }),
@@ -129,6 +131,8 @@ export function hostLifecycleDeps(input: HostLifecycleInput): HostLifecycleFixtu
       daemonAlive: (identity) => daemon.daemonReachable(identity.socket),
       sessionLive: async (identity) =>
         (await daemon.liveSessionPaths(identity.socket)).includes(identity.session_path),
+      sessionLiveness: async (identity) =>
+        (await daemon.liveSessionPaths(identity.socket)).includes(identity.session_path) ? "live" : "gone",
       refresh: () => undefined,
     },
     hostSessionClose: (request) => daemon.close(request),

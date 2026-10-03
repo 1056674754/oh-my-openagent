@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { createHash } from "node:crypto"
 import { homedir } from "node:os"
-import { delimiter, join } from "node:path"
+import { delimiter, dirname, join } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import {
   compiledBannerLines,
   answerCompiledFastPath,
@@ -15,18 +16,24 @@ import {
   versionLine,
 } from "../compile-entry"
 import { compiledUpdate, pickUpdateVersion, releaseAssetName, releaseVersionOf, replaceCommand } from "../compiled-update"
-import { loadChatGptSubscriptionOAuth } from "../../../node_modules/@code-yeongyu/senpi/node_modules/@earendil-works/pi-ai/dist/auth/oauth/load.js"
-import { chatgptSubscriptionOAuth } from "../../../node_modules/@code-yeongyu/senpi/node_modules/@earendil-works/pi-ai/dist/auth/oauth/chatgpt-subscription.js"
-import { chatgptSubscriptionProvider } from "../../../node_modules/@code-yeongyu/senpi/node_modules/@earendil-works/pi-ai/dist/providers/chatgpt-subscription.js"
+import { engineDependencyDir } from "../bin/lib/engine-dependency.js"
+import { registerEngineRuntimeModules } from "../engine-runtime-modules"
 import {
   isProvisionedExecutable,
   materializeProvisionedExecutable,
   provisionEmbeddedRuntime,
   runningExecutablePath,
   selectRuntimeManifest,
-  shouldReexecAfterProvisioning,
   type EmbeddedManifest,
 } from "../compile-runtime"
+
+const senpiRoot = dirname(dirname(fileURLToPath(import.meta.resolve("@code-yeongyu/senpi"))))
+const piAiRoot = engineDependencyDir(senpiRoot, "@earendil-works/pi-ai")
+if (piAiRoot === undefined) throw new Error(`@earendil-works/pi-ai is not resolvable from ${senpiRoot}`)
+const importPiAi = (relative: string) => import(pathToFileURL(join(piAiRoot, "dist", relative)).href)
+const { loadChatGptSubscriptionOAuth } = await importPiAi("auth/oauth/load.js")
+const { chatgptSubscriptionOAuth } = await importPiAi("auth/oauth/chatgpt-subscription.js")
+const { chatgptSubscriptionProvider } = await importPiAi("providers/chatgpt-subscription.js")
 
 const roots: string[] = []
 const temp = () => { const root = mkdtempSync(join(homedir(), "omo-compile-entry-test-")); roots.push(root); return root }
@@ -79,7 +86,8 @@ describe("provisioned executable handoff", () => {
 })
 
 describe("compiled OMO OAuth module identity", () => {
-  test("registers the loader in the same nested pi-ai graph used by the provider", async () => {
+  test("registers the loader in the same pi-ai graph senpi resolves for the provider", async () => {
+    await registerEngineRuntimeModules()
     const loadedFlow = await loadChatGptSubscriptionOAuth()
 
     expect(loadedFlow).toBe(chatgptSubscriptionOAuth)
@@ -103,8 +111,6 @@ describe("compiled omo entry launcher parity", () => {
     )
     expect(runningExecutablePath("bun", "/usr/local/bin/bun", "win32")).toBe("/usr/local/bin/bun")
     expect(runningExecutablePath("/runtime/omo", "/usr/local/bin/bun", "darwin")).toBe("/usr/local/bin/bun")
-    expect(shouldReexecAfterProvisioning("win32")).toBe(false)
-    expect(shouldReexecAfterProvisioning("darwin")).toBe(true)
   })
 
   test("strips Linux procfs deleted suffix but preserves it on other platforms", () => {
@@ -123,10 +129,20 @@ describe("compiled omo entry launcher parity", () => {
     expect(isProvisionedExecutable(runningExecutablePath(expected, `${expected} (deleted)`, "linux"), expected)).toBe(true)
   })
 
-  test("re-exec source contract uses signal-aware child execution", () => {
-    const source = readFileSync(new URL("../compile-entry.ts", import.meta.url), "utf8")
-    expect(source).toContain('import { propagateResult, runChild } from "./bin/lib/child-process.js"')
-    expect(source).not.toContain("spawn(expected")
+  test("re-exec without an injected runner runs the provisioned child through the default runner", async () => {
+    // given: no run override and no execve, the path Windows always takes
+    const propagated: unknown[] = []
+
+    // when: the provisioned "runtime" is this bun binary told to exit with a distinctive code
+    await reexecProvisionedRuntime(process.execPath, {
+      argv: ["-e", "process.exit(7)"],
+      execve: null,
+      propagate: (result) => { propagated.push(result) },
+    })
+
+    // then: the real child ran and its exit status reached propagation
+    expect(propagated).toHaveLength(1)
+    expect(propagated[0]).toMatchObject({ status: 7, signal: null })
   })
 
   test("pins the engine package dir to the provisioned root", () => {
@@ -139,6 +155,12 @@ describe("compiled omo entry launcher parity", () => {
 
   test("early commands pass through without an extension", () => {
     expect(buildSenpiArgs(["install", "x"], "/provisioned")).toEqual(["install", "x"])
+  })
+
+  test("app-server appends the provisioned plugin after its subcommand", () => {
+    expect(buildSenpiArgs(["app-server", "daemon", "start"], "/provisioned")).toEqual([
+      "app-server", "daemon", "start", "--extension", join("/provisioned", "plugin"),
+    ])
   })
 
   test("main commands prepend the provisioned plugin extension", () => {

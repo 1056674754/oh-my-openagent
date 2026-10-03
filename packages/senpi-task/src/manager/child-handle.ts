@@ -2,6 +2,9 @@ import type { ChildHandle as InProcessChildHandle, RunnerOutcome } from "../runn
 import { mapExitOutcomeToError } from "../runners/rpc/exit-mapping"
 import type { HostSessionChildHandle } from "../runners/rpc-host/handle-port"
 import type { RpcChildHandle, RpcEntriesResult, RpcSpawnSpec, RpcSwitchSessionResult } from "../runners/types"
+import type { SuspensionReason } from "../state"
+import type { ChildExtensionListener } from "../runners/child-extension-events"
+import { HOST_TURN_RESUMED_EVENT } from "./host-turn-resumed"
 
 export type { RunnerOutcome } from "../runners/in-process/child-handle"
 
@@ -41,10 +44,20 @@ export type ManagedChildHandle = {
     readonly instanceId: string
   }
   readonly spawnSpec?: RpcSpawnSpec
+  // A daemon-session child whose session parked - itself (its recorded endpoint refused a reattach) or
+  // by its host (idle sweep, generation handoff): the record parks with that reason either way.
+  onParked?(listener: (event: { readonly reason: SuspensionReason }) => void): () => void
+  // A daemon-session child whose connection dropped and is being recovered (omo#9403).
+  transportRecovering?(): boolean
+  // A cancel was accepted: no transport recovery may bring this child back as running.
+  markStopping?(): void
+  // Stop it once reachable, before it runs anything else; resolves once it has ended on this side.
+  stopWhenReachable?(): Promise<void>
   steer(text: string): Promise<void>
   followUp(text: string): Promise<void>
   abort(): Promise<void>
   subscribe(listener: ManagedChildListener): () => void
+  subscribeExtensionEvents?(listener: ChildExtensionListener): () => void
   waitForOutcome(): Promise<RunnerOutcome>
   // Present on process children: fires when the child starts a run on its own after its turn
   // settled (a monitor or background job woke it), so the manager can reopen the record.
@@ -72,9 +85,8 @@ export function adaptInProcessHandle(handle: InProcessChildHandle): ManagedChild
     subscribe: (listener) => handle.subscribe(listener),
     waitForOutcome: () => handle.waitForIdle(),
     lastAssistantText: () => handle.lastAssistantText(),
-    dispose: () => {
-      handle.dispose()
-      return Promise.resolve()
+    dispose: async () => {
+      await handle.dispose()
     },
   }
 }
@@ -94,10 +106,19 @@ export function adaptRpcHandle(handle: RpcChildHandle): ManagedChildHandle {
       return handle.pid
     },
     ...(handle.spawnSpec === undefined ? {} : { spawnSpec: handle.spawnSpec }),
+    ...(isHostSessionHandle(handle)
+      ? {
+          onParked: (listener) => handle.onParked(listener),
+          transportRecovering: () => handle.transportRecovering(),
+          markStopping: () => handle.markStopping(),
+          stopWhenReachable: () => handle.stopWhenReachable(),
+        }
+      : {}),
     steer: (text) => handle.steer(text),
     followUp: (text) => handle.followUp(text),
     abort: () => handle.abort(),
-    subscribe: (listener) => handle.subscribe(listener),
+    subscribe: (listener) => subscribeManagedRpc(handle, listener),
+    ...(handle.subscribeExtensionEvents === undefined ? {} : { subscribeExtensionEvents: handle.subscribeExtensionEvents }),
     ...(handle.onSelfResumed === undefined ? {} : { onSelfResumed: (listener: () => void) => handle.onSelfResumed?.(listener) ?? (() => undefined) }),
     waitForOutcome: () => handle.waitForOutcome === undefined ? rpcOutcome(handle) : handle.waitForOutcome(),
     hasExited: () => handle.hasExited?.() ?? handle.exitOutcome() !== undefined,
@@ -106,6 +127,17 @@ export function adaptRpcHandle(handle: RpcChildHandle): ManagedChildHandle {
     lastAssistantText: () => handle.lastAssistantText(),
     terminate: () => handle.terminate(),
     dispose: () => handle.dispose(),
+  }
+}
+
+/** The child's events, plus - for a daemon session - the turn a reattach left running on the new port. */
+function subscribeManagedRpc(handle: RpcChildHandle, listener: ManagedChildListener): () => void {
+  const events = handle.subscribe(listener)
+  if (!isHostSessionHandle(handle)) return events
+  const resumed = handle.onTurnResumed(() => listener({ type: HOST_TURN_RESUMED_EVENT }))
+  return () => {
+    events()
+    resumed()
   }
 }
 
