@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **On Windows, a cancelled delegated task is recorded as cancelled, not as a crash.** A killed task child could be recorded as an error carrying Bun's child-reaper message when enough of those messages filled the end of its error output; it now counts as killed, while any real error output still marks a crash. ([#9443](https://github.com/code-yeongyu/oh-my-openagent/pull/9443))
 
-**A platform package is published only if its release binary passed the smoke.** The platform publish uploaded its npm package before the release-binary smoke ran, so a platform whose smoke failed still published its package (5.1.8 published both Windows x64 packages from a run whose smoke failed). The package is now uploaded only after that platform's smoke passes, so a failed smoke stops exactly that platform's publish while the others still publish, and the linux-arm64 smokes now finish before their packages publish.
+**A platform package is published only if its release binary passed the smoke.** The platform publish uploaded its npm package before the release-binary smoke ran, so a platform whose smoke failed still published its package (5.1.8 published both Windows x64 packages from a run whose smoke failed). The package is now uploaded only after that platform's smoke passes, so a failed smoke stops exactly that platform's publish while the others still publish, and the linux-arm64 smokes now finish before their packages publish. ([#9385](https://github.com/code-yeongyu/oh-my-openagent/issues/9385), [#9439](https://github.com/code-yeongyu/oh-my-openagent/pull/9439))
 
 ## [5.1.11] - 2026-10-02
 
