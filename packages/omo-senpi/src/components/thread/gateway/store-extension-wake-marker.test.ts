@@ -5,6 +5,7 @@ import { join, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { gatewayInboxDirectory, gatewayRootDirectory } from "./paths"
+import type { GatewayStore } from "./store"
 import { createGatewayHarness, type GatewayHarness } from "./testing/harness"
 
 let harness: GatewayHarness | undefined
@@ -87,6 +88,8 @@ test("#given a crash after COMMIT #when the store reopens #then the committed de
       expect(rows[0]).toMatchObject({ target_durable_id: "target", state: "queued" })
       expect(readdirSync(inbox)).toEqual([rows[0]?.delivery_id])
     } finally {
+      // The reopened store's worker holds the database open; Windows refuses to remove an open file.
+      await store.dispose()
       rmSync(agentDir, { recursive: true, force: true })
     }
   } finally {
@@ -118,11 +121,12 @@ test("#given a crash between marker and COMMIT #when the store reopens #then rec
   })
   const child = Bun.spawn([process.execPath, fileURLToPath(new URL("./testing/extension-wake-driver.mjs", import.meta.url)), "crashBeforeCommit", agentDir], { stdout: "pipe", stderr: "pipe" })
   const watchdog = setTimeout(() => child.kill(), 15_000)
+  let store: GatewayStore | undefined
   try {
     await markerAppeared
     child.kill()
     await child.exited
-    const store = h.store({ agentDir })
+    store = h.store({ agentDir })
     const self = await store.identity()
     await store.reconcile({ now: Date.now(), target_durable_id: "target", self, ledger: { pending: [], emitted: [] }, session_path: null })
     expect(await store.list()).toEqual([])
@@ -131,6 +135,8 @@ test("#given a crash between marker and COMMIT #when the store reopens #then rec
     clearTimeout(watchdog)
     if (child.exitCode === null) child.kill()
     await child.exited
+    // The reopened store's worker holds the database open; Windows refuses to remove an open file.
+    await store?.dispose()
     rmSync(agentDir, { recursive: true, force: true })
   }
 }, 25_000)
