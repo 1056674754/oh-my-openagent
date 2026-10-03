@@ -7,13 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**MCP tools work again when memory is on.** Since 5.1.10, a finished memory child or delegated task shut the shared MCP servers down for the whole process, so every MCP call failed with `MCP server <name> is disabled`. This release runs on senpi 2026.10.3, which gives each session its own binding to the shared servers; it was verified with the shipped bundle. If you can't update yet, turn memory off until you do: set `"memory": { "enabled": false }` in `~/.omo/omo.json`, or start omo with `--omo-senpi-memory-disabled=true`.
+
 ### Fixed
+
+**MCP calls no longer fail with `MCP server <name> is disabled` after a child session ends.** A memory child or a delegated task that finished released the MCP service for every session in the process; now it releases only its own binding, and the shared servers stay up. Thanks to @Tygb99 for the report. ([#9461](https://github.com/code-yeongyu/oh-my-openagent/issues/9461), [senpi#2524](https://github.com/code-yeongyu/senpi/pull/2524))
+
+**Codex edition (LazyCodex): a project's own registered agent roles can be spawned.** The spawn guard accepted only LazyCodex's 12 bundled roles, so a role registered in `.codex/agents` or `$CODEX_HOME/agents` was refused even though Codex offered it; it now accepts any role with a registered role file and still refuses unregistered ones. Thanks to @aconley-vultr for the report. ([lazycodex#171](https://github.com/code-yeongyu/lazycodex/issues/171), [lazycodex#164](https://github.com/code-yeongyu/lazycodex/issues/164), [#9462](https://github.com/code-yeongyu/oh-my-openagent/pull/9462))
+
+**Cancelling a delegated task while its host can't list its sessions keeps the cancel pending** instead of finishing it with the session still open; it completes once the host answers again. ([#9450](https://github.com/code-yeongyu/oh-my-openagent/issues/9450), [#9459](https://github.com/code-yeongyu/oh-my-openagent/pull/9459))
+
+**Skills are listed in a stable order**, so the tool prefix of a prompt stays the same between turns and keeps hitting the prompt cache. ([#9433](https://github.com/code-yeongyu/oh-my-openagent/pull/9433))
+
+**OpenCode edition fixes, thanks to @cynkai:** an explicitly chosen model no longer falls back through the built-in chain ([#8808](https://github.com/code-yeongyu/oh-my-openagent/pull/8808)); a plugin-load telemetry failure no longer prints into the TUI ([#8804](https://github.com/code-yeongyu/oh-my-openagent/pull/8804)); a background task whose session stopped on an error is finalized ([#8814](https://github.com/code-yeongyu/oh-my-openagent/pull/8814)) and skips fallback models no connected provider serves ([#8844](https://github.com/code-yeongyu/oh-my-openagent/pull/8844)); Sisyphus stays available when Hephaestus isn't registered ([#8841](https://github.com/code-yeongyu/oh-my-openagent/pull/8841)); and `omo.schema.json` embeds the `[opencode]` schema once and no longer marks defaulted fields as required ([#8871](https://github.com/code-yeongyu/oh-my-openagent/pull/8871), [#8873](https://github.com/code-yeongyu/oh-my-openagent/pull/8873)). Tool argument rewrites in the OpenCode edition also keep the original arguments object ([#9466](https://github.com/code-yeongyu/oh-my-openagent/pull/9466)).
 
 `omo host status --all` and `omo thread list` no longer show an older session entry as the latest activity when the final JSONL entry is large, partial or invalid. Both surfaces use the same bounded final-record policy, show `null` when freshness cannot be proved, and list known activity newest-first with unknown activity last. ([#9222](https://github.com/code-yeongyu/oh-my-openagent/pull/9222))
 
 A message to a published terminal session that the engine still reports as not answering is kept offline instead of being sent straight to its socket, so `omo thread list`, a send and a steer always agree on whether that session can be reached right now; the message is delivered once a later check lists the session live again. A bound send that names its session no longer pays the same lookup twice. ([#9222](https://github.com/code-yeongyu/oh-my-openagent/pull/9222))
 
+### Changed
+
+**omo runs on senpi 2026.10.3** (the MCP fix above, plus the Bun `-e` host-launch and WebView readiness fixes). Full list: [senpi 2026.10.3](https://github.com/code-yeongyu/senpi/releases/tag/v2026.10.3).
+
+**OpenGateway tasks run without a concurrency limit by default.** ([#9427](https://github.com/code-yeongyu/oh-my-openagent/pull/9427))
+
 ### Added
+
+_The session gateway entries below are its store foundation; the thread tools become usable with 5.1.14._
 
 **Every session can reach every other one, terminal sessions included.** ([#9143](https://github.com/code-yeongyu/oh-my-openagent/issues/9143)) Messages between sessions now go through a session gateway: one small database in the agent directory, with no daemon to run and nothing to configure. A terminal session opens a private control socket, so a Desktop thread, a task child or a script can list it, read it and send to it; the thread tools list terminal sessions with their real names and times. A message never interrupts what you are doing: while you are typing, or a submission of yours is on its way, it waits, and the session shows one line saying a remote message is queued. A message to a session that is not running is kept for 24 hours and taken when the session runs again. Fixed limits stop runaway loops: a session cannot message itself or reply straight back into the chain that messaged it, a chain of messages stops after 4 hops or 64 messages, one turn reaches at most 16 sessions, and one sender gets a burst of 8 messages to a session, then one every 5 seconds.
 
