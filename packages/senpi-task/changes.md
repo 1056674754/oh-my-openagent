@@ -4,6 +4,16 @@
 
 `createRpcChildHandle` takes an optional `terminateChild` (default `terminateRpcChild`, so production is unchanged), and the test injects a recording fake. Its assertions now also check the call it recorded. A guard test stubs `process.kill` to throw and asserts that terminating a handle over a fake child never calls it. With the old handle, both fail; with the fix, they pass. The other rpc tests with a literal pid (`handle.test.ts`, `handle-steer-delivery`, `handle-user-abort`) never call `terminate()`.
 
+## 2026-10-04 - A daemon-hosted child gets its own fallback chain on open_session (#9512)
+
+A child run on the shared task host never got its configured fallback models: `RpcRunnerSpec` had no field for them, the host session ran on the host's settings, and its in-session fallback refused to switch once the turn had made tool calls. The rpc runner spec now carries `fallbackModels` as `provider/model[:thinking]` selectors (`modelSelector`, shared with the in-process runner). `runner.ts` sets them on a fresh start, and both respawn paths in `manager-respawn.ts` set them from the record. `open-session.ts` sends them as `open_session.retryFallback` (`{ modelFallback, fallbackChains: { <model>: [...] } }`).
+
+A host that advertises `retry_fallback_profile` (senpi 2026.10.6, senpi#2672) holds that chain for the one session, in memory only. **Behavior change:** a child with no fallback models is sent `modelFallback: false` there, the same rule the in-process runner applies (#6478), instead of inheriting the host's settings. An older host gets no field and runs as before. When a child's chain is actually lost that way, `session-open.ts` warns once per runner, naming the host's engine version.
+
+Not covered: the per-child process runner. A separate `senpi --mode rpc` process has no CLI or classic-RPC way to receive an in-memory fallback chain, so that needs its own engine change.
+
+Tests: `rpc-host-retry-fallback.test.ts` drives the real `RpcHostRunner` against the fake host. It covers the chain on a capable host, fallback off for a child without one, an older host (no field, one warning for two children), and a reopen carrying the same chain. `runner.test.ts` covers selector threading with thinking, and `host-session-park.test.ts` the respawn path. All six fail on dev, and each source change goes red when reverted.
+
 ## 2026-10-03 - A kill is the one the runner issued; Windows external terminations are reported as crashes (#9471)
 
 `runners/rpc/exit-mapping.ts` `classifyChildExit` decided a signal-less exit was a kill on Windows when the child's stderr held nothing but Bun's child-reaper advisory. A killed child's teardown also writes diagnostics there: the memory component's `memory shutdown drain step failed` (EPERM on a state rename) and `memory shutdown drain hit its budget`. Those made a real kill read as a crash (`killed=false`), and the Windows RPC e2e `kill_marks_error_killed_true` failed intermittently on unrelated PRs.
