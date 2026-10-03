@@ -18,7 +18,24 @@ one where a human is a single call away. Never substitute one engine for the oth
 the attached engine is not set up, run the onboarding script and tell the user its one remaining
 step.
 
-## Step 0 — load omowright and prove the stack
+## Step 0 — which engine this session is allowed to use
+
+When `OMO_BROWSER_ENGINE` is set (the OmO desktop app sets it for every session), it wins over the table above:
+
+| Value | What you do |
+|---|---|
+| `connected` | Use `connectBrowserSkill()` only. If the user's browser is not connected you get a "Connect your browser" error: relay it and stop. Never open another browser |
+| `builtin` | Do not call `connectBrowserSkill()`; use the app's in-app browser tools |
+| `none` | Do not do browser work. Say that agent browser access is off for this project |
+| unset | The table above, as before (terminal use) |
+
+Under `connected`, `loadOmowright()` returns a guarded library: the app sees what the browser is doing, and
+before a click, Enter or script that sends, posts, pays, orders, subscribes, deletes or closes an account it asks
+the user first. A "No" fails the action with `BrowserActionDeclinedError`: report that, never retry it or go around it
+(`session.tool()` and `evaluate` are guarded too). If the user presses Stop, the next call throws
+`BrowserUserStoppedError`: tell the user browser use was stopped and start no new session this turn.
+
+## Step 1 — load omowright and prove the stack
 
 ```js
 const { loadOmowright } = await import("<skill-root>/scripts/omowright.mjs")
