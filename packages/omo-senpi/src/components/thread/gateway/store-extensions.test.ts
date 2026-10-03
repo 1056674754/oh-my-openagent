@@ -4,6 +4,7 @@ import { existsSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 
 import { gatewayDatabasePath, gatewayInboxDirectory } from "./paths"
+import { GATEWAY_MIGRATIONS } from "./schema"
 import type { StoreExtensionRegistration } from "./store-extensions"
 import { createGatewayHarness, type GatewayHarness } from "./testing/harness"
 
@@ -28,7 +29,7 @@ describe("store extension migrations", () => {
     const db = new Database(gatewayDatabasePath(h.agentDir), { readonly: true })
     try {
       expect(db.query("SELECT name, version FROM extension_schema").all()).toEqual([{ name: "alpha", version: 1 }])
-      expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 5 })
+      expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: GATEWAY_MIGRATIONS.length })
     } finally { db.close() }
   })
 

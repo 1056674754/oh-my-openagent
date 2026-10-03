@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite"
 import { afterEach, expect, test } from "bun:test"
 
 import { gatewayDatabasePath } from "./paths"
+import { GATEWAY_MIGRATIONS } from "./schema"
 import { createGatewayHarness, type GatewayHarness } from "./testing/harness"
 
 let harness: GatewayHarness | undefined
@@ -31,7 +32,7 @@ test("#given populated v5 storage #when the historical v4 worker reads and write
 
   const db = new Database(gatewayDatabasePath(h.agentDir))
   try {
-    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 5 })
+    expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: GATEWAY_MIGRATIONS.length })
     expect(db.query("SELECT body, actor_user_id FROM deliveries ORDER BY seq").all()).toEqual([
       { body: "before", actor_user_id: "current-actor" }, { body: "from v4", actor_user_id: null },
     ])
