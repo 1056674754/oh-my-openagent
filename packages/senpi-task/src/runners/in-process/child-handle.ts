@@ -15,6 +15,12 @@ export type ChildSessionEvent = {
 
 export type ChildSessionListener = (event: ChildSessionEvent) => void
 
+/** The slice of senpi's ExtensionRunner that child teardown needs to run session_shutdown. */
+export type ChildExtensionRunner = {
+  hasHandlers(eventType: string): boolean
+  emit(event: { readonly type: "session_shutdown"; readonly reason: "quit" }): Promise<unknown>
+}
+
 // Structural subset of senpi's AgentSession that the handle drives. The default seam returns a
 // live AgentSession; fakes implement only these members.
 export type ChildSession = {
@@ -25,6 +31,8 @@ export type ChildSession = {
   abort(): Promise<void>
   subscribe(listener: ChildSessionListener): () => void
   getLastAssistantText(): string | undefined
+  /** Absent on fakes that load no extensions; a live AgentSession always has one. */
+  readonly extensionRunner?: ChildExtensionRunner
   dispose(): void
 }
 
@@ -85,7 +93,7 @@ export type ChildHandle = {
   subscribe(listener: ChildSessionListener): () => void
   waitForIdle(): Promise<RunnerOutcome>
   lastAssistantText(): string | undefined
-  dispose(): void
+  dispose(): Promise<void> | void
 }
 
 export type CreateChildHandleInput = {
@@ -281,11 +289,11 @@ function createTrackedChildHandle(
     subscribe: (listener) => session.subscribe(listener),
     waitForIdle: () => running,
     lastAssistantText: () => session.getLastAssistantText(),
-    dispose: () => {
+    dispose: async () => {
       if (disposed) return
       disposed = true
       unsubscribeObserver()
-      session.dispose()
+      await shutDownChildSession(session)
     },
   }
   return { handle, beginTurn }
@@ -309,6 +317,20 @@ export function createRestoredChildHandle(input: CreateRestoredChildHandleInput)
 // the manager nor the lifecycle destruction port can ever reach it. Discarding it here keeps that
 // teardown inside the handle-definition module that owns dispose delegation, so the single-writer
 // rule still holds: lifecycle remains the only INVOKER for admitted handles.
-export function discardUnstartedChildSession(session: ChildSession): void {
-  session.dispose()
+export async function discardUnstartedChildSession(session: ChildSession): Promise<void> {
+  await shutDownChildSession(session)
+}
+
+// #9413: a bare dispose() never emits session_shutdown; only senpi's AgentSessionRuntime does. An
+// in-process child loads the builtin extensions, and codemode closes its per-session bridge server
+// (like every other shutdown-scoped resource) only on session_shutdown, so without this the child
+// leaks a listening socket that keeps `omo -p` alive. The runner applies the host's per-handler
+// shutdown budget, so a hung handler cannot hold teardown, and dispose() runs either way.
+async function shutDownChildSession(session: ChildSession): Promise<void> {
+  try {
+    const runner = session.extensionRunner
+    if (runner?.hasHandlers("session_shutdown") === true) await runner.emit({ type: "session_shutdown", reason: "quit" })
+  } finally {
+    session.dispose()
+  }
 }
