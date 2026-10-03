@@ -69,7 +69,8 @@ describe("repairLegacyOmoBins", () => {
     expect(repair.warnings).toEqual([])
   })
 
-  test("#given the bin directory cannot be written #when repairing #then the failure is reported with the manual command", () => {
+  // chmod-based write denial is POSIX-only: Windows ignores the mode bits, so the unlink succeeds there.
+  test.skipIf(process.platform === "win32")("#given the bin directory cannot be written #when repairing #then the failure is reported with the manual command", () => {
     // given
     const npm = writeGlobalPackageBin({ root: root("repair-denied"), packageName: "oh-my-opencode", version: "4.19.4" })
     const entries = legacyOmoBins(scanOmoBins(environmentOf([npm.binDir])))

@@ -12,35 +12,21 @@ function oauthLoginTarget(provider, providerMap) {
   return providerMap.oauthProviderIds.includes(provider) ? provider : undefined
 }
 
-function oauthLine(provider, providerMap, existing) {
+// `login`: sign in with `/login <target>`; `signed-in`: a re-run after the user followed the advice
+// must not tell them to sign in a second time; `unsupported`: omo has no provider for it.
+function oauthLogin(provider, providerMap, existing) {
   const target = oauthLoginTarget(provider, providerMap)
-  if (!target) return `  ${provider}: omo has no provider for this login; keep using the other agent for it`
-  // A re-run after the user followed the advice must not tell them to sign in a second time.
-  if (existing[target]?.type === "oauth") return `  ${provider}: already signed in to \`${target}\``
-  return `  ${provider}: run \`omo\`, then \`/login ${target}\``
+  if (!target) return { provider, state: "unsupported" }
+  return { provider, target, state: existing[target]?.type === "oauth" ? "signed-in" : "login" }
 }
 
-function oauthLines(providers, providerMap, existing) {
-  if (providers.length === 0) return []
-  return [
-    "OAuth logins are not copied. Sign in again from inside omo:",
-    ...providers.map((provider) => oauthLine(provider, providerMap, existing)),
-  ]
-}
-
-function unmappedLines(providers) {
-  if (providers.length === 0) return []
-  return [
-    "No omo provider serves these ids. Define the provider and its baseUrl in the engine's",
-    "models.json, then run `omo`, `/login <provider>` and paste the key:",
-    ...providers.map((provider) => `  ${provider}`),
-  ]
-}
-
-export function formatCredentialGuidance(result, providerMap, existing = {}) {
-  const lines = [
-    ...oauthLines(result.skippedOauth, providerMap, existing),
-    ...unmappedLines(result.skippedUnmapped),
-  ]
-  return lines.length > 0 ? `${lines.join("\n")}\n` : ""
+/**
+ * `logins`: one entry per skipped OAuth provider. `unmapped`: API-key provider ids no omo provider
+ * serves; the next step for them is to define the provider in the engine's models.json.
+ */
+export function credentialGuidance(result, providerMap, existing = {}) {
+  return {
+    logins: result.skippedOauth.map((provider) => oauthLogin(provider, providerMap, existing)),
+    unmapped: result.skippedUnmapped,
+  }
 }

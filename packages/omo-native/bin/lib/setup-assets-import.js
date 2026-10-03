@@ -2,6 +2,7 @@
  * Classifies and writes the OpenCode assets `setup-opencode-assets.js` planned: MCP servers into
  * the engine's GLOBAL `<agentDir>/mcp.json` (the one config source the engine always trusts) and
  * skills into the GLOBAL `<agentDir>/skills` root. A name that already exists is never overwritten.
+ * `planAssets` only reads; `applyAssets` is the one writer.
  */
 
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
@@ -70,7 +71,9 @@ function writeMcp(path, target, added) {
   }
 }
 
-function writeAssets(result, paths) {
+/** The asset stage's one writer: the servers and skills `planAssets` classified as new. */
+export function applyAssets(plan) {
+  const { result, paths } = plan
   if (result.servers.added.length > 0) writeMcp(paths.mcp, result.target, result.servers.added)
   for (const skill of result.skills.added) {
     // classifyAssets already skipped every name that exists; force: false only keeps a directory
@@ -83,47 +86,49 @@ function list(label, ids) {
   return `${label}: ${ids.length > 0 ? ids.join(", ") : "none"}`
 }
 
-function formatAssetPlan(result) {
-  const blocked = result.servers.blocked.length > 0
-    ? `WARN senpi: malformed mcp.json; these servers were not imported: ${result.servers.blocked.join(", ")}\n`
-    : ""
-  return blocked + `${[
+export function assetPlanLines({ result }) {
+  return [
     list("planned-mcp", result.servers.added.map((server) => server.name)),
     list("mcp-skipped-existing", result.servers.skippedExisting),
     list("planned-skills", result.skills.added.map((skill) => skill.name)),
     list("skills-skipped-existing", result.skills.skippedExisting),
     list("skills-skipped-bundled", result.skills.skippedBundled),
-  ].join("\n")}\n`
+  ]
 }
 
-function formatAssetCounts(result) {
-  return `${[
+export function assetCounts({ result }) {
+  return [
     `mcp-imported: ${result.servers.added.length}`,
     `mcp-skipped-existing: ${result.servers.skippedExisting.length}`,
     `skills-imported: ${result.skills.added.length}`,
     `skills-skipped-existing: ${result.skills.skippedExisting.length}`,
     `skills-skipped-bundled: ${result.skills.skippedBundled.length}`,
-  ].join("\n")}\n`
+  ]
+}
+
+export function assetQuestion(plan) {
+  return `Import ${plan.result.servers.added.length} MCP server(s) and ${plan.result.skills.added.length} skill(s) into ${plan.agentDir}? [y/N] `
 }
 
 /**
- * The asset stage of `omo setup`: same detect -> preview -> consent -> write shape the credential
- * stage uses. `confirm` is the caller's consent prompt, so both stages ask the same way.
+ * The asset stage of `omo setup`, read-only: what `planOpencodeAssets` converted, classified against
+ * the engine's global mcp.json and skill root. `present` is false when opencode declares neither.
  */
-export async function importOpencodeAssets(stage) {
-  const plan = planOpencodeAssets(stage.runtime)
-  for (const notice of plan.notices) process.stdout.write(`${notice}\n`)
-  if (plan.mcpServers.length === 0 && plan.skills.length === 0) return
-  const paths = { mcp: join(stage.agentDir, "mcp.json"), skills: join(stage.agentDir, "skills") }
-  const result = classifyAssets(plan, paths, bundledSkillNames(join(packageRoot, "plugin", "skills")))
-  process.stdout.write(formatAssetPlan(result))
-  if (stage.args.includes("--dry-run")) return
-  const pending = result.servers.added.length + result.skills.added.length
-  if (pending > 0 && !await stage.confirm(
-    `Import ${result.servers.added.length} MCP server(s) and ${result.skills.added.length} skill(s) into ${stage.agentDir}? [y/N] `,
-  )) {
-    return
+export function planAssets({ runtime, agentDir }) {
+  const source = planOpencodeAssets(runtime)
+  const notices = [...source.notices]
+  const present = source.mcpServers.length > 0 || source.skills.length > 0
+  const paths = { mcp: join(agentDir, "mcp.json"), skills: join(agentDir, "skills") }
+  const result = classifyAssets(source, paths, bundledSkillNames(join(packageRoot, "plugin", "skills")))
+  if (result.servers.blocked.length > 0) notices.push(`WARN senpi: malformed mcp.json; these servers were not imported: ${result.servers.blocked.join(", ")}`)
+  return {
+    agentDir,
+    paths,
+    notices,
+    present,
+    result,
+    refusedServers: source.refusedServers,
+    skippedSkills: source.skippedSkills,
+    pending: result.servers.added.length + result.skills.added.length,
   }
-  writeAssets(result, paths)
-  process.stdout.write(formatAssetCounts(result))
 }

@@ -116,6 +116,7 @@ describe("opencode asset plan", () => {
 
         expect(plan.mcpServers.map((server) => server.name)).toEqual(["safe"])
         expect(plan.notices.join("\n")).toContain("risky")
+        expect(plan.refusedServers.map((server: { name: string }) => server.name)).toEqual(["risky"])
       })
     })
   })
@@ -134,6 +135,7 @@ describe("opencode asset plan", () => {
         expect(plan.mcpServers).toEqual([{ name: "plain", config: { type: "stdio", command: "tool", env: { TOKEN: "${MY_TOKEN}" } } }])
         expect(plan.notices.join("\n")).toContain("file-header")
         expect(plan.notices.join("\n")).toContain("dashed-env")
+        expect(plan.refusedServers.map((server: { name: string }) => server.name)).toEqual(["file-header", "dashed-env"])
       })
     })
   })
@@ -280,6 +282,7 @@ describe("opencode asset plan", () => {
         expect(plan.skills.map((skill) => skill.name)).toEqual(["good"])
         expect(plan.notices.join("\n")).toContain("skill no-skill-file has no SKILL.md")
         expect(plan.notices.join("\n")).toContain("skill no-description has no description")
+        expect(plan.skippedSkills.map((skill: { name: string }) => skill.name).sort()).toEqual(["no-description", "no-skill-file"])
       })
     })
   })
@@ -289,7 +292,7 @@ describe("opencode asset plan", () => {
       test("#then the plan is empty and silent", () => {
         const plan = fixture(undefined)
 
-        expect(plan).toEqual({ mcpServers: [], skills: [], notices: [] })
+        expect(plan).toEqual({ mcpServers: [], refusedServers: [], skills: [], skippedSkills: [], notices: [] })
       })
     })
   })

@@ -1,5 +1,5 @@
-import { lstatSync, readFileSync, realpathSync } from "node:fs"
-import { delimiter, dirname, isAbsolute, join, win32 } from "node:path"
+import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs"
+import { dirname, isAbsolute, join, posix, win32 } from "node:path"
 
 export const NATIVE_OMO_PACKAGE = "omo-ai"
 export const LEGACY_OMO_BIN_PACKAGES: readonly string[] = ["oh-my-openagent", "oh-my-opencode", "lazycodex"]
@@ -48,17 +48,21 @@ export function resolveOmoBinEnvironment(input: {
   readonly homeDir: string
 }): OmoBinEnvironment {
   const isWindows = input.platform === "win32"
+  // PATH is parsed with the rules of the platform being described, not the host running this:
+  // `node:path`'s default delimiter/isAbsolute/join follow the host, so a POSIX environment
+  // resolved on a Windows host would split on `;` and join with `\`.
+  const pathRules = isWindows ? win32 : posix
   const pathValue = input.env["PATH"] ?? input.env["Path"] ?? ""
   // Only global bin dirs are in scope. A relative entry (`.`, `node_modules/.bin`) or a project's
   // `node_modules/.bin` (which `npx`/`bunx` put on PATH) holds a project dependency, not the global
   // `omo` the rename orphaned, and removing it would break that project.
   const pathDirectories = pathValue
-    .split(isWindows ? ";" : delimiter)
+    .split(pathRules.delimiter)
     .map((entry) => entry.trim())
-    .filter((entry) => (isWindows ? win32.isAbsolute(entry) : isAbsolute(entry)))
+    .filter((entry) => pathRules.isAbsolute(entry))
     .filter((entry) => !/(?:^|[\\/])node_modules[\\/]\.bin[\\/]?$/.test(entry))
   const bunInstall = input.env["BUN_INSTALL"]
-  const bunBinDir = bunInstall ? join(bunInstall, "bin") : join(input.homeDir, ".bun", "bin")
+  const bunBinDir = bunInstall ? pathRules.join(bunInstall, "bin") : pathRules.join(input.homeDir, ".bun", "bin")
   const extraDirectories = pathDirectories.includes(bunBinDir) ? [] : [bunBinDir]
   return { pathDirectories, extraDirectories, isWindows }
 }
@@ -132,12 +136,13 @@ function resolveOwner(binPath: string): OmoBinOwner | null {
   if (fromLink !== null) return fromLink
 
   const shim = readShimText(binPath)
-  if (shim === null) return null
-  const lightWrapper = codexLightWrapperOwner(shim)
+  const lightWrapper = shim === null ? null : codexLightWrapperOwner(shim)
   if (lightWrapper !== null) return lightWrapper
-  // Ownership comes from the manifest of an installed package the shim really launches, never from
-  // the text alone: a script that merely mentions a legacy package path stays foreign and is kept.
-  for (const entry of shimEntryPaths(shim, dirname(binPath))) {
+  // Ownership comes from the manifest of an installed package the shim or its Bun sidecar really
+  // launches, never from the text alone: a script that merely mentions a legacy package path stays
+  // foreign and is kept.
+  const entries = [...(shim === null ? [] : shimEntryPaths(shim, dirname(binPath))), ...bunxEntryPaths(binPath)]
+  for (const entry of entries) {
     if (!isInsideNodeModules(entry) || !pathExists(entry)) continue
     const owner = ownerOfFile(entry)
     if (owner !== null) return owner
@@ -157,6 +162,24 @@ function shimEntryPaths(shim: string, shimDirectory: string): readonly string[] 
     else if (isAbsolute(quoted)) paths.push(quoted)
   }
   return paths
+}
+
+// Bun's Windows bin is a copied `omo.exe` plus an `omo.bunx` sidecar: UTF-16LE, the target path up to
+// a `"` and a NUL. Bun writes that path relative to the bin dir's parent (`..\node_modules\...` or
+// `install\global\node_modules\...` from `~/.bun`), and its shim resolves it against that same dir.
+function bunxEntryPaths(binPath: string): readonly string[] {
+  if (!/\.exe$/i.test(binPath)) return []
+  const sidecar = `${binPath.slice(0, -4)}.bunx`
+  let contents: string
+  try {
+    if (!statSync(sidecar).isFile()) return []
+    contents = readFileSync(sidecar).toString("utf16le")
+  } catch {
+    return []
+  }
+  const end = contents.indexOf('"\0')
+  if (end <= 0) return []
+  return [join(dirname(dirname(binPath)), contents.slice(0, end).replace(/\\/g, "/"))]
 }
 
 function codexLightWrapperOwner(shim: string): OmoBinOwner | null {
