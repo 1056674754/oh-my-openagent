@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.12] - 2026-10-03
+
 **The desktop app can now see when computer use is waiting on a system permission, and a cancelled task on Windows no longer shows up as a crash.** This release runs on the senpi 2026.10.2 engine, which carries the upstream pi v1.0.0 changes.
 
 ### Added
