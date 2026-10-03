@@ -26,6 +26,17 @@ test("registered exact-id tool send delivers without global discovery", async ()
   expect(w.discovery()).toBe(0)
 })
 
+test("registered exact-id send to a terminal owner delivers without global discovery", async () => {
+  const w = await world()
+  const target = await w.owner("a", undefined, "target", true)
+  const tool = await w.send()
+  expect(tool).toMatchObject({ kind: "ok", delivery: { kind: "started" } })
+  const sdk = await w.sdk.send({ thread: "target", text: "hello sdk" })
+  expect(sdk).toMatchObject({ kind: "ok" })
+  expect(target.runtime.enqueueCalls).toHaveLength(2)
+  expect(w.discovery()).toBe(0)
+})
+
 test("registered exact-id SDK send delivers without global discovery", async () => {
   const w = await world()
   const target = await w.owner("a")
