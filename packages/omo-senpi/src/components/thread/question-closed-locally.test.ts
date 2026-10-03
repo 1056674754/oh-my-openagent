@@ -71,6 +71,16 @@ async function setup() {
   const runtimeStore = createGatewayStore({ agentDir, instanceId: "runtime-1" })
   const connectorStore = createGatewayStore({ agentDir, instanceId: "connector-1" })
   cleanups.push(() => runtimeStore.dispose(), () => connectorStore.dispose())
+  /** Every close the session writes; a test awaits these writes, since the report's own insert also rewrites the marker naming its cursor. */
+  const closes: Promise<number>[] = []
+  const sessionStore: typeof runtimeStore = {
+    ...runtimeStore,
+    closeQuestion: (request) => {
+      const write = runtimeStore.closeQuestion(request)
+      closes.push(write)
+      return write
+    },
+  }
   const handlers = new Map<string, Handler[]>()
   const bus = new Map<string, ((payload: unknown) => void)[]>()
   const tools: CapturedTool[] = []
@@ -101,7 +111,7 @@ async function setup() {
     for (const handler of handlers.get(event) ?? []) await handler({ type: event, ...payload }, ctx)
   }
   const logger = { logger: { info() {}, error() {}, warn() {} }, config: { getFlag: () => undefined } }
-  createThreadComponent({ host: host(), stateDirectory: join(agentDir, "state"), agentDir: () => agentDir, store: runtimeStore }).register(pi as never, logger as never)
+  createThreadComponent({ host: host(), stateDirectory: join(agentDir, "state"), agentDir: () => agentDir, store: sessionStore }).register(pi as never, logger as never)
   const sdk = createThreadSdk({ agentDir, cwd: process.cwd(), uid: 501, user: "qa", host: host(), store: connectorStore })
   cleanups.push(() => sdk.dispose())
   await dispatch("session_start")
@@ -149,7 +159,7 @@ async function setup() {
     if (page.kind !== "ok") throw new Error(JSON.stringify(page))
     return page.rows[0]
   }
-  return { sdk, bindingId, relay, closeLocally, markerFor, question, connectorStore }
+  return { sdk, bindingId, relay, closeLocally, markerFor, question, connectorStore, closes }
 }
 
 test("#given a session relayed two ask_user questions to its chat thread #when it answers one in its own client #then that question is no longer pending, a chat answer to it is already_answered, and the other stays pending", async () => {
@@ -217,13 +227,19 @@ test("#given a thread_answer claim being handed over #when the session takes tha
 
 test("#given a session's ask_user question closes while its relay report is still being written #when the report finishes #then the row it wrote is closed too", async () => {
   const s = await setup()
-  // The report writes the first row of this store, so its cursor is 1; the close rewrites the marker naming it again.
-  const marker = { wait: undefined as Promise<void> | undefined }
-  const written = await s.relay("ask-early", () => {
-    marker.wait = s.markerFor(1)
-    s.closeLocally("ask-early")
-  })
-  expect(written.cursor).toBe(1)
-  await within(marker.wait ?? Promise.reject(new Error("no marker wait")), "the outbox marker after the report finished")
+  const written = await s.relay("ask-early", () => s.closeLocally("ask-early"))
+  expect(s.closes).toHaveLength(1)
+  await within(Promise.all(s.closes), "the close the finished report wrote")
   expect(await s.question(written.cursor)).toMatchObject({ question_state: "answered", answered_by: null })
+}, 30_000)
+
+test("#given a session's ask_user question closes before its relay report starts #when the report then runs #then the row it writes is closed and a chat answer to it is already_answered", async () => {
+  const s = await setup()
+  s.closeLocally("ask-before")
+  const written = await s.relay("ask-before")
+  expect(s.closes).toHaveLength(1)
+  await within(Promise.all(s.closes), "the close the report wrote")
+  expect(await s.question(written.cursor)).toMatchObject({ question_state: "answered", answered_by: null })
+  const late = await s.sdk.answer({ binding_id: s.bindingId, reply_token: written.reply_token, answer: "option two" })
+  expect(late).toMatchObject({ kind: "error", error: { code: "already_answered" } })
 }, 30_000)

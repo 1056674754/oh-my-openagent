@@ -112,7 +112,7 @@ function waitingQuestionCallOf(event: unknown): string | undefined {
 
 /** senpi `ask-user/notify.js` ASK_USER_CLOSED_EVENT: every terminal outcome of an ask_user question, `{ requestId, status, resolvedBy? }`. */
 const ASK_USER_CLOSED_EVENT = "ask-user:closed"
-/** Recently closed ask_user requests remembered for a question report still being written; bounded. */
+/** Recently closed ask_user requests remembered for a question report still being written or not yet started; bounded. */
 const CLOSED_REQUESTS_KEPT = 64
 
 /** The ask_user request a `thread_report` call relays as a question (`kind: "question"` with `request_id`). */
@@ -268,7 +268,8 @@ export function createThreadComponent(options: ThreadComponentOptions = {}): Omo
             closeRelayed(request, durableId)
             return
           }
-          if (![...reporting.values()].some((report) => report.request === request)) return
+          // Not relayed yet: its report may be running or may not have started (ask_user closed before the model
+          // called thread_report), so remember the close for whichever report names it next.
           closedEarly.add(request)
           if (closedEarly.size > CLOSED_REQUESTS_KEPT) closedEarly.delete(closedEarly.values().next().value as string)
         })
