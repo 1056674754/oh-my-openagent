@@ -188,6 +188,33 @@ test("#given a relayed question #when a thread_answer claim's hand-off fails and
   expect(await s.question(asked.cursor)).toMatchObject({ question_state: "pending", answer_state: null })
 }, 30_000)
 
+test("#given a thread_answer claim being handed over #when the session closes the question itself and the hand-off then fails #then the release does not reopen it and a later answer is already_answered", async () => {
+  const s = await setup()
+  const asked = await s.relay("ask-race")
+  const claim = await s.connectorStore.claimAnswer({ now: Date.now(), binding_id: s.bindingId, reply_token: asked.reply_token, answer: "option two" })
+  if (claim.kind !== "ok") throw new Error(JSON.stringify(claim))
+  const closed = s.markerFor(asked.cursor)
+  s.closeLocally("ask-race")
+  await within(closed, "the outbox marker after the local close")
+  expect(await s.connectorStore.releaseAnswer({ reply_token: asked.reply_token, claimed_at: claim.claimed_at })).toBe(false)
+  expect(await s.question(asked.cursor)).toMatchObject({ question_state: "answered", answer_state: "delivered", answered_by: null })
+  const late = await s.sdk.answer({ binding_id: s.bindingId, reply_token: asked.reply_token, answer: "option one" })
+  expect(late).toMatchObject({ kind: "error", error: { code: "already_answered" } })
+}, 30_000)
+
+test("#given a thread_answer claim being handed over #when the session takes that relayed answer, announcing the close before the relay confirms #then the question keeps the relayed answer and its author", async () => {
+  const s = await setup()
+  const asked = await s.relay("ask-taken")
+  const author = { platform_user_id: "U1", display: "Alice" }
+  const claim = await s.connectorStore.claimAnswer({ now: Date.now(), binding_id: s.bindingId, reply_token: asked.reply_token, answer: "option two", answered_by: author })
+  if (claim.kind !== "ok") throw new Error(JSON.stringify(claim))
+  const closed = s.markerFor(asked.cursor)
+  s.closeLocally("ask-taken")
+  await within(closed, "the outbox marker after the close event")
+  expect(await s.connectorStore.confirmAnswer({ reply_token: asked.reply_token, claimed_at: claim.claimed_at, answer: "option two", answered_by: author })).toBe(true)
+  expect(await s.question(asked.cursor)).toMatchObject({ question_state: "answered", answer_state: "delivered", answered_by: author })
+}, 30_000)
+
 test("#given a session's ask_user question closes while its relay report is still being written #when the report finishes #then the row it wrote is closed too", async () => {
   const s = await setup()
   // The report writes the first row of this store, so its cursor is 1; the close rewrites the marker naming it again.

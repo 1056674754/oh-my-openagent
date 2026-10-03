@@ -259,6 +259,7 @@ export function createThreadComponent(options: ThreadComponentOptions = {}): Omo
           else relayed.set(report.request, report.durableId)
         })
         events.on(ASK_USER_CLOSED_EVENT, (payload) => {
+          // Also fired when a relayed thread_answer resolved it: closing first is harmless, the relay's confirm then records that answer.
           const request = (payload as { readonly requestId?: unknown } | undefined)?.requestId
           if (typeof request !== "string") return
           const durableId = relayed.get(request)

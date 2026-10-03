@@ -739,15 +739,17 @@ export async function markPriorDelivered(ctx: StoreContext, request: AnswerClaim
  * The session closed a question it relayed without a relayed answer: answered in its own client, timed
  * out, or cancelled. The question reads like one closed elsewhere (delivered, no answer text), so a later
  * `thread_answer` is `already_answered` instead of a claim the session can only refuse, and the outbox
- * marker wakes connectors: a connector holding the binding's rows behind the question settles it. Only a
- * `pending` question changes; an answer a relay is handing over (`in_flight`) or already delivered is left
- * to the relay. Returns the questions closed.
+ * marker wakes connectors: a connector holding the binding's rows behind the question settles it. A
+ * `pending` question changes, and so does one a relay is still handing an answer to (`in_flight`): the session
+ * closed the request without that answer, so the claim's later release must not reopen it, and its frame can
+ * only be refused. A delivered answer is left as it is. Returns the questions closed.
  */
 export async function closeQuestion(ctx: StoreContext, request: { readonly now: number; readonly session_durable_id: string; readonly ui_request_id: string }): Promise<number> {
   return await transaction(ctx, "close_question", () => {
-    const rows = ctx.sql.all(["cursor", "binding_id"], "SELECT cursor, binding_id FROM outbox WHERE event_kind = 'question' AND session_durable_id = ? AND ui_request_id = ? AND question_state = 'pending'", [request.session_durable_id, request.ui_request_id], "cursor")
+    const open = "(question_state = 'pending' OR (question_state = 'answered' AND answer_state = 'in_flight'))"
+    const rows = ctx.sql.all(["cursor", "binding_id"], `SELECT cursor, binding_id FROM outbox WHERE event_kind = 'question' AND session_durable_id = ? AND ui_request_id = ? AND ${open}`, [request.session_durable_id, request.ui_request_id], "cursor")
     for (const row of rows) {
-      write(ctx, "UPDATE outbox SET question_state = 'answered', answer_state = 'delivered', answer = NULL, answered_at = ?, answered_by = NULL WHERE cursor = ? AND question_state = 'pending'", [request.now, Number(row.cursor)])
+      write(ctx, `UPDATE outbox SET question_state = 'answered', answer_state = 'delivered', answer = NULL, answered_at = ?, answered_by = NULL WHERE cursor = ? AND ${open}`, [request.now, Number(row.cursor)])
       touchOutboxMarker(ctx, String(row.binding_id), Number(row.cursor), request.now)
     }
     return rows.length
@@ -757,11 +759,12 @@ export async function closeQuestion(ctx: StoreContext, request: { readonly now: 
 /**
  * The session accepted this claimant's answer: the question is delivered with that answer, whether or
  * not a later answer took the claim over meanwhile (the session resolves a request once, so at most
- * one claimant's frame is ever accepted). A question already delivered is left as it is.
+ * one claimant's frame is ever accepted). A question already delivered with an answer is left as it is; one closed with no
+ * answer text (`closeQuestion`, which the session's own close event can write just before this confirm) takes this answer.
  */
 export async function confirmAnswer(ctx: StoreContext, request: AnswerDelivered): Promise<boolean> {
   return await transaction(ctx, "confirm_answer", () => {
-    const changed = write(ctx, "UPDATE outbox SET question_state = 'answered', answer_state = 'delivered', answer = ?, answered_at = ?, answered_by = ? WHERE reply_token = ? AND answer_state IS NOT 'delivered'", [request.answer, request.claimed_at, authorColumn(request.answered_by), request.reply_token]) === 1
+    const changed = write(ctx, "UPDATE outbox SET question_state = 'answered', answer_state = 'delivered', answer = ?, answered_at = ?, answered_by = ? WHERE reply_token = ? AND (answer_state IS NOT 'delivered' OR answer IS NULL)", [request.answer, request.claimed_at, authorColumn(request.answered_by), request.reply_token]) === 1
     if (changed) touchQuestionMarker(ctx, request.reply_token, request.claimed_at)
     return changed
   })
