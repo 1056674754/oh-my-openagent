@@ -1,3 +1,7 @@
+## 2026-10-03 - Adopt senpi 2026.10.5
+
+Every `@code-yeongyu/senpi` pin moves from 2026.10.3 to 2026.10.5: the root devDependency, `omo-native`, the `omo-senpi` and `senpi-task` peer and dev pins (with their `senpi-tui` and `senpi-ai` aliases), the pin tests, the engine named in `senpi-task`'s coverage test and `omo-native`'s provider map. The engine makes a failed permission setup refuse tool calls instead of running them unchecked (senpi#2617, senpi#2618) and carries 2026.10.4's and 2026.10.5's fixes; the generated plugin bundles are regenerated for it on Linux.
+
 ## 2026-10-03 - LazyCodex no longer blocks an edit because a language server is not installed (#9509)
 
 On LazyCodex, editing a file whose language server is missing (a `.json` with no biome, say) made the LSP `PostToolUse` hook answer `decision: "block"` with the install guidance, on every edit and even after the user declined the install. `postEditOutcomeFromDaemonResult` in `packages/omo-codex/plugin/components/lsp/src/codex-hook.ts` mapped only the daemon's `not_configured` availability, so a `not_installed` result fell through as plain text, was classified as a diagnostic, and skipped the install-decision handling. The Native edition already mapped it (`packages/omo-senpi/src/components/lsp/post-edit-outcome.ts`); the Codex hook now maps it the same way.
