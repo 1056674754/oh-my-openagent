@@ -1,3 +1,9 @@
+## 2026-10-03 - OpenCode executes tool-argument rewrites on the original object (#9448)
+
+`replaceToolArgs` replaced `output.args` with a shallow clone, but OpenCode executes tools with the argument object it retained before calling `tool.execute.before`. The patch never reached that object, and later plugins edited a detached copy. The helper now merges patches into mutable arguments in place, so both OmO's rewrites and later hooks' edits reach tool execution. All 12 OpenCode call sites are unchanged.
+
+Frozen arguments retain the existing clone behavior to avoid throwing on older hosts. Executing that replacement still requires the host to read `output.args` back; this change does not claim to fix frozen host-held arguments. The helper tests reproduce both mutable-reference failures on the development code and preserve the frozen-object cases.
+
 ## 2026-10-02 - The skill tool lists skills and commands in a stable order (#9432)
 
 Reported by @kimchupa-l10n, with relay captures that pinned the cause. `sortByScopePriority` in `packages/skills-loader-core/src/tools/skill/scope-priority.ts` compared scope priority only, so items in the same scope kept their discovery order, and that order varies between processes. The OpenCode edition's skill tool description (`packages/omo-opencode/src/tools/skill/description-formatter.ts`) is built from that sort, so the tool definition changed from one session to the next and every new session and subagent missed the Anthropic prompt cache.
