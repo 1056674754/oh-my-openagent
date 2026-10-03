@@ -182,6 +182,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     currentPort: () => client,
     acceptsLifecycleEvent: () => !parked && !detached && outcome === undefined,
     onEvent: (event: Parameters<ChildEventListener>[0]) => { onSessionEvent(event); listeners.emitEvent(event) },
+    onExtensionEvent: listeners.extensionEvents.publish,
     onParked: park,
     onClosed: (event: { readonly reason: string | undefined }) => endSession({ kind: "session_closed", reason: event.reason }),
     onTransportGone: recovery.onTransportGone,
@@ -273,6 +274,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     markStopping: stop.markStopping,
     stopWhenReachable: stop.stopWhenReachable,
     subscribe: listeners.subscribe,
+    subscribeExtensionEvents: listeners.extensionEvents.subscribe,
     onParked: listeners.onParked,
     onTurnResumed: listeners.onTurnResumed,
     adoptFinishedTurn: async (finalResponse) => {
