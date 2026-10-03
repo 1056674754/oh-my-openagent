@@ -194,6 +194,7 @@ export function createRpcChildHandle(options: CreateRpcChildHandleOptions): Trac
       return runCommand({ type: "abort" }, "abort")
     },
     subscribe: (listener: ChildEventListener) => client.onEvent(listener),
+    subscribeExtensionEvents: client.extensionEvents.subscribe,
     adoptFinishedTurn: async (finalResponse) => {
       if (turnOutcome !== undefined || settlement.pending() !== undefined) return
       const response = await client.send({ type: "get_state" }).catch(() => undefined)
