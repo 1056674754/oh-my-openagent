@@ -1,3 +1,7 @@
+## 2026-10-03 - Task kills are recorded from the runner, not guessed from stderr (#9471)
+
+A killed process-mode task child on Windows could be reported as a crash when its teardown wrote memory diagnostics to stderr. The runner now records the kills it issues itself and never infers a kill from stderr. A Windows child terminated from outside the runner is reported as an unexpected exit (`killed=false`, exit code and stderr kept), because Windows gives no signal that separates it from a crash. Details: `packages/senpi-task/changes.md`.
+
 ## 2026-10-03 - Adopt senpi 2026.10.3
 
 Every `@code-yeongyu/senpi` pin moves from 2026.10.2 to 2026.10.3: the root devDependency, `omo-native`, the `omo-senpi` and `senpi-task` peer and dev pins (with their `senpi-tui` and `senpi-ai` aliases), the pin tests and the engine named in `senpi-task`'s coverage test. The engine fixes MCP tools failing with `MCP server <name> is disabled` once a child session ends (#9461, senpi#2524 and senpi#2608); the generated plugin bundles are regenerated for it on Linux.
