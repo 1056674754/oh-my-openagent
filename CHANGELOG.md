@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.14] - 2026-10-03
+
 **Permission checks can no longer switch themselves off.** Up to 5.1.13, a failure while the permission system started (a misspelled `permissionPreset` in settings or on the command line, a `null` permission rule, or an unreadable approvals file) left every tool call running with no permission check, and nothing said so. 5.1.14 runs on senpi 2026.10.5, which refuses tool calls with `Permission setup failed: <reason>` until the setting is fixed. If you can't update yet, check that `permissionPreset` names a preset that exists and that no permission rule is `null`. ([senpi#2617](https://github.com/code-yeongyu/senpi/issues/2617), [senpi#2618](https://github.com/code-yeongyu/senpi/pull/2618))
 
 ### Fixed
@@ -22,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **A computer-use permission denial is an error in code mode too.** Through a JS or Python eval, a denied computer call came back without the error flag, so a model could miss the denial and keep acting; it now fails the call there as it does on a direct call. ([#9475](https://github.com/code-yeongyu/oh-my-openagent/issues/9475), [#9482](https://github.com/code-yeongyu/oh-my-openagent/pull/9482))
 
 **Windows: a delegated task you kill is reported as killed, not as a crash, and memory no longer loses a state write to a briefly held file.** A kill is now recognised from the runner's own request instead of from the child's stderr, and memory's atomic state rename retries the few-millisecond hold Windows places on an open target. ([#9471](https://github.com/code-yeongyu/oh-my-openagent/issues/9471), [#9501](https://github.com/code-yeongyu/oh-my-openagent/pull/9501), [#9491](https://github.com/code-yeongyu/oh-my-openagent/pull/9491))
+
+**The computer-use doctor check on macOS reports an engine that never replied as a timeout instead of failing with `EPERM`.** Cleaning up the timed-out probe now treats a process group that is already exiting as gone. Thanks to @MoerAI. ([#9422](https://github.com/code-yeongyu/oh-my-openagent/issues/9422), [#9464](https://github.com/code-yeongyu/oh-my-openagent/pull/9464))
+
+Thanks to @MoerAI for moving the task engine's child event channel into `senpi-task`, where the computer-use component now imports it from. ([#9454](https://github.com/code-yeongyu/oh-my-openagent/issues/9454), [#9467](https://github.com/code-yeongyu/oh-my-openagent/pull/9467))
 
 ### Changed
 
