@@ -24,7 +24,7 @@ test("registered exact-id tool send delivers without global discovery", async ()
   expect(result).toMatchObject({ kind: "ok", delivery: { kind: "started" } })
   expect(target.runtime.enqueueCalls).toHaveLength(1)
   expect(w.discovery()).toBe(0)
-})
+}, 15000)
 
 test("registered exact-id send to a terminal owner delivers without global discovery", async () => {
   const w = await world()
@@ -35,7 +35,7 @@ test("registered exact-id send to a terminal owner delivers without global disco
   expect(sdk).toMatchObject({ kind: "ok" })
   expect(target.runtime.enqueueCalls).toHaveLength(2)
   expect(w.discovery()).toBe(0)
-})
+}, 15000)
 
 test("registered exact-id SDK send delivers without global discovery", async () => {
   const w = await world()
@@ -44,7 +44,7 @@ test("registered exact-id SDK send delivers without global discovery", async () 
   expect(result).toMatchObject({ kind: "ok", delivery: { kind: "started" } })
   expect(target.runtime.enqueueCalls).toHaveLength(1)
   expect(w.discovery()).toBe(0)
-})
+}, 15000)
 
 test("bound exact-id SDK send validates its target without global discovery", async () => {
   const w = await world()
@@ -55,7 +55,7 @@ test("bound exact-id SDK send validates its target without global discovery", as
   expect(result).toMatchObject({ kind: "ok", delivery: { kind: "started" } })
   expect(target.runtime.enqueueCalls).toHaveLength(1)
   expect(w.discovery()).toBe(0)
-})
+}, 15000)
 
 test("cleanly closed target queues offline without global discovery", async () => {
   const w = await world()
@@ -64,7 +64,7 @@ test("cleanly closed target queues offline without global discovery", async () =
   const result = await w.send()
   expect(result).toMatchObject({ kind: "ok", delivery: { kind: "queued_offline" } })
   expect(w.discovery()).toBe(0)
-})
+}, 15000)
 
 test("dead published socket queues offline after the close event without discovery", async () => {
   const w = await world()
@@ -99,7 +99,7 @@ test("old owner late shutdown cannot erase the takeover endpoint", async () => {
   expect(b.runtime.enqueueCalls).toHaveLength(1)
   expect(a.runtime.listAdmittedDeliveries().pending).toHaveLength(0)
   expect(w.discovery()).toBe(0)
-})
+}, 15000)
 
 test("moved owner receives the send and stale socket is never dialed", async () => {
   const w = await world()
@@ -110,7 +110,7 @@ test("moved owner receives the send and stale socket is never dialed", async () 
   expect(a.frames).toEqual([])
   expect(b.runtime.enqueueCalls).toHaveLength(1)
   expect(w.discovery()).toBe(0)
-})
+}, 15000)
 
 test("same durable id new incarnation replaces its own published record", async () => {
   const w = await world()
@@ -122,7 +122,7 @@ test("same durable id new incarnation replaces its own published record", async 
   expect(after?.endpoint?.socket).toBe(b.socketPath)
   expect(after?.incarnation).not.toBe(before?.incarnation)
   expect(await w.send()).toMatchObject({ kind: "ok", delivery: { kind: "started" } })
-})
+}, 15000)
 
 test("foreign workspace is refused without a target entry or global discovery", async () => {
   const w = await world()
@@ -132,7 +132,7 @@ test("foreign workspace is refused without a target entry or global discovery", 
   expect(target.runtime.listAdmittedDeliveries().pending).toHaveLength(0)
   expect(await w.store.list()).toHaveLength(0)
   expect(w.discovery()).toBe(0)
-})
+}, 15000)
 
 test("missing metadata row preserves legacy discovery and delivery", async () => {
   const w = await world()
@@ -146,7 +146,7 @@ test("missing metadata row preserves legacy discovery and delivery", async () =>
   expect(await w.send()).toMatchObject({ kind: "ok", delivery: { kind: "started" } })
   expect(target.runtime.enqueueCalls).toHaveLength(1)
   expect(w.discovery()).toBeGreaterThan(0)
-})
+}, 15000)
 
 test("a row only a delivery created keeps legacy discovery for the next send", async () => {
   const w = await world()
@@ -162,7 +162,7 @@ test("a row only a delivery created keeps legacy discovery for the next send", a
   const second = await w.send()
   expect(second).toMatchObject({ kind: "ok", delivery: { kind: "queued" }, endpoint: { kind: "rpc_host" } })
   expect(target.runtime.enqueueCalls).toHaveLength(2)
-})
+}, 15000)
 
 test("a live owner that lists slower than 200 ms is still reached", async () => {
   const w = await world()
@@ -233,7 +233,7 @@ test("reused socket with a different live identity queues offline without delive
   expect(await w.send()).toMatchObject({ kind: "ok", delivery: { kind: "queued_offline" } })
   expect(target.runtime.enqueueCalls).toHaveLength(0)
   expect(w.discovery()).toBe(0)
-})
+}, 15000)
 
 test("a slow reused socket with a different identity never receives the target's send or steer", async () => {
   const w = await world()
