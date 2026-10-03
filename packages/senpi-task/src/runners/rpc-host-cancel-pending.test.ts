@@ -212,6 +212,38 @@ describe("a pending cancel always ends the run", () => {
     await bounded(session.processExit ?? Promise.resolve(), "the cancelled child's process exit")
   })
 
+  test("#given a pending cancel left by a parent that shut down #when its next session starts while the host answers but cannot list its sessions #then the cancel stays pending instead of finishing with the session still running, and the next start finishes it (#9450)", async () => {
+    // given
+    const lane = await startCancelLane(worlds, 1)
+    const { world, parent } = lane
+    await parent.startChildren(1)
+    const child = recordAt(parent, 0)
+    const session = sessionOf(world, child)
+    await cancelUnreachable(lane, child)
+    await parent.lifecycle.suspendOnSessionShutdown({ parentSessionId: parent.sessionId, reason: "session_shutdown" })
+
+    // when - the host answers its protocol probe but refuses list_sessions, as an overloaded shard does
+    world.host.allowReply("open_session")
+    world.host.failReply("list_sessions", "host busy")
+    const restarted = world.connect(parent.sessionId, { ...lane.options, productionProbe: true, hostCloseTimeoutMs: 50 })
+    await restarted.lifecycle.reconcileOnSessionStart(parent.sessionId)
+
+    // then - "could not ask" is not "nothing is live": the cancel is still pending and the session still held
+    expect(restarted.store.load(child.task_id)?.status).not.toBe("cancelled")
+    expect(restarted.store.load(child.task_id)?.cancel_requested).toBeDefined()
+    expect(hostHolds(world, child)).toBe(true)
+
+    // when - the next session start, with the host listing again
+    world.host.failReply("list_sessions", undefined)
+    const again = world.connect(parent.sessionId, { ...lane.options, productionProbe: true, hostCloseTimeoutMs: 50 })
+    await again.lifecycle.reconcileOnSessionStart(parent.sessionId)
+
+    // then
+    expect(again.store.load(child.task_id)?.status).toBe("cancelled")
+    expect(hostHolds(world, child)).toBe(false)
+    await bounded(session.processExit ?? Promise.resolve(), "the cancelled child's process exit")
+  })
+
   test("#given a child whose transport recovery is reading the reattached session's state #when task_cancel lands during that read #then the turn is never continued and the session ends on the host", async () => {
     // given - a reattach that gets the connection back but holds its state read
     const lane = await startCancelLane(worlds, 1)
