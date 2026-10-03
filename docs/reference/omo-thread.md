@@ -203,7 +203,7 @@ Operations run in one `BEGIN IMMEDIATE`. The transaction surface is:
   rows only, ordered by cursor; default 100 and maximum 500.
 
 SQL can access only objects recorded as owned by this extension in the persistent
-`extension_objects` registry. Core migration v5 snapshots every existing schema object as
+`extension_objects` registry. Core migration v6 snapshots every existing schema object as
 core-owned before extensions run. Each extension's new `<name>_*` objects are recorded under its
 owner in the same transaction; a prefix alone never grants access. Names in the registry are
 ASCII-case normalized. SQLite's automatic indexes for TEXT/composite primary keys and UNIQUE
