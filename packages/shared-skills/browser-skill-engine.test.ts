@@ -268,6 +268,47 @@ describe("browser engine selection", () => {
   })
 })
 
+describe("a session built on private class fields", () => {
+  class PrivateFieldSession {
+    #stopped = false
+    readonly sessionId = "priv"
+    readonly clicks: unknown[] = []
+    get stopped() {
+      return this.#stopped
+    }
+    async click(target: unknown) {
+      if (this.#stopped) throw new Error("session is stopped")
+      this.clicks.push(target)
+      return { ok: true }
+    }
+    async evaluate() {
+      return { ok: true, value: { tag: "button", text: "Next" } }
+    }
+    async tabList() {
+      return { tabs: [] }
+    }
+    async stop() {
+      this.#stopped = true
+      return null
+    }
+  }
+
+  test("#given a real class session #when it is clicked and stopped through the guard #then its private state is reached and reported", async () => {
+    const host = fakeHost()
+    const session = new PrivateFieldSession()
+    const guarded = guardOmowright(fakeRaw(async () => session), { env: { OMO_BROWSER_ENGINE: "connected" }, host })
+    const guardedSession = await guarded.connectBrowserSkill({})
+
+    expect(guardedSession.stopped).toBe(false)
+    await guardedSession.click("#next")
+    await guardedSession.stop()
+
+    expect(session.clicks).toEqual(["#next"])
+    expect(guardedSession.stopped).toBe(true)
+    expect(statusActions(host.events).at(-1)).toEqual(["stopped", null])
+  })
+})
+
 describe("browser state events", () => {
   test("#given a navigate and a click #when the session is used and stopped #then the app sees each step in order with the tab", async () => {
     const host = fakeHost()
