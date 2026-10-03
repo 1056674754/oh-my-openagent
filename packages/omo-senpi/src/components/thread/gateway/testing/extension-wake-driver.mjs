@@ -11,14 +11,14 @@ const bind = (session) => ({
 })
 
 if (scenario === "crashBeforeCommit") {
-  const store = createGatewayStore({ agentDir })
+  const store = createGatewayStore({ agentDir, resolveTarget: async () => ({ kind: "ok", target: { durable_id: "target", endpoint: null, liveness: "dead" } }) })
   await store.registerStoreExtension({ name: "alpha", moduleUrl, migrations: [] })
   console.log("READY")
   // The operation enqueues, then never returns: the parent kills this process after the wake
   // marker appears, while the joined transaction is still open.
   void store.extensionCall("alpha", "hangAfterEnqueue", bind("target"))
 } else if (scenario === "crashAfterCommit") {
-  const store = createGatewayStore({ agentDir })
+  const store = createGatewayStore({ agentDir, resolveTarget: async () => ({ kind: "ok", target: { durable_id: "target", endpoint: null, liveness: "dead" } }) })
   await store.registerStoreExtension({ name: "alpha", moduleUrl, migrations: [] })
   console.log("READY")
   const outcome = await store.extensionCall("alpha", "enqueuePair", [bind("target")])
@@ -27,7 +27,7 @@ if (scenario === "crashBeforeCommit") {
   process.exit(0)
 } else if (scenario === "lateThrow" || scenario === "lateReject") {
   const store = createGatewayStore({ agentDir })
-  await store.registerStoreExtension({ name: "alpha", moduleUrl, migrations: [] })
+  await store.registerStoreExtension({ name: "alpha", moduleUrl, migrations: [["CREATE TABLE alpha_items (id INTEGER PRIMARY KEY, value TEXT)"]] })
   const before = await store.identity()
   const event = new Promise((resolve, reject) => {
     const deadline = setTimeout(() => reject(new Error("no extension_error event within 5s")), 5_000)
@@ -53,7 +53,7 @@ if (scenario === "crashBeforeCommit") {
 } else if (scenario === "commitHook") {
   // afterDbCommit runs after the joined transaction's COMMIT: the marker must already exist then.
   const marker = join(agentDir, "gateway", "inbox", "target")
-  const store = createGatewayStore({ agentDir, _test: { afterDbCommit: "pause" } })
+  const store = createGatewayStore({ agentDir, resolveTarget: async () => ({ kind: "ok", target: { durable_id: "target", endpoint: null, liveness: "dead" } }), _test: { afterDbCommit: "pause" } })
   await store.registerStoreExtension({ name: "alpha", moduleUrl, migrations: [] })
   const paused = new Promise((resolve) => {
     const remove = store.onEvent((value) => {

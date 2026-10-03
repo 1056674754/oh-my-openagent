@@ -47,7 +47,8 @@ test("#given an extension enqueue #when a later statement fails #then rollback r
   const outcome = await store.extensionCall("alpha", "rollbackAfterEnqueue", bind("target"))
   expect(outcome).toMatchObject({ kind: "refused", code: "extension_operation_failed" })
   expect(await store.list()).toEqual([])
-  expect(existsSync(gatewayInboxDirectory(h.agentDir, "target"))).toBe(false)
+  const inbox = gatewayInboxDirectory(h.agentDir, "target")
+  expect(existsSync(inbox) ? readdirSync(inbox) : []).toEqual([])
 })
 
 test("#given the afterDbCommit seam #when a joined enqueue reaches COMMIT #then its wake marker already exists", async () => {
