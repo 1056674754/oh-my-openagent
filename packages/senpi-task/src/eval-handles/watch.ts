@@ -1,6 +1,7 @@
 import type { HandleCallContext, HandleRef, HandleSnapshot, HandleWatch } from "@code-yeongyu/senpi"
 import { log } from "@oh-my-opencode/utils"
 import { fenceRun, type TaskRecord } from "../state"
+import { WATCH_HOST_STATUS } from "./control"
 import { EvalHandleHostError } from "./errors"
 import { loadOwnedPool, poolSnapshot, type PoolAccess } from "./pool-refs"
 import { loadFencedTask, taskSnapshot, type TaskReader } from "./task-refs"
@@ -59,7 +60,8 @@ function subscribeTask(tasks: TaskWaiter, ref: HandleRef, ctx: HandleCallContext
       if (fence === "live" || fence === "legacy") offer(ref, taskSnapshot(record, ref))
       // The run this ref named is gone (rolled back, or replaced): end the watch now so wait() reads the reason from
       // result() instead of waiting out its timeout.
-      else offer(ref, { ref, phase: "lost", host_status: "no_longer_current_run", revision: Number.MAX_SAFE_INTEGER })
+      // Revision: this ref's own terminal slot (epoch * 2 + 1), so a later run on a reused epoch still counts as newer.
+      else offer(ref, { ref, phase: "lost", host_status: WATCH_HOST_STATUS.runGone, revision: ref.run_epoch * 2 + 1 })
     },
     () => undefined,
   )
