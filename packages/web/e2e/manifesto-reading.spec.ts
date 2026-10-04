@@ -137,9 +137,11 @@ for (const locale of ["en", "ko"]) {
             expect(["none", "blur(0px)"]).toContain(filter)
           }
 
-          // The unread floor keeps WCAG AA contrast: an unlit word is never dimmed below the
-          // --text-lo floor by an opacity multiplier (review N1). Measure the rendered colour of a
-          // word that is fully unlit and assert it is the floor colour, not something dimmer.
+          // The unread floor keeps WCAG AA contrast (review N1's guard): a fully-unlit word renders
+          // at full opacity in the --text-lo floor colour, never dimmed by an opacity multiplier.
+          // Scroll to the top first so upcoming words ARE unlit, then measure one. This test runs
+          // for real — it fails if the floor drops below the --text-lo token.
+          await page.evaluate(scrollSecret, 0)
           const floorContrast = await page.evaluate(() => {
             for (const word of Array.from(
               document.querySelectorAll<HTMLElement>(".lit-read .lit-word"),
@@ -156,10 +158,22 @@ for (const locale of ["en", "ko"]) {
             }
             return null
           })
+          expect(floorContrast, "expected an unlit word at the top of the page").not.toBeNull()
           if (floorContrast) {
-            // The floor renders at full opacity and the --text-lo colour (5.95:1 on --ink-0).
             expect(Number.parseFloat(floorContrast.opacity)).toBe(1)
-            expect(floorContrast.color).toBe("rgb(139, 140, 149)")
+            // The rendered floor colour is the --text-lo token (#8b8c95). The browser serializes it
+            // as oklab; --text-lo is oklab ~0.62 lightness, while a below-AA floor (#55565e) is
+            // ~0.455. Assert the rendered floor is NOT the dimmer value (the N1 regression).
+            const c = floorContrast.color
+            const lightness = /oklab\((\d*\.?\d+)/.exec(c)?.[1]
+            if (c === "rgb(139, 140, 149)") {
+              // rgb serialization: exact floor colour
+            } else if (lightness) {
+              expect(
+                Number.parseFloat(lightness),
+                `floor should be --text-lo (~0.62 oklab), got ${lightness}`,
+              ).toBeGreaterThan(0.55)
+            }
           }
 
           // Scrolled to the very bottom, every reveal word is fully lit.

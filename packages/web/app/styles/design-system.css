@@ -940,9 +940,6 @@
   .lit-read .lit-word {
     /* Per-word fade (not a line-wide background gradient): each word's brightness is ONE value, so
        no word is ever split in half mid-transition. --lit-local (0..1) lerps the word between the
-       unread floor and full lit; the stagger steps BETWEEN words. */
-    /* Per-word fade (not a line-wide background gradient): each word's brightness is ONE value, so
-       no word is ever split in half mid-transition. --lit-local (0..1) lerps the word between the
        unread floor and full lit; the stagger steps BETWEEN words. Opacity stays 1 — the floor must
        keep its full --text-lo contrast (5.95:1, WCAG AA); dimming is done by colour alone. */
     background: none;
