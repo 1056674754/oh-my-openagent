@@ -44,14 +44,12 @@ async function expectUniformWordGlyphs(page: Page): Promise<number> {
     })
     const words = visible.map((word) => {
       const rect = word.getBoundingClientRect()
-      const css = getComputedStyle(word)
       const saved = word.getAttribute("style")
-      const color = css.color
       word.dataset.uniformSavedStyle = saved ?? ""
-      // Preserve the word's current reveal brightness, but paint every glyph uniformly.
+      // Capture the same glyph geometry at both brightness endpoints.
       word.style.setProperty("background", "none", "important")
-      word.style.setProperty("color", color, "important")
-      word.style.setProperty("-webkit-text-fill-color", color, "important")
+      word.style.setProperty("color", "var(--text-lo)", "important")
+      word.style.setProperty("-webkit-text-fill-color", "var(--text-lo)", "important")
       word.style.setProperty("filter", "none", "important")
       word.style.setProperty("mask-image", "none", "important")
       word.style.setProperty("text-shadow", "none", "important")
@@ -75,7 +73,14 @@ async function expectUniformWordGlyphs(page: Page): Promise<number> {
     document.head.append(style)
     return words
   })
-  const uniform = await page.screenshot({ animations: "disabled", scale: "css" })
+  const low = await page.screenshot({ animations: "disabled", scale: "css" })
+  await page.evaluate(() => {
+    for (const word of document.querySelectorAll<HTMLElement>("[data-uniform-reference]")) {
+      word.style.setProperty("color", "var(--text-hi)", "important")
+      word.style.setProperty("-webkit-text-fill-color", "var(--text-hi)", "important")
+    }
+  })
+  const high = await page.screenshot({ animations: "disabled", scale: "css" })
   await page.evaluate(() => {
     document.getElementById("uniform-word-reference")?.remove()
     for (const word of document.querySelectorAll<HTMLElement>("[data-uniform-reference]")) {
@@ -85,8 +90,8 @@ async function expectUniformWordGlyphs(page: Page): Promise<number> {
       delete word.dataset.uniformReference
     }
   })
-  const differences = await page.evaluate(
-    async ({ actual, uniform, words }) => {
+  const measurement = await page.evaluate(
+    async ({ actual, low, high, words }) => {
       async function pixels(base64: string): Promise<ImageData> {
         const image = new Image()
         image.src = `data:image/png;base64,${base64}`
@@ -98,26 +103,51 @@ async function expectUniformWordGlyphs(page: Page): Promise<number> {
         context.drawImage(image, 0, 0)
         return context.getImageData(0, 0, image.width, image.height)
       }
-      const [a, b] = await Promise.all([pixels(actual), pixels(uniform)])
-      return words.flatMap((word) => {
-        let changed = 0
+      const [a, lo, hi] = await Promise.all([pixels(actual), pixels(low), pixels(high)])
+      let sampledGlyphPixels = 0
+      const differences = words.flatMap((word) => {
+        let glyphPixels = 0
+        let litPixels = 0
+        let unlitPixels = 0
         for (let y = Math.ceil(word.y); y < Math.floor(word.y + word.height); y += 1) {
           for (let x = Math.ceil(word.x); x < Math.floor(word.x + word.width); x += 1) {
             const offset = (y * a.width + x) * 4
-            if (
-              [0, 1, 2].some(
-                (channel) => Math.abs(a.data[offset + channel]! - b.data[offset + channel]!) > 3,
-              )
-            )
-              changed += 1
+            let projection = 0
+            let magnitude = 0
+            for (const channel of [0, 1, 2]) {
+              const delta = hi.data[offset + channel]! - lo.data[offset + channel]!
+              projection += (a.data[offset + channel]! - lo.data[offset + channel]!) * delta
+              magnitude += delta * delta
+            }
+            // Ignore the background and antialiased glyph fringes. Endpoint references retain
+            // each glyph's coverage; interior pixels carry enough contrast to measure brightness.
+            if (magnitude < 3 * 70 ** 2) continue
+            const fraction = projection / magnitude
+            glyphPixels += 1
+            if (fraction >= 0.8) litPixels += 1
+            if (fraction <= 0.2) unlitPixels += 1
           }
         }
-        return changed > 2 ? [{ text: word.text, changed }] : []
+        sampledGlyphPixels += glyphPixels
+        const significant = Math.max(4, glyphPixels * 0.1)
+        return litPixels >= significant && unlitPixels >= significant
+          ? [{ text: word.text, glyphPixels, litPixels, unlitPixels }]
+          : []
       })
+      return { differences, sampledGlyphPixels }
     },
-    { actual: actual.toString("base64"), uniform: uniform.toString("base64"), words },
+    {
+      actual: actual.toString("base64"),
+      low: low.toString("base64"),
+      high: high.toString("base64"),
+      words,
+    },
   )
-  expect(differences, "glyph pixels must match one solid brightness per word").toEqual([])
+  expect(measurement.sampledGlyphPixels, "expected measurable glyph interiors").toBeGreaterThan(0)
+  expect(
+    measurement.differences,
+    "a word must not contain both lit and unlit glyph regions",
+  ).toEqual([])
   return words.length
 }
 
@@ -350,9 +380,8 @@ for (const locale of ["en", "ko"]) {
         }
       })
 
-      // Compare actual glyph pixels to the same frame painted with one solid colour per word.
-      // This tests rendering, including gradients, masks and nested glyph opacity, rather than
-      // assuming a particular CSS implementation prevents splits.
+      // Measure actual glyph brightness against lit/unlit references, tolerating AA fringes.
+      // A split word has significant regions near both endpoints, unlike a uniform mid-fade.
       test("no word is ever split in half", async ({ page }) => {
         await page.emulateMedia({ reducedMotion: "no-preference" })
         await page.goto(`/${locale}/manifesto`)
@@ -370,43 +399,67 @@ for (const locale of ["en", "ko"]) {
       })
 
       // Continuous brightness follows reading order, including the last word before a wrap.
-      test("the reveal respects reading order across wrapped lines", async ({ page }) => {
-        await page.emulateMedia({ reducedMotion: "no-preference" })
-        await page.goto(`/${locale}/manifesto`)
-        await page.evaluate(waitForReadingBlocks)
-        const maxY = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)
-        let wrappedPairs = 0
-        for (let y = 0; y <= maxY; y += 60) {
-          await page.evaluate(scrollSecret, y)
-          await page.evaluate(
-            () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+      for (const mixedScript of [false, true]) {
+        test(`the reveal respects reading order across wrapped lines${mixedScript ? " (mixed script)" : ""}`, async ({
+          page,
+        }) => {
+          await page.emulateMedia({ reducedMotion: "no-preference" })
+          await page.goto(`/${locale}/manifesto`)
+          await page.evaluate(waitForReadingBlocks)
+          if (mixedScript) {
+            await page.evaluate(() => {
+              const body = document.querySelector<HTMLElement>(".lit-read .lit-text")!
+              const template = body.querySelector<HTMLElement>(".lit-word")!
+              body.replaceChildren(
+                ...Array.from({ length: 48 }, (_, index) => {
+                  const word = template.cloneNode(false) as HTMLElement
+                  word.textContent = index % 2 ? "한글" : "Latin"
+                  // Reproduce fractional glyph bounds within the same visual line, independent of
+                  // the host's installed font fallback metrics.
+                  word.style.position = "relative"
+                  word.style.top = `${index % 2 ? 0.25 : 0}px`
+                  return [word, document.createTextNode(" ")]
+                }).flat(),
+              )
+              window.dispatchEvent(new Event("resize"))
+            })
+          }
+          const maxY = await page.evaluate(
+            () => document.documentElement.scrollHeight - innerHeight,
           )
-          const state = await page.evaluate(() => {
-            let wraps = 0
-            const violations: string[] = []
-            for (const body of document.querySelectorAll(".lit-read .lit-text")) {
-              const words = Array.from(body.querySelectorAll<HTMLElement>(".lit-word"))
-              for (let i = 1; i < words.length; i += 1) {
-                const previous = words[i - 1]!
-                const current = words[i]!
-                if (
-                  current.getBoundingClientRect().bottom >
-                  previous.getBoundingClientRect().bottom + 1
-                )
-                  wraps += 1
-                const brightness = (word: HTMLElement) =>
-                  Number.parseFloat(getComputedStyle(word).getPropertyValue("--lit-local"))
-                if (brightness(current) > brightness(previous) + 0.001)
-                  violations.push(`${previous.textContent} / ${current.textContent}`)
+          let wrappedPairs = 0
+          for (let y = 0; y <= maxY; y += 60) {
+            await page.evaluate(scrollSecret, y)
+            await page.evaluate(
+              () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+            )
+            const state = await page.evaluate(() => {
+              let wraps = 0
+              const violations: string[] = []
+              for (const body of document.querySelectorAll(".lit-read .lit-text")) {
+                const words = Array.from(body.querySelectorAll<HTMLElement>(".lit-word"))
+                for (let i = 1; i < words.length; i += 1) {
+                  const previous = words[i - 1]!
+                  const current = words[i]!
+                  if (
+                    current.getBoundingClientRect().bottom >
+                    previous.getBoundingClientRect().bottom + 1
+                  )
+                    wraps += 1
+                  const brightness = (word: HTMLElement) =>
+                    Number.parseFloat(getComputedStyle(word).getPropertyValue("--lit-local"))
+                  if (brightness(current) > brightness(previous) + 0.001)
+                    violations.push(`${previous.textContent} / ${current.textContent}`)
+                }
               }
-            }
-            return { wraps, violations }
-          })
-          wrappedPairs += state.wraps
-          expect(state.violations, `scrollY ${y}`).toEqual([])
-        }
-        expect(wrappedPairs).toBeGreaterThan(0)
-      })
+              return { wraps, violations }
+            })
+            wrappedPairs += state.wraps
+            expect(state.violations, `scrollY ${y}`).toEqual([])
+          }
+          expect(wrappedPairs).toBeGreaterThan(0)
+        })
+      }
 
       // The reveal travels word by word: across a scroll sweep, some line shows a gradient of
       // --lit-local values across its words, never one shared value for the whole line.

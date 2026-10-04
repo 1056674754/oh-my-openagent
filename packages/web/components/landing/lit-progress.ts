@@ -71,27 +71,38 @@ function armRevealDriver(): void {
       // viewport), so reading order holds at any width.
       const bodyRect = body.getBoundingClientRect()
       const lineWidth = Math.max(1, bodyRect.width)
-      const lineBottoms = Array.from(new Set(words.map(({ bottom }) => bottom))).sort(
-        (a, b) => a - b,
-      )
-      for (const { node, bottom, height, left } of words) {
-        const line = lineBottoms.indexOf(bottom)
-        const nextBottom = lineBottoms[line + 1]
-        const previousBottom = lineBottoms[line - 1]
-        // Keep the last word's reveal threshold above the next line's first word. Use actual
-        // wrapped-line spacing (including responsive typography), rather than two word heights.
-        const spacing =
-          nextBottom !== undefined
-            ? nextBottom - bottom
-            : previousBottom !== undefined
-              ? bottom - previousBottom
-              : height * 2
-        const stagger = Math.min(height * 2, spacing)
-        const withinLine = clamp01((left - bodyRect.left) / lineWidth) * stagger
-        node.style.setProperty(
-          "--lit-local",
-          String(clamp01((endTop - bottom - withinLine) / (height * 1.6) + 1)),
-        )
+      // Mixed-script glyph metrics can differ by subpixels on the same visual line.
+      // Cluster within half a line-height instead of treating every distinct bottom as a wrap.
+      const lineHeight =
+        Number.parseFloat(getComputedStyle(body).lineHeight) ||
+        Math.max(1, ...words.map(({ height }) => height)) * 1.5
+      const lines: { bottom: number; height: number; words: typeof words }[] = []
+      for (const word of [...words].sort((a, b) => a.bottom - b.bottom)) {
+        const line = lines.at(-1)
+        if (line && word.bottom - line.bottom < lineHeight / 2) {
+          line.bottom = Math.max(line.bottom, word.bottom)
+          line.height = Math.max(line.height, word.height)
+          line.words.push(word)
+        } else {
+          lines.push({ bottom: word.bottom, height: word.height, words: [word] })
+        }
+      }
+      for (const [index, line] of lines.entries()) {
+        const next = lines[index + 1]
+        const previous = lines[index - 1]
+        const spacing = next
+          ? next.bottom - line.bottom
+          : previous
+            ? line.bottom - previous.bottom
+            : line.height * 2
+        const stagger = Math.min(line.height * 2, spacing)
+        for (const { node, left } of line.words) {
+          const withinLine = clamp01((left - bodyRect.left) / lineWidth) * stagger
+          node.style.setProperty(
+            "--lit-local",
+            String(clamp01((endTop - line.bottom - withinLine) / (line.height * 1.6) + 1)),
+          )
+        }
       }
     }
   }
