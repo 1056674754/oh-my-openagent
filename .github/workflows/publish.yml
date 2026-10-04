@@ -1434,6 +1434,9 @@ jobs:
 
   post-publish-verify:
     runs-on: ubuntu-latest
+    # The readiness loop below is 240 x (15 s sleep + two npm views + a curl HEAD); bound the job so a stuck
+    # probe can't hold a runner for GitHub's 6 h default (#9492).
+    timeout-minutes: 120
     needs: [release-metadata, prepare-release-state, publish-main, release]
     # Post-publish verification runs AFTER the release exists. These probes assert registry state that is
     # already public by this point, so blocking the release job on them could only produce the worst
