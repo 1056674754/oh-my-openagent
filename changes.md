@@ -1,3 +1,7 @@
+## 2026-10-04 - Adopt senpi 2026.10.6
+
+Every `@code-yeongyu/senpi` pin moves from 2026.10.5 to 2026.10.6: the root devDependency, `omo-native` and its provider map, the `omo-senpi` and `senpi-task` peer and dev pins (with their `senpi-tui` and `senpi-ai` aliases), the pin tests and the engine named in `senpi-task`'s coverage test. The engine adds the `auto` permission preset (senpi#2614, senpi#2688) and carries 2026.10.6's fixes; the generated plugin bundles are regenerated for it on Linux.
+
 ## 2026-10-03 - Adopt senpi 2026.10.5
 
 Every `@code-yeongyu/senpi` pin moves from 2026.10.3 to 2026.10.5: the root devDependency, `omo-native`, the `omo-senpi` and `senpi-task` peer and dev pins (with their `senpi-tui` and `senpi-ai` aliases), the pin tests, the engine named in `senpi-task`'s coverage test and `omo-native`'s provider map. The engine makes a failed permission setup refuse tool calls instead of running them unchecked (senpi#2617, senpi#2618) and carries 2026.10.4's and 2026.10.5's fixes; the generated plugin bundles are regenerated for it on Linux.
