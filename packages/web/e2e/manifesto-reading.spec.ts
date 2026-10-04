@@ -45,6 +45,9 @@ async function expectUniformWordGlyphs(page: Page): Promise<number> {
     const words = visible.map((word) => {
       const rect = word.getBoundingClientRect()
       const saved = word.getAttribute("style")
+      const computed = getComputedStyle(word)
+      const actualColor = computed.color
+      const actualProgress = computed.getPropertyValue("--lit-local")
       word.dataset.uniformSavedStyle = saved ?? ""
       // Capture the same glyph geometry at both brightness endpoints.
       word.style.setProperty("background", "none", "important")
@@ -56,6 +59,14 @@ async function expectUniformWordGlyphs(page: Page): Promise<number> {
       word.dataset.uniformReference = "true"
       return {
         text: word.textContent,
+        actualColor,
+        actualProgress,
+        clientRects: Array.from(word.getClientRects(), (rect) => ({
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+        })),
         x: rect.left,
         y: rect.top,
         width: rect.width,
@@ -109,6 +120,14 @@ async function expectUniformWordGlyphs(page: Page): Promise<number> {
         let glyphPixels = 0
         let litPixels = 0
         let unlitPixels = 0
+        const columns = Array.from(
+          { length: Math.ceil(word.x + word.width) - Math.floor(word.x) },
+          () => ({ lit: 0, unlit: 0, intermediate: 0 }),
+        )
+        const classes = document.createElement("canvas")
+        classes.width = columns.length
+        classes.height = Math.ceil(word.y + word.height) - Math.floor(word.y)
+        const classContext = classes.getContext("2d")!
         for (let y = Math.ceil(word.y); y < Math.floor(word.y + word.height); y += 1) {
           for (let x = Math.ceil(word.x); x < Math.floor(word.x + word.width); x += 1) {
             const offset = (y * a.width + x) * 4
@@ -124,15 +143,54 @@ async function expectUniformWordGlyphs(page: Page): Promise<number> {
             if (magnitude < 3 * 70 ** 2) continue
             const fraction = projection / magnitude
             glyphPixels += 1
-            if (fraction >= 0.8) litPixels += 1
-            if (fraction <= 0.2) unlitPixels += 1
+            const column = columns[x - Math.floor(word.x)]!
+            if (fraction >= 0.8) {
+              litPixels += 1
+              column.lit += 1
+              classContext.fillStyle = "#22c55e"
+            } else if (fraction <= 0.2) {
+              unlitPixels += 1
+              column.unlit += 1
+              classContext.fillStyle = "#ef4444"
+            } else {
+              column.intermediate += 1
+              classContext.fillStyle = "#eab308"
+            }
+            classContext.fillRect(x - Math.floor(word.x), y - Math.floor(word.y), 1, 1)
           }
         }
         sampledGlyphPixels += glyphPixels
         const significant = Math.max(4, glyphPixels * 0.1)
-        return litPixels >= significant && unlitPixels >= significant
-          ? [{ text: word.text, glyphPixels, litPixels, unlitPixels }]
-          : []
+        if (litPixels < significant || unlitPixels < significant) return []
+        function crop(frame: ImageData): string {
+          const canvas = document.createElement("canvas")
+          canvas.width = classes.width
+          canvas.height = classes.height
+          const context = canvas.getContext("2d")!
+          const source = document.createElement("canvas")
+          source.width = frame.width
+          source.height = frame.height
+          source.getContext("2d")!.putImageData(frame, 0, 0)
+          context.drawImage(source, -Math.floor(word.x), -Math.floor(word.y))
+          return canvas.toDataURL("image/png").split(",")[1]!
+        }
+        return [
+          {
+            text: word.text,
+            glyphPixels,
+            litPixels,
+            unlitPixels,
+            bounds: word,
+            columns,
+            // Preserve spatial evidence before deciding whether AA or a trailing syllable is split.
+            crops: {
+              actual: crop(a),
+              low: crop(lo),
+              high: crop(hi),
+              classes: classes.toDataURL("image/png").split(",")[1]!,
+            },
+          },
+        ]
       })
       return { differences, sampledGlyphPixels }
     },
@@ -143,9 +201,40 @@ async function expectUniformWordGlyphs(page: Page): Promise<number> {
       words,
     },
   )
+  if (measurement.differences.length > 0) {
+    await test.info().attach("glyph-diagnostics", {
+      body: JSON.stringify(
+        {
+          legend: {
+            green: "lit >= 0.8",
+            red: "unlit <= 0.2",
+            yellow: "intermediate",
+            transparent: "excluded background/AA fringe",
+          },
+          words: measurement.differences.map(({ crops: _crops, ...word }) => word),
+        },
+        null,
+        2,
+      ),
+      contentType: "application/json",
+    })
+    for (const [index, word] of measurement.differences.entries()) {
+      for (const [kind, png] of Object.entries(word.crops)) {
+        await test.info().attach(`glyph-${index}-${kind}`, {
+          body: Buffer.from(png, "base64"),
+          contentType: "image/png",
+        })
+      }
+    }
+  }
   expect(measurement.sampledGlyphPixels, "expected measurable glyph interiors").toBeGreaterThan(0)
   expect(
-    measurement.differences,
+    measurement.differences.map(({ text, glyphPixels, litPixels, unlitPixels }) => ({
+      text,
+      glyphPixels,
+      litPixels,
+      unlitPixels,
+    })),
     "a word must not contain both lit and unlit glyph regions",
   ).toEqual([])
   return words.length
