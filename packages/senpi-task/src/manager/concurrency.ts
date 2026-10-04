@@ -52,7 +52,7 @@ export class TaskConcurrency {
   getLimit(model: string): number {
     const modelLimit = ownNumber(this.#config.model_concurrency, model)
     if (modelLimit !== undefined) return modelLimit === 0 ? Number.POSITIVE_INFINITY : modelLimit
-    const providerLimit = ownNumber(this.#config.provider_concurrency, providerOf(model))
+    const providerLimit = ownNumber(this.#config.provider_concurrency, providerOf(model)) ?? (providerOf(model) === "opengateway" ? 0 : undefined)
     if (providerLimit !== undefined) return providerLimit === 0 ? Number.POSITIVE_INFINITY : providerLimit
     const defaultLimit = this.#config.default_concurrency
     if (defaultLimit !== undefined) return defaultLimit === 0 ? Number.POSITIVE_INFINITY : defaultLimit

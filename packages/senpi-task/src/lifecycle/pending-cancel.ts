@@ -13,12 +13,15 @@ import type { ReconcileOutcome } from "./types"
  *
  * The session is ended FIRST. A close the host refuses or does not confirm in time returns undefined
  * and leaves the cancel pending on the record, so the next revival retries it: a cancelled record whose
- * session still runs would let the child keep working until the TTL sweep caught it.
+ * session still runs would let the child keep working until the TTL sweep caught it. A host that answers
+ * but cannot list its sessions leaves the cancel pending the same way (omo#9450).
  */
 export async function finishPendingCancel(context: LifecycleContext, record: TaskRecord): Promise<ReconcileOutcome | undefined> {
   if (isHostSessionRecord(record) && context.registry.get(record.task_id) === undefined) {
     context.hostSessionProbe.refresh(record.host_session.socket)
-    if (await context.hostSessionProbe.sessionLive(record.host_session)) {
+    const liveness = await context.hostSessionProbe.sessionLiveness(record.host_session)
+    if (liveness === "unknown") return undefined
+    if (liveness === "live") {
       const closed = await closeHostSessionConfirmed(context, record.task_id, record.host_session, record.spawn_spec?.cwd)
       if (!closed) return undefined
     }

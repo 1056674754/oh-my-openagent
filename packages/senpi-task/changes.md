@@ -1,3 +1,25 @@
+## 2026-10-03 - A kill is the one the runner issued; Windows external terminations are reported as crashes (#9471)
+
+`runners/rpc/exit-mapping.ts` `classifyChildExit` decided a signal-less exit was a kill on Windows when the child's stderr held nothing but Bun's child-reaper advisory. A killed child's teardown also writes diagnostics there: the memory component's `memory shutdown drain step failed` (EPERM on a state rename) and `memory shutdown drain hit its budget`. Those made a real kill read as a crash (`killed=false`), and the Windows RPC e2e `kill_marks_error_killed_true` failed intermittently on unrelated PRs.
+
+A kill now comes only from facts the runner owns: the handle's own `terminate()` (`terminationRequested`, passed as `terminatedByRunner`) or a POSIX signal. stderr is never read to decide it, and the Windows stderr heuristic (`hasOnlyWindowsStartupAdvisories`, `isWindowsExternalTermination`) is gone. **Behavior change:** on Windows, a child terminated from outside the runner (TerminateProcess, Task Manager, an OOM kill) exits with code 1 and no signal, exactly like a crash. It is now recorded as `status=error`, `killed=false`, with `RPC child exited unexpectedly (exit code N)` followed by the stderr tail. A process crash's message gains that lead line too, while a daemon session's exit keeps the host's reason as its whole message. A runner-issued signal-less kill reads `RPC child was terminated by its runner (exit code N, pid=…)`.
+
+Tests: `exit-mapping.test.ts` covers a runner-terminated child with the memory EPERM and drain-budget stderr (killed), a child that writes "killed" on its own (crashed), an external Windows termination with and without the advisory (crashed), the spawn-error precedence, and the messages. `handle-terminated-by-runner.test.ts` drives the real handle: `terminate()` followed by a code-1 exit is killed, and the same exit without `terminate()` is crashed. The e2e keeps the external SIGKILL check on POSIX, where the signal is the evidence, and on Windows proves the honest outcome as `external_termination_reports_unexpected_exit`.
+
+## 2026-10-03 - Task tool wording stops naming few-read investigations and small foreground children as delegation targets (#9499)
+
+- `src/tools/task/description.ts`: the run_in_background guideline is "Spawn children with run_in_background=true." The deleted clause ("pass false only for a short child whose result gates your very next call") contradicted the GPT-6 preset's foreground rule and named a small child as a routine spawn; `run_in_background=false` stays documented in the tool description body.
+- `src/category/openai-categories.ts`: the deep-low `Selection_Gate` now reads "Of the two deep lanes this is the default: the child settles its decisions from what it reads. When unsure, choose deep-low; a misrouted child returns `ESCALATE: deep-high` after one cheap attempt, and you re-spawn the same brief as deep-high with its findings." (the one-subsystem-plus-callers shape and "wide but mechanical work belongs here" are gone), and the deep-low description says "preferred over deep-high for 3D graphics, computer/browser use, CAPTCHA, multimodal, backend, logic, and algorithm work" without bold. Both strings are byte-identical to the omo-opencode twins.
+
+## 2026-10-03 - A pending task_cancel waits when the host cannot list its sessions (#9450)
+
+`finishPendingCancel` closes a child's host session before it marks a pending cancel finished (#9403). It decided whether there was a session to close with `sessionLive()`, and a `list_sessions` the daemon refused or did not answer read as an empty list (`runners/rpc-host/liveness.ts` returned `[]`). On a host that answers its probe but is too loaded to list, the cancel therefore finished, skipped the close, and left the session running until the TTL sweep. `liveSessionPaths` now reports a failed listing as an error, the probe (`lifecycle/host-session.ts`) keeps whether the listing succeeded and answers `sessionLiveness()` as `live`, `gone` or `unknown`, and `lifecycle/pending-cancel.ts` leaves the cancel pending on `unknown`, as it already does for an unconfirmed close. `sessionLive()` keeps its answer for reconcile, TTL and destroy.
+
+## 2026-10-02 - OpenGateway defaults to unlimited provider concurrency
+
+- `src/manager/concurrency.ts`: the native task allocator uses an unlimited OpenGateway provider default before the generic lane limit. Explicit model and provider limits still win, and the global admission limit still applies.
+- `src/manager/concurrency-opengateway.test.ts`: exercises admissions beyond the generic limit, explicit caps and queued handoff, other providers' limits, global capacity, and lease cleanup.
+- `docs/reference/omo-json.md`: documents the built-in default and override precedence. No user configuration changes are required.
 ## 2026-10-02 - A killed Windows child stays killed when Bun's reaper advisory fills its stderr tail (#9228)
 
 - `runners/rpc/exit-mapping.ts`: on win32 a child ended by `TerminateProcess` exits with code 1 and no signal, and stderr that holds only Bun's `child reaper unavailable under Bun on win32 ...` advisory still counts as a kill. Bun prints that advisory once per terminated worker thread, and the handle classifies the last 4 KB of stderr (`client.stderrTail`), so with enough advisories the tail began mid-advisory, or the kill cut the last advisory mid-write; either fragment made the exit a crash, and the task ended `status=error killed=false` with the advisory as its error (the Windows RPC e2e `kill_marks_error_killed_true` check, timing-dependent). Those two fragments are now recognized: a cut first line that ends a full advisory line in the same tail, and a last line that is the start of the advisory. Any other text, whole or cut, still makes the exit a crash.
@@ -34,6 +56,11 @@ Builds on #9406 (Dante-dan), which reports a recovery `continued` only after the
 - Preserves and extends drakeo338's state-lookup work from PR #9367. The separate
   desktop observer fix removes the directory writer; this lookup change alone is
   not evidence that first-turn project writes are fixed.
+
+## 2026-10-01 - Relay typed child computer permission events through task ownership (omo-desktop-app#1437)
+
+- Add a separate, validated child extension-event channel for `computer.permission_required`; keep `AgentSessionEvent` and its listeners unchanged. Invalid permission records are dropped.
+- Preserve denials received before the manager subscribes, forward daemon events across transport replacement, and retire subscriptions with their owning handles. The manager supplies trusted task ownership rather than accepting session identities from the child record.
 
 ## 2026-10-01 - Builtin chain rungs name thinking levels their models accept (#9378)
 
@@ -163,6 +190,10 @@ Builds on #9406 (Dante-dan), which reports a recovery `continued` only after the
   showing a working subagent. The record's own parent session now reclaims it when `host_pid` names a dead foreign process;
   any other session, and a live owner, still defer (`foreign_live_owner`), and a dead session still falls through (#8659).
   `host-session-revival.test.ts` pins both sides: dead owner -> resumed on the recorded session path, live owner -> deferred.
+
+## docs: the operator surface names `adopt`, not `attach`
+
+`AGENTS.md`'s operator-surface line is `omo daemon run|adopt|status|stop|handoff|gc|rollback-prepare`; every command but `run` and `adopt` covers every endpoint. Docs only.
 
 ## unspecified-low opens on Claude Sonnet 5.5; deep-low opens on plain GPT-5.6 Sol
 
