@@ -121,4 +121,15 @@ describe("runtime advisories before the child's real failure (#9553)", () => {
     // then
     expect(miss).toBeUndefined()
   })
+
+  test("#given a provider's own outage sentence then a stack error line #when classified #then the provider's sentence decides", () => {
+    // given - senpi prints the provider's answer first; a stack that follows must not replace it
+    const child = result("The model is temporarily unavailable\nError: request failed\n    at send (provider.js:10:3)")
+
+    // when
+    const miss = classifyRetryableModelMiss(child)
+
+    // then
+    expect(miss).toEqual({ kind: "provider_unavailable", detail: "The model is temporarily unavailable" })
+  })
 })

@@ -41,26 +41,24 @@ export function classifyRetryableModelMiss(result: ModelMissResult): RetryableMo
 }
 
 /**
- * A line shaped like the failure itself: an HTTP status answer (`503: ...`), a provider JSON error
- * body, or an `Error`/`TypeError`/`ENOENT`-style line. Picked over any line printed before it.
+ * A notice the process prints about itself rather than about the request: a runtime reporting on its
+ * own host (Bun on win32 prints `child reaper unavailable under Bun on win32: ...` once per terminated
+ * worker thread, before anything the child says), or any line that announces itself with a log-level
+ * prefix (`note:`, `info:`, `warning:`, ...). It is never the provider's answer, so it can never make a
+ * child look like a provider outage (#9553).
  */
-const ERROR_SHAPED = /^(?:\d{3}\s*:|\{.*"(?:error|message|type)"|[A-Z][A-Za-z]*(?:Error|Exception)\b|[Ee]rror\b|[Ff]atal\b|E[A-Z]{2,}\b)/
+const ADVISORY = /\bunder (?:Bun|Node(?:\.js)?|Deno)\b|^(?:\[[^\]]*\]\s*)?(?:note|notice|info|hint|debug|warn|warning)\s*:/i
 
 /**
- * A runtime reporting on itself (Bun on win32 prints `child reaper unavailable under Bun on win32:
- * ...` once per terminated worker thread, before any real error). It is never the provider's answer,
- * so it can never make a child look like a provider outage on its own (#9553).
- */
-const RUNTIME_ADVISORY = /\bunder (?:Bun|Node(?:\.js)?|Deno)\b/i
-
-/**
- * The child's failure line: the first error-shaped line, else the first line that is not a runtime
- * advisory. senpi prints the fatal provider error and exits, but a runtime may print notices first.
+ * The child's failure line: the first line that is not an advisory. senpi prints the fatal provider
+ * error first and exits, so that line decides even when a stack (`Error: ...`) follows it.
  */
 function providerFailureDetail(result: ModelMissResult): string | undefined {
   for (const stream of [result.stderr, result.stdout]) {
-    const lines = stream.split("\n").map((entry) => entry.trim()).filter((entry) => entry.length > 0)
-    const line = lines.find((entry) => ERROR_SHAPED.test(entry)) ?? lines.find((entry) => !RUNTIME_ADVISORY.test(entry))
+    const line = stream
+      .split("\n")
+      .map((entry) => entry.trim())
+      .find((entry) => entry.length > 0 && !ADVISORY.test(entry))
     if (line !== undefined) return line.slice(0, PROVIDER_DETAIL_MAX_CHARS)
   }
   return undefined
