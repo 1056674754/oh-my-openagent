@@ -31,6 +31,17 @@ describe("a pool name reused by the same parent session", () => {
     expect(() => create(["other"])).toThrow(expect.objectContaining({ code: "pool_name_conflict" }))
   })
 
+  test("#given a pool granted a tool #when a later create is refused #then the refusal does not reveal the existing pool's tools", () => {
+    const { create } = setup()
+    create(["secret_tool"])
+
+    let message = ""
+    try { create(["other"]) } catch (error) { message = error instanceof Error ? error.message : String(error) }
+
+    expect(message).not.toBe("")
+    expect(message).not.toContain("secret_tool")
+  })
+
   test("#given a pool granted a tool #when a later create of the same name asks for no tools #then it is refused, not handed the first grant", () => {
     const { create } = setup()
     create(["secret"])
