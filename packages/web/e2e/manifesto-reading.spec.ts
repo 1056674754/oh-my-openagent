@@ -99,7 +99,10 @@ for (const locale of ["en", "ko"]) {
                 if (rect.bottom < 0 || rect.top > viewport) continue
                 const lit =
                   Number.parseFloat(getComputedStyle(word).getPropertyValue("--lit-local")) >= 1
-                if (rect.bottom <= fullLine && !lit) dimAboveLine += 1
+                // A word is due to be lit once its bottom is clearly above the reveal edge (past
+                // its within-line stagger window); words right at the edge may still be staggering
+                // in left-to-right. The stagger spans up to two line-heights, so allow that window.
+                if (rect.bottom <= fullLine - 60 && !lit) dimAboveLine += 1
                 if (rect.top < viewport * 0.4) {
                   aboveMid += 1
                   if (lit) litBelowMid += 1
@@ -170,6 +173,61 @@ for (const locale of ["en", "ko"]) {
         expect(lit.blocksLit).toBe(true)
         expect(lit.allTextHi).toBe(true)
         expect(lit.noneBlurred).toBe(true)
+      })
+
+      // Without JavaScript the page reads in full: reveal blocks render `pending` (lit) so text is
+      // never stuck at the dim floor if the driver never runs.
+      test("readable before and without JavaScript", async ({ page }) => {
+        await page.emulateMedia({ reducedMotion: "no-preference" })
+        const context = page.context()
+        await context.route("**/*.{js,mjs}", (route) => route.abort())
+        await page.goto(`/${locale}/manifesto`)
+        const state = await page.evaluate(() => {
+          const blocks = Array.from(document.querySelectorAll<HTMLElement>(".lit-read"))
+          const words = Array.from(document.querySelectorAll<HTMLElement>(".lit-read .lit-word"))
+          return {
+            modes: Array.from(new Set(blocks.map((block) => block.dataset.litMode))),
+            // Lit-ness lives in the background gradient (background-clip: text), not `color`.
+            allLit: words.every(
+              (word) => Number.parseFloat(getComputedStyle(word).backgroundPositionX) <= 0.5,
+            ),
+          }
+        })
+        expect(state.modes).toContain("pending")
+        expect(state.allLit).toBe(true)
+      })
+
+      // The reveal travels word by word: across a scroll sweep, some line shows a gradient of
+      // --lit-local values across its words, never one shared value for the whole line.
+      test("the reveal lights words one at a time", async ({ page }) => {
+        await page.emulateMedia({ reducedMotion: "no-preference" })
+        await page.goto(`/${locale}/manifesto`)
+        await page.evaluate(waitForReadingBlocks)
+        const maxY = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)
+        let maxDistinct = 0
+        for (const frac of [0.2, 0.35, 0.5, 0.65]) {
+          await page.evaluate(scrollSecret, Math.round(maxY * frac))
+          await page.evaluate(
+            () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+          )
+          const distinct = await page.evaluate(() => {
+            const byLine = new Map<number, Set<string>>()
+            for (const word of Array.from(
+              document.querySelectorAll<HTMLElement>(".lit-read .lit-word"),
+            )) {
+              const key = Math.round(word.getBoundingClientRect().bottom)
+              const local = Number.parseFloat(
+                getComputedStyle(word).getPropertyValue("--lit-local"),
+              ).toFixed(2)
+              if (!byLine.has(key)) byLine.set(key, new Set())
+              byLine.get(key)!.add(local)
+            }
+            return Math.max(0, ...Array.from(byLine.values()).map((set) => set.size))
+          })
+          maxDistinct = Math.max(maxDistinct, distinct)
+        }
+        // Some line in transition has more than one --lit-local value (word-by-word).
+        expect(maxDistinct).toBeGreaterThan(1)
       })
 
       // TALL-block contract: while scrolling through the tallest reading block at normal speed, no

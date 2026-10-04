@@ -933,6 +933,10 @@
   .lit-read[data-lit-mode="pending"] {
     --lit-p: 1;
   }
+  /* Before JavaScript (or if it fails): every word is fully lit, so the page reads in full. */
+  .lit-read[data-lit-mode="pending"] .lit-word {
+    --lit-local: 1;
+  }
   .lit-read .lit-word {
     background-image: linear-gradient(
       90deg,

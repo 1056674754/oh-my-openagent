@@ -48,16 +48,27 @@ function armRevealDriver(): void {
     for (const block of Array.from(document.querySelectorAll<HTMLElement>(".lit-read"))) {
       const body = block.querySelector<HTMLElement>(".lit-text")
       if (!body) continue
+      // The driver has run at least once: this block now reports its real mode.
+      if (block.dataset.litMode === "pending") block.dataset.litMode = "observer"
       const endTop =
         vhPx(getComputedStyle(block), "--lit-line", viewport) -
         vhPx(getComputedStyle(block), "--lit-band", viewport)
-      const words: { node: HTMLElement; bottom: number; height: number }[] = []
+      const words: { node: HTMLElement; bottom: number; height: number; left: number }[] = []
       for (const word of body.querySelectorAll<HTMLElement>(".lit-word")) {
         const rect = word.getBoundingClientRect()
-        words.push({ node: word, bottom: rect.bottom, height: rect.height || 1 })
+        words.push({ node: word, bottom: rect.bottom, height: rect.height || 1, left: rect.left })
       }
-      for (const { node, bottom, height } of words) {
-        node.style.setProperty("--lit-local", String(clamp01((endTop - bottom) / height + 1)))
+      // Per-word reveal: each word lights as its own bottom crosses the full line, with a small
+      // left-to-right stagger within its line so words light one at a time (word-by-word), never
+      // a whole line at once. The stagger is local to the line (it wraps), so it never accumulates
+      // across a long paragraph.
+      const lineWidth = Math.max(1, body.getBoundingClientRect().width)
+      for (const { node, bottom, height, left } of words) {
+        const withinLine = ((left % lineWidth) / lineWidth) * height * 2
+        node.style.setProperty(
+          "--lit-local",
+          String(clamp01((endTop - bottom - withinLine) / (height * 1.6) + 1)),
+        )
       }
     }
   }
@@ -83,9 +94,10 @@ export function useLitProgress(
   reveal: boolean,
 ): LitMode {
   const [driven, setMode] = useState<LitMode>("pending")
-  // Reveal mode is always driven by the shared observer driver; paragraph mode uses the timeline
-  // when available and the observer fallback otherwise; reduced motion never animates.
-  const mode: LitMode = reducedMotion || reveal ? "observer" : driven
+  // Paragraph mode uses the timeline when available and the observer fallback otherwise; reduced
+  // motion never animates. Reveal mode renders "pending" (text stays lit before JS / under JS
+  // failure); the shared driver flips the DOM attribute to "observer" after its first pass.
+  const mode: LitMode = reducedMotion ? "observer" : driven
 
   useEffect(() => {
     if (reducedMotion) return
@@ -95,7 +107,7 @@ export function useLitProgress(
     if (!element || !body) return
     if (reveal) {
       // The reveal is driven by the shared document-level per-word driver (monotonic frontier).
-      // Its mode is derived as "observer" above; no setState here (avoids a cascading render).
+      // It flips data-lit-mode to "observer" on every block after its first pass.
       armRevealDriver()
       return
     }
