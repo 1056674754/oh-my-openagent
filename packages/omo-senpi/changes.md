@@ -2,6 +2,10 @@
 
 `bunfig.toml` preloads `../senpi-task/test-support/warm-lazy-runtime.ts`, so `bun test` from inside `packages/omo-senpi` gets the same hermetic home, agent dir and warmed lazy barrels as a repo-root run. Before, a package-local run had no preload at all: it used the real home and failed 17 entry-renderer tests on the unwarmed pi-tui barrel.
 
+## 2026-10-04 - ulw-plan no longer names a delegation category that does not exist (#9561)
+
+The `ulw-plan` skill's delegation-router row listed a `git` category that no edition ships (`SKILL.md`), and its reference copy (`references/full-workflow.md`) also still listed `deep`, which was split into `deep-low` and `deep-high`. A plan that followed either name sent `task(category: ...)` to a category the user's session does not have. Both rows now list exactly the built-in categories.
+
 ## 2026-10-04 - The committed gateway rules sidecar is no longer an ignored path
 
 `packages/omo-senpi/.gitignore` ignores `/plugin/extensions/*` and re-admits each committed bundle with a `!` line. The `gateway_rules` store-extension sidecar (`gateway-rules-extension.mjs`, from #9540) was committed without its `!` line, so `script/tracked-ignored-paths-audit.test.ts` failed on `dev` and on the v5.1.17 release-state PR. A local `git add` of a fresh regen would also silently skip that file. Added the negation next to its sibling `gateway-store-worker.mjs`.
@@ -612,4 +616,3 @@ With senpi 2026.9.29-4 adopted (wake, admitExternalMessage, terminal control end
 - `components/task/category-unavailable-warning.ts`: when only an unlisted provider serves a hidden category's chain,
   the one notice per session names it and the exact opt-in line
   (`categories.<name>.model = "<gateway>/<model>"`); `details.unlisted_provider_model` carries it for remote clients.
-

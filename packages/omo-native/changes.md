@@ -1,3 +1,7 @@
+## 2026-10-04 - The provisioned-handoff test's teardown no longer fails the Windows shard (#9556)
+
+`packages/omo-native/test/provisioned-handoff.test.ts` removed its temp root with a bare `rmSync` in `afterAll`. On Windows, a file the just-exited compiled `omo` child still held made it throw `EBUSY`; bun reported that as an unnamed failed test and failed `test (windows-latest, 2/2)` on unrelated PRs. The teardown now uses the shared `test-support/remove-tree.ts` `removeTree`, which retries a transient `EBUSY`/`EPERM` within a bounded budget and still throws a persistent one.
+
 ## 2026-10-04 - Every one-shot engine command reaches the engine, so `omo models discover` works (#9572)
 
 The engine dispatches its one-shot commands on `argv[0]`, but the launcher handed only a fixed list straight through (`install, remove, list, config, auth, app-server, host`, plus `update`) and put `--extension <plugin>` in front of everything else. So `omo models discover <provider>` started an interactive session instead of discovering models, and `omo schedule ...` and the `uninstall` alias of `remove` did the same.
