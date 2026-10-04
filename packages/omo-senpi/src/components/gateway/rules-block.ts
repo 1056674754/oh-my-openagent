@@ -11,9 +11,13 @@ export const GATEWAY_RULES_SENTINEL_END = "<!-- omo-gateway:rules:end -->"
 
 const SENTINEL_PATTERN = /<!-- omo-gateway:rules:begin -->[\s\S]*?<!-- omo-gateway:rules:end -->/
 
+export function escapeRuleText(text: string): string {
+  return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+}
+
 export function renderOperatingRulesBlock(version: string, behavioral: readonly string[]): string {
-  const lines = [`<operating-rules version="${version.replaceAll('"', "&quot;")}">`]
-  for (const text of behavioral) lines.push(`- ${text}`)
+  const lines = [`<operating-rules version="${escapeRuleText(version).replaceAll('"', "&quot;")}">`]
+  for (const text of behavioral) lines.push(`- ${escapeRuleText(text)}`)
   lines.push("</operating-rules>")
   return lines.join("\n")
 }

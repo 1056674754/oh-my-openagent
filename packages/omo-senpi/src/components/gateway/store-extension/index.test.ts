@@ -176,3 +176,46 @@ describe("gateway_rules store extension", () => {
     expect(block).toEqual({ kind: "ok", value: null })
   })
 })
+
+describe("sessionsWithRules", () => {
+  test("#given two sessions in one scope and one in another #when the scope is listed #then exactly its two sessions are returned", async () => {
+    // given
+    const h = (harness = createGatewayHarness())
+    const store = await storeWithRules(h)
+    h.phantom("a1")
+    h.phantom("a2")
+    h.phantom("b1")
+    const bindingA1 = await bindSession(store, "a1", "chat-a1")
+    const bindingA2 = await bindSession(store, "a2", "chat-a2")
+    const bindingB1 = await bindSession(store, "b1", "chat-b1")
+    await commit(store, "v1", [
+      { session_durable_id: "a1", binding_id: bindingA1, behavioral: ["rule one"] },
+      { session_durable_id: "a2", binding_id: bindingA2, behavioral: ["rule one"] },
+    ])
+    await store.extensionCall(GATEWAY_RULES_EXTENSION_NAME, "rulesCommitted", { scope: "other", version: "v1", now: 1000, targets: [{ session_durable_id: "b1", binding_id: bindingB1, behavioral: ["rule one"] }] })
+
+    // when
+    const listed = await store.extensionCall(GATEWAY_RULES_EXTENSION_NAME, "sessionsWithRules", { scope: "team" })
+
+    // then
+    expect(listed).toEqual({
+      kind: "ok",
+      value: {
+        sessions: [
+          { session_durable_id: "a1", version: "v1" },
+          { session_durable_id: "a2", version: "v1" },
+        ],
+      },
+    })
+  })
+
+  test("#given a missing or empty scope #when sessionsWithRules runs #then the call is refused", async () => {
+    // given
+    const h = (harness = createGatewayHarness())
+    const store = await storeWithRules(h)
+
+    // when + then
+    expect((await store.extensionCall(GATEWAY_RULES_EXTENSION_NAME, "sessionsWithRules", {})).kind).toBe("refused")
+    expect((await store.extensionCall(GATEWAY_RULES_EXTENSION_NAME, "sessionsWithRules", { scope: "" })).kind).toBe("refused")
+  })
+})

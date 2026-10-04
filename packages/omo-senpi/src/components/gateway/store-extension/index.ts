@@ -1,5 +1,5 @@
 import type { StoreExtensionTransaction } from "../../thread/gateway/store-extensions"
-import { renderOperatingRulesBlock } from "../rules-block"
+import { escapeRuleText, renderOperatingRulesBlock } from "../rules-block"
 
 type RulesCommittedTarget = {
   readonly session_durable_id: string
@@ -35,6 +35,12 @@ export function blockForSession(tx: StoreExtensionTransaction, args: unknown): {
   const session = requiredString(asRecord(args, "blockForSession args"), "session_durable_id")
   const row = tx.one(["version", "block"], "SELECT version, block FROM gateway_rules_blocks WHERE session_durable_id = ?", [session])
   return row === undefined ? null : { version: String(row.version), block: String(row.block) }
+}
+
+export function sessionsWithRules(tx: StoreExtensionTransaction, args: unknown): { readonly sessions: readonly { readonly session_durable_id: string; readonly version: string }[] } {
+  const scope = requiredString(asRecord(args, "sessionsWithRules args"), "scope")
+  const rows = tx.all(["session_durable_id", "version"], "SELECT session_durable_id, version FROM gateway_rules_blocks WHERE scope = ?", [scope], "session_durable_id")
+  return { sessions: rows.map((row) => ({ session_durable_id: String(row.session_durable_id), version: String(row.version) })) }
 }
 
 /**
@@ -74,7 +80,7 @@ export async function rulesCommitted(tx: StoreExtensionTransaction, args: unknow
       binding_id: target.binding_id,
       event_id: `rules_changed:${scope}:${version}:${target.session_durable_id}`,
       text: [
-        `<operating-rules-changed scope="${scope}" version="${version}">`,
+        `<operating-rules-changed scope="${escapeRuleText(scope).replaceAll('"', "&quot;")}" version="${escapeRuleText(version).replaceAll('"', "&quot;")}">`,
         "The operating rules for this gateway scope changed; this session's system prompt carries the new block from its next turn.",
         "</operating-rules-changed>",
       ].join("\n"),
