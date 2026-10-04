@@ -100,10 +100,10 @@ const builtExtensionPath = join(packageRoot, "plugin", "extensions", "omo.js")
 // bundled PRs add about 15 KB (#9429 +11,018 measured), so 1,500,000 keeps ~2.8% headroom over dev and ~1.7%
 // after that queue, rather than the failing value. Splitting the largest components is tracked separately
 // in #9515 so this ceiling stops moving with every feature.
-// Reduced for #9515: lazy /doctor moves health checks into omo-memory-doctor.js.
-// Same-host Bun 1.4.2 rebuild: 1,458,902 -> 1,450,566 bytes (8,336 removed);
-// 1,494,000 leaves approximately 3% headroom. Other memory/thread/LSP slices remain follow-up.
-const BUDGET_BYTES = 1_494_000
+// Reduced for #9515: lazy /doctor and /memfs keep maintenance code in sidecars.
+// Bun 1.4.2: tracked dev 1,451,838 -> 1,443,567 bytes (8,271 removed);
+// 1,487,000 leaves approximately 3% headroom. Other memory/thread/LSP slices remain follow-up.
+const BUDGET_BYTES = 1_487_000
 
 describe("omo-senpi bundle size budget", () => {
   it("#given the built extension #when its byte size is measured #then it stays within the documented byte budget", () => {

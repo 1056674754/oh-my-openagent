@@ -239,14 +239,25 @@ for (const locale of ["en", "ko"]) {
           const words = Array.from(document.querySelectorAll<HTMLElement>(".lit-read .lit-word"))
           return {
             modes: Array.from(new Set(blocks.map((block) => block.dataset.litMode))),
-            // Lit-ness lives in the background gradient (background-clip: text), not `color`.
-            allLit: words.every(
-              (word) => Number.parseFloat(getComputedStyle(word).backgroundPositionX) <= 0.5,
-            ),
+            wordCount: words.length,
+            // Match the per-word fade's color serialization with a fully lit reference.
+            renderedWords: words.map((word) => {
+              const reference = document.createElement("span")
+              reference.style.color = "color-mix(in oklab, var(--text-hi), var(--text-hi))"
+              word.append(reference)
+              const fullBright = getComputedStyle(reference).color
+              reference.remove()
+              const css = getComputedStyle(word)
+              return { color: css.color, fullBright, opacity: css.opacity }
+            }),
           }
         })
         expect(state.modes).toContain("pending")
-        expect(state.allLit).toBe(true)
+        expect(state.wordCount).toBeGreaterThan(0)
+        for (const word of state.renderedWords) {
+          expect(word.color).toBe(word.fullBright)
+          expect(Number.parseFloat(word.opacity)).toBe(1)
+        }
       })
 
       // Per-word, never split: at any frame, every word's glyphs share ONE brightness — the reveal
