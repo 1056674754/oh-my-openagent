@@ -8,8 +8,9 @@ Rules are COMPUTED by the gateway package (its store, compiler and commit path; 
 
 - `rulesCommitted({scope, version, now, targets})` - renders each target's block, upserts `gateway_rules_blocks` when the version moved (`WHERE version != excluded.version`, so an unchanged commit writes nothing), deletes the row when a target's `behavioral` is null (the session lost its binding or its rules), and appends the `rules_changed` delivery via `tx.enqueue`. The event id `rules_changed:<scope>:<version>:<session>` keys the delivery receipt, so a retried commit replays instead of delivering twice - exactly one delivery per session per version, even when the caller passes the same session twice.
 - `blockForSession({session_durable_id})` - the per-turn read the prompt handler runs.
+- `sessionsWithRules({scope})` - lists a scope's block rows (`{sessions: [{session_durable_id, version}]}`, ordered by session id) so the gateway can compare them against the sessions that should have rules now and send `behavioral: null` for the rest - the only way to clear a session whose binding ended while the connector was down.
 
-The caller (the gateway package) passes ONE target per affected session, choosing any active binding as the delivery path (none for a lead without one). No rules logic lives here: the block content is whatever the caller compiled, and mechanical gate params are never rendered into the prompt block - behavioral text only.
+The caller (the gateway package) passes ONE target per affected session, choosing any active binding as the delivery path (none for a lead without one). No rules logic lives here: the block content is whatever the caller compiled, and mechanical gate params are never rendered into the prompt block - behavioral text only. Rule text is untrusted (humans set it in chat), so behavioral lines, scope and version render with `&`, `<` and `>` escaped: a rule carrying the end sentinel or the closing tag can neither break the byte-identical turn guarantee nor close the block early, and the `rules_changed` delivery text escapes scope and version the same way.
 
 ## Anatomy
 
