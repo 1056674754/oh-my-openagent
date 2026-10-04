@@ -23,6 +23,7 @@ export async function watchRefs(deps: WatchDeps, refs: readonly HandleRef[], ctx
   const unsubscribes: (() => void)[] = []
   const latest = new Map<HandleRef, number>()
   const close = (): void => {
+    ctx.signal?.removeEventListener("abort", close)
     controller.abort()
     for (const unsubscribe of unsubscribes.splice(0)) unsubscribe()
     queue.end()
@@ -51,7 +52,12 @@ function subscribeTask(tasks: TaskWaiter, ref: HandleRef, ctx: HandleCallContext
   if (ref.kind !== "agent") throw new EvalHandleHostError("eval_handle_operation_unsupported", `${ref.kind} refs are not served by the task host`)
   // The waiter settles with the terminal record, or rejects once the watch closes (abort).
   tasks.waitFor(ref.id, { signal }).then(
-    (record) => { if (fenceRun(record, ref.run_epoch) === "live") offer(ref, taskSnapshot(record, ref)) },
+    // A pre-upgrade record cannot prove an in-run epoch move, but its terminal still ends the watch: the caller's
+    // result() then names the re-fetch, instead of wait() hanging until its timeout.
+    (record) => {
+      const fence = fenceRun(record, ref.run_epoch)
+      if (fence === "live" || fence === "legacy") offer(ref, taskSnapshot(record, ref))
+    },
     () => undefined,
   )
   return taskSnapshot(loadFencedTask(tasks, ref, ctx), ref)

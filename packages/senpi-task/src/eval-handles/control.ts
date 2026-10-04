@@ -1,6 +1,6 @@
 import type { CancelReceipt, HandleCallContext, HandleOutcome, HandleRef, HandleSnapshot, OutputRequest, OutputSnapshot } from "@code-yeongyu/senpi"
+import type { TaskRecord } from "../state"
 import type { CancelOptions, CancelOutcome, SendInput, SendOutcome } from "../steering/types"
-import { STALE_RUN_REASON } from "../steering/stale-run"
 import { renderTranscript } from "../tools/output/render"
 import type { TranscriptReader } from "../tools/output/types"
 import { EvalHandleHostError } from "./errors"
@@ -21,6 +21,7 @@ export type ControlDeps = {
 
 const CANCEL_REASON = "cancelled from an eval handle"
 const DEFAULT_TAIL_LINES = 60
+const DELIVERED_AS_RUN_ENDED = "delivered as the run ended; a follow-up turn would run as a newer epoch, so re-fetch this task's handle to follow it"
 
 export function resultOf(deps: ControlDeps, ref: HandleRef, ctx: HandleCallContext): HandleOutcome {
   if (ref.kind === "workpool") {
@@ -43,8 +44,8 @@ export async function cancelRef(deps: ControlDeps, ref: HandleRef, ctx: HandleCa
   const before = loadFencedTask(deps.tasks, agentRef(ref), ctx)
   const outcome = await deps.tasks.cancelTask(ref.id, CANCEL_REASON, { expectedRunEpoch: ref.run_epoch })
   const after = deps.tasks.get(ref.id) ?? before
-  // The cancel was refused because the run moved: name it, never report the successor's state.
-  assertCurrentRun(after, ref)
+  // The engine refused under the record lock because the run moved: name it, never report the successor's state.
+  if (outcome.kind === "stale") throw staleError(after, ref)
   const cancelled = outcome.kind === "cancelled" || outcome.kind === "cancel_pending"
   return { ref, cancelled, phase: taskSnapshot(after, ref).phase }
 }
@@ -62,13 +63,17 @@ export async function sendRef(deps: ControlDeps, ref: HandleRef, message: string
     }
     case "steered":
     case "queued":
+      // The run ended while the message was being delivered: a follow-up turn on it would run as a newer epoch this
+      // ref cannot follow, so say so instead of reporting a plain finished run.
+      if (isSettled(record) && record.notification.run_epoch === ref.run_epoch) return taskSnapshot(record, ref, DELIVERED_AS_RUN_ENDED)
       return taskSnapshot(record, ref)
+    case "stale":
+      throw staleError(record, ref)
     case "scope_denied":
       throw new EvalHandleHostError("eval_handle_forbidden", outcome.reason)
     case "not_found":
       throw new EvalHandleHostError("eval_handle_not_found", outcome.reason)
     case "not_continuable":
-      if (outcome.reason.includes(STALE_RUN_REASON)) assertCurrentRun(record, ref)
       throw new EvalHandleHostError("eval_handle_send_refused", `${outcome.reason} ${outcome.suggestion}`)
     case "one_shot_agent":
       throw new EvalHandleHostError("eval_handle_send_refused", outcome.message)
@@ -101,6 +106,17 @@ function window(request: OutputRequest, total: number): readonly [number, number
   }
   const start = Math.min(Math.max(0, request.offset ?? 0), total)
   return [start, request.limit === undefined ? total : Math.min(total, start + request.limit)]
+}
+
+/** The engine's stale verdict as the host error: the fence names why (a newer run, or a pre-upgrade handle). */
+function staleError(record: TaskRecord, ref: HandleRef): EvalHandleHostError {
+  try {
+    assertCurrentRun(record, ref)
+  } catch (error) {
+    if (error instanceof EvalHandleHostError) return error
+    throw error
+  }
+  return new EvalHandleHostError("eval_handle_stale", `${ref.id} moved to epoch ${record.notification.run_epoch}; fetch its current handle`)
 }
 
 function agentRef(ref: HandleRef): HandleRef {
