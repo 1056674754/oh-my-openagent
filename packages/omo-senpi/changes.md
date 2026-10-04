@@ -1,3 +1,7 @@
+## 2026-10-04 - Package-local test runs get the hermetic home (#9578)
+
+`bunfig.toml` preloads `../senpi-task/test-support/warm-lazy-runtime.ts`, so `bun test` from inside `packages/omo-senpi` gets the same hermetic home, agent dir and warmed lazy barrels as a repo-root run. Before, a package-local run had no preload at all: it used the real home and failed 17 entry-renderer tests on the unwarmed pi-tui barrel.
+
 ## 2026-10-04 - ulw-plan no longer names a delegation category that does not exist (#9561)
 
 The `ulw-plan` skill's delegation-router row listed a `git` category that no edition ships (`SKILL.md`), and its reference copy (`references/full-workflow.md`) also still listed `deep`, which was split into `deep-low` and `deep-high`. A plan that followed either name sent `task(category: ...)` to a category the user's session does not have. Both rows now list exactly the built-in categories.
