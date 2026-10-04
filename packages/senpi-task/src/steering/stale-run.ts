@@ -12,5 +12,5 @@ export function staleSend(record: TaskRecord): SendOutcome {
 }
 
 export function staleCancel(record: TaskRecord): CancelOutcome {
-  return { kind: "stale", task_id: record.task_id, run_epoch: record.notification.run_epoch, reason: `Task ${record.task_id}: ${STALE_RUN_REASON}.` }
+  return { kind: "stale", task_id: record.task_id, status: record.status, run_epoch: record.notification.run_epoch, reason: `Task ${record.task_id}: ${STALE_RUN_REASON}.` }
 }

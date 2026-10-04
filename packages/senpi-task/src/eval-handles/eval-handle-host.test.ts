@@ -4,6 +4,7 @@ import type { EvalHandleHost, HandleRef, HandleSnapshot, HandleWatch } from "@co
 import type { ManagedChildHandle } from "../manager/child-handle"
 import { FakeRunner, baseSpec, cleanupProjects, flush, makeManager } from "../manager/__fixtures__/manager-fakes"
 import type { ManagedStartSpec } from "../manager/types"
+import { SEND_HOST_STATUS } from "./control"
 import { createEvalHandleHost } from "./host"
 import { fixture as poolFixture, poolInput } from "../workpool/__fixtures__/admission"
 
@@ -279,7 +280,132 @@ describe("EvalHandleHost over real task children", () => {
     const reply = await racing.send(ref, "one more thing", OWNER)
 
     expect(reply.phase).toBe("succeeded")
-    expect(reply.host_status).toMatch(/run ended.*re-fetch/)
+    expect(reply.ref.run_epoch).toBe(0)
+    expect(reply.host_status).toBe(SEND_HOST_STATUS.deliveredAfterEnd)
+  })
+
+  test("a cancel the engine answers as already ended, with a revive landing before the re-read, is stale rather than the next run's state", async () => {
+    const { host, manager, store, ref, settle } = await harness()
+    await settle("first pass")
+    const racing = createEvalHandleHost({
+      tasks: {
+        get: (id) => manager.get(id),
+        waitFor: (id, options) => manager.waitFor(id, options),
+        sendToTask: (input) => manager.sendToTask(input),
+        cancelTask: async (id, reason, options) => {
+          const outcome = await manager.cancelTask(id, reason, options)
+          await manager.sendToTask({ idOrName: id, message: "revived after the cancel", callerSessionId: OWNER.ownerSessionId })
+          return outcome
+        },
+      },
+      workpools: NO_POOLS,
+      poolCaller: (sessionId) => ({ sessionId, rootSessionId: sessionId, depth: 0, cwd: "/" }),
+      stateDir: store.stateDir,
+    })
+
+    await expect(racing.cancel(ref, OWNER)).rejects.toMatchObject({ code: "eval_handle_stale" })
+    expect(host).not.toBe(racing)
+  })
+
+  test("a send whose child starts a follow-up turn before the re-read hands back the new run's ref and says it continued", async () => {
+    const inProcess = new FakeRunner()
+    const { manager, store } = makeManager({ inProcess })
+    const started = await manager.start(baseSpec())
+    if (started.kind !== "started") throw new Error("expected a started child")
+    const ref: HandleRef = { kind: "agent", id: started.task_id, run_epoch: 0 }
+    const racing = createEvalHandleHost({
+      tasks: {
+        get: (id) => manager.get(id),
+        waitFor: (id, options) => manager.waitFor(id, options),
+        cancelTask: (id, reason, options) => manager.cancelTask(id, reason, options),
+        sendToTask: async (input) => {
+          const outcome = await manager.sendToTask(input)
+          inProcess.handles.get(ref.id)?.settle({ status: "completed", finalResponse: "first run" })
+          await flush()
+          inProcess.handles.get(ref.id)?.selfResume()
+          await flush()
+          return outcome
+        },
+      },
+      workpools: NO_POOLS,
+      poolCaller: (sessionId) => ({ sessionId, rootSessionId: sessionId, depth: 0, cwd: "/" }),
+      stateDir: store.stateDir,
+    })
+
+    const reply = await racing.send(ref, "and then this", OWNER)
+    const current = store.load(ref.id)?.notification.run_epoch
+
+    expect(current ?? -1).toBeGreaterThan(0)
+    expect(reply.ref.run_epoch).toBe(current ?? -1)
+    expect(reply.phase).toBe("pending")
+    expect(reply.host_status).toBe(`continued as epoch ${current}`)
+  })
+
+  test("a settle that lands while the watch is being set up is seen exactly once", async () => {
+    const inProcess = new FakeRunner()
+    const { manager, store } = makeManager({ inProcess })
+    const started = await manager.start(baseSpec())
+    if (started.kind !== "started") throw new Error("expected a started child")
+    const ref: HandleRef = { kind: "agent", id: started.task_id, run_epoch: 0 }
+    const host = createEvalHandleHost({
+      tasks: {
+        get: (id) => manager.get(id),
+        cancelTask: (id, reason, options) => manager.cancelTask(id, reason, options),
+        sendToTask: (input) => manager.sendToTask(input),
+        waitFor: (id, options) => {
+          const waiting = manager.waitFor(id, options)
+          inProcess.handles.get(id)?.settle({ status: "completed", finalResponse: "during setup" })
+          return waiting
+        },
+      },
+      workpools: NO_POOLS,
+      poolCaller: (sessionId) => ({ sessionId, rootSessionId: sessionId, depth: 0, cwd: "/" }),
+      stateDir: store.stateDir,
+    })
+
+    const watch = await host.watch([ref], OWNER)
+    const updates = drain(watch)
+    await manager.waitFor(ref.id, { signal: AbortSignal.timeout(5000) })
+    await flush()
+    watch.close()
+
+    const seen = [...watch.initial, ...(await updates)].filter((snapshot) => snapshot.phase === "succeeded")
+    expect(seen).toHaveLength(1)
+  })
+
+  test("a watch whose run is rolled back ends as lost when the waiter settles with the earlier run, instead of waiting out its timeout", async () => {
+    const { manager, store, ref, settle } = await harness()
+    await settle("first pass")
+    const revived = await manager.sendToTask({ idOrName: ref.id, message: "second pass", callerSessionId: OWNER.ownerSessionId })
+    if (revived.kind !== "revived") throw new Error("expected a revive")
+    const successor: HandleRef = { ...ref, run_epoch: revived.run_epoch }
+    let rollBack: () => void = () => undefined
+    const host = createEvalHandleHost({
+      tasks: {
+        get: (id) => manager.get(id),
+        cancelTask: (id, reason, options) => manager.cancelTask(id, reason, options),
+        sendToTask: (input) => manager.sendToTask(input),
+        waitFor: (id) => new Promise((resolve) => {
+          rollBack = () => {
+            store.mutate(id, (record) => ({ ...record, status: "completed", run_start_epoch: 0, notification: { ...record.notification, run_epoch: 0 } }))
+            const restored = store.load(id)
+            if (restored !== null) resolve(restored)
+          }
+        }),
+      },
+      workpools: NO_POOLS,
+      poolCaller: (sessionId) => ({ sessionId, rootSessionId: sessionId, depth: 0, cwd: "/" }),
+      stateDir: store.stateDir,
+    })
+    const watch = await host.watch([successor], OWNER)
+    const updates = drain(watch)
+
+    rollBack()
+    await flush()
+    watch.close()
+
+    expect((await updates).map((s) => s.phase)).toEqual(["lost"])
+    await expect(host.result(successor, OWNER)).rejects.toMatchObject({ code: "eval_handle_not_found" })
   })
 
   test("a watch on a pre-upgrade record still delivers its terminal after an in-run epoch move, and the result names the re-fetch", async () => {

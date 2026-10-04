@@ -1,5 +1,5 @@
 import type { CancelReceipt, HandleCallContext, HandleOutcome, HandleRef, HandleSnapshot, OutputRequest, OutputSnapshot } from "@code-yeongyu/senpi"
-import type { TaskRecord } from "../state"
+import { fenceRun, type TaskRecord } from "../state"
 import type { CancelOptions, CancelOutcome, SendInput, SendOutcome } from "../steering/types"
 import { renderTranscript } from "../tools/output/render"
 import type { TranscriptReader } from "../tools/output/types"
@@ -21,7 +21,11 @@ export type ControlDeps = {
 
 const CANCEL_REASON = "cancelled from an eval handle"
 const DEFAULT_TAIL_LINES = 60
-const DELIVERED_AS_RUN_ENDED = "delivered as the run ended; a follow-up turn would run as a newer epoch, so re-fetch this task's handle to follow it"
+/** Machine-readable `host_status` values for a send that did not simply land on the handle's live run. */
+export const SEND_HOST_STATUS = {
+  /** The run ended while the message was delivered; a follow-up turn would be a newer epoch, so re-fetch to follow it. */
+  deliveredAfterEnd: "delivered_after_run_ended",
+} as const
 
 export function resultOf(deps: ControlDeps, ref: HandleRef, ctx: HandleCallContext): HandleOutcome {
   if (ref.kind === "workpool") {
@@ -47,6 +51,11 @@ export async function cancelRef(deps: ControlDeps, ref: HandleRef, ctx: HandleCa
   // The engine refused under the record lock because the run moved: name it, never report the successor's state.
   if (outcome.kind === "stale") throw staleError(after, ref)
   const cancelled = outcome.kind === "cancelled" || outcome.kind === "cancel_pending"
+  // A revive can land between the engine call and this read: the receipt is about this ref's run, never the next one.
+  if (fenceRun(after, ref.run_epoch) !== "live") {
+    if (cancelled) return { ref, cancelled, phase: "cancelled" }
+    throw staleError(after, ref)
+  }
   return { ref, cancelled, phase: taskSnapshot(after, ref).phase }
 }
 
@@ -62,11 +71,17 @@ export async function sendRef(deps: ControlDeps, ref: HandleRef, message: string
       return taskSnapshot(record, successor, `revived as epoch ${outcome.run_epoch}`)
     }
     case "steered":
-    case "queued":
-      // The run ended while the message was being delivered: a follow-up turn on it would run as a newer epoch this
-      // ref cannot follow, so say so instead of reporting a plain finished run.
-      if (isSettled(record) && record.notification.run_epoch === ref.run_epoch) return taskSnapshot(record, ref, DELIVERED_AS_RUN_ENDED)
+    case "queued": {
+      // The child already started a follow-up turn on the message: that is a newer run, so hand back its ref, as a
+      // revive does, instead of a snapshot of the next run under this one.
+      if (fenceRun(record, ref.run_epoch) !== "live") {
+        const successor = { ...ref, run_epoch: record.notification.run_epoch }
+        return taskSnapshot(record, successor, `continued as epoch ${record.notification.run_epoch}`)
+      }
+      // The run ended while the message was delivered: a follow-up turn would be a newer epoch this ref cannot follow.
+      if (isSettled(record)) return taskSnapshot(record, ref, SEND_HOST_STATUS.deliveredAfterEnd)
       return taskSnapshot(record, ref)
+    }
     case "stale":
       throw staleError(record, ref)
     case "scope_denied":

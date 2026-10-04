@@ -105,7 +105,7 @@ export type CancelOutcome =
   | { readonly kind: "cancel_pending"; readonly task_id: string; readonly previous_status: TaskStatus; readonly reason: string }
   | { readonly kind: "noop"; readonly task_id: string; readonly status: TaskStatus; readonly reason: string }
   /** The caller named an earlier run (`expectedRunEpoch`) and the task has moved on; nothing was cancelled. */
-  | { readonly kind: "stale"; readonly task_id: string; readonly run_epoch: number; readonly reason: string }
+  | { readonly kind: "stale"; readonly task_id: string; readonly status: TaskStatus; readonly run_epoch: number; readonly reason: string }
   | { readonly kind: "not_found"; readonly reason: string }
 
 export type SteeringEngine = {

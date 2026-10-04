@@ -57,6 +57,9 @@ function subscribeTask(tasks: TaskWaiter, ref: HandleRef, ctx: HandleCallContext
     (record) => {
       const fence = fenceRun(record, ref.run_epoch)
       if (fence === "live" || fence === "legacy") offer(ref, taskSnapshot(record, ref))
+      // The run this ref named is gone (rolled back, or replaced): end the watch now so wait() reads the reason from
+      // result() instead of waiting out its timeout.
+      else offer(ref, { ref, phase: "lost", host_status: "no_longer_current_run", revision: Number.MAX_SAFE_INTEGER })
     },
     () => undefined,
   )
