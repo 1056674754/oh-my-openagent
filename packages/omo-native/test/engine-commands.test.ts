@@ -84,7 +84,8 @@ afterEach(() => {
 })
 
 function launcherWithFakeEngine() {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "omo-engine-commands-")))
+  // The long-name form: tmpdir() is an 8.3 short path (RUNNER~1) on Windows runners, and the launcher reports the long one.
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "omo-engine-commands-")))
   roots.push(root)
   const packageRoot = join(root, "app")
   cpSync(join(SOURCE_ROOT, "bin"), join(packageRoot, "bin"), { recursive: true })
