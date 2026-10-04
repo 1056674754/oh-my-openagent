@@ -2,13 +2,6 @@ import { expect, test } from "@playwright/test"
 
 import { scrollSecret } from "./secret-reading-state"
 
-interface BlockState {
-  readonly index: number
-  readonly top: number
-  readonly bottom: number
-  readonly progress: number
-}
-
 async function waitForReadingBlocks(): Promise<void> {
   await document.fonts.ready
   const blocks = Array.from(document.querySelectorAll<HTMLElement>(".lit-read"))
@@ -33,21 +26,23 @@ async function waitForReadingBlocks(): Promise<void> {
   )
 }
 
-function readBlocks(): { mode: string; blocks: BlockState[] } {
-  const first = document.querySelector<HTMLElement>(".lit-read")
-  const blocks = Array.from(document.querySelectorAll<HTMLElement>(".lit-read"))
-  return {
-    mode: first?.dataset.litMode ?? "missing",
-    blocks: blocks.map((block, index) => {
-      const rect = block.getBoundingClientRect()
-      return {
-        index,
-        top: rect.top,
-        bottom: rect.bottom,
-        progress: Number.parseFloat(getComputedStyle(block).getPropertyValue("--lit-p")),
-      }
-    }),
+// The lit frontier: the deepest viewport Y (from the top) that is fully readable. A word counts as
+// lit once its gradient fill has completed (`background-position-x` has swept to 0%). The reveal is
+// a continuous window, so every word above the frontier is lit and every word below is at the floor.
+function litFrontier(): number {
+  let frontier = 0
+  for (const word of Array.from(document.querySelectorAll<HTMLElement>(".lit-read .lit-word"))) {
+    const positionX = Number.parseFloat(getComputedStyle(word).backgroundPositionX)
+    if (positionX <= 0.5) {
+      frontier = Math.max(frontier, word.getBoundingClientRect().bottom)
+    }
   }
+  return frontier
+}
+
+function firstProgress(): string {
+  const first = document.querySelector<HTMLElement>(".lit-read")
+  return first?.dataset.litMode ?? "missing"
 }
 
 for (const locale of ["en", "ko"]) {
@@ -76,73 +71,107 @@ for (const locale of ["en", "ko"]) {
           }
           await page.goto(`/${locale}/manifesto`)
           await page.evaluate(waitForReadingBlocks)
-          const initial = await page.evaluate(readBlocks)
-          expect(initial.mode).toBe(variant === "timeline" ? "scroll" : "observer")
-          expect(initial.blocks.length).toBeGreaterThan(4)
+          expect(await page.evaluate(firstProgress)).toBe(
+            variant === "timeline" ? "scroll" : "observer",
+          )
+          const blockCount = await page.evaluate(
+            () => document.querySelectorAll(".lit-read").length,
+          )
+          expect(blockCount).toBeGreaterThan(4)
 
           const maxY = await page.evaluate(
             () => document.documentElement.scrollHeight - innerHeight,
           )
-          let sawEdge = false
-          let previousProgress: number[] = []
-          // After an instant jump the CSS view() timeline's currentTime lags one rendering update
-          // behind the fallback (which is synchronous); wait for every block to report the settled
-          // progress the range math guarantees before asserting.
-          const settleTimeline = () =>
-            page.waitForFunction(
-              () => {
-                const vh = innerHeight
-                for (const block of Array.from(
-                  document.querySelectorAll<HTMLElement>(".lit-read"),
-                )) {
-                  const rect = block.getBoundingClientRect()
-                  const p = Number.parseFloat(getComputedStyle(block).getPropertyValue("--lit-p"))
-                  if (rect.bottom < 0 && p !== 1) return false
-                  if (rect.top > vh && p !== 0) return false
-                }
-                return true
-              },
-              undefined,
-              { timeout: 5000 },
+          let sawMid = false
+          let previousFrontier = -1
+          // Let the view() timeline catch up to an instant scroll before reading.
+          const settle = () =>
+            page.evaluate(
+              () =>
+                new Promise((r) =>
+                  requestAnimationFrame(() =>
+                    requestAnimationFrame(() => requestAnimationFrame(() => r(null))),
+                  ),
+                ),
             )
-          for (let y = 200; y < maxY; y += 89) {
+          for (let y = 200; y < maxY; y += 120) {
             await page.evaluate(scrollSecret, y)
-            await settleTimeline()
-            const { blocks } = await page.evaluate(readBlocks)
-            // The reveal is monotonic scrolling down: no block's progress decreases.
-            for (const block of blocks) {
-              const previous = previousProgress[block.index]
-              if (previous !== undefined) {
-                expect(block.progress, `scrollY ${y} block ${block.index}`).toBeGreaterThanOrEqual(
-                  previous - 1e-6,
-                )
-              }
+            await settle()
+            const frontier = await page.evaluate(litFrontier)
+            // Per-word geometry: already-revealed text stays lit, so the lit frontier is monotonic
+            // scrolling down (reading never un-lights).
+            expect(frontier, `scrollY ${y}`).toBeGreaterThanOrEqual(previousFrontier - 1)
+            previousFrontier = frontier
+            // Once the reader has scrolled a screen, the lit region reaches well into the upper
+            // viewport: the top of the screen is always fully readable.
+            if (y > viewport.height) {
+              expect(frontier, `scrollY ${y} readable screenful`).toBeGreaterThan(
+                viewport.height * 0.4,
+              )
             }
-            previousProgress = blocks.map((block) => block.progress)
-            const edge = blocks.find((block) => block.progress > 0 && block.progress < 1)
-            if (edge) {
-              sawEdge = true
-              // A block the edge has fully passed (scrolled above the viewport) is fully revealed.
-              for (const block of blocks) {
-                if (block.bottom < 0) {
-                  expect(block.progress, `scrollY ${y} block ${block.index}`).toBe(1)
-                }
-              }
-              // The edge block is on screen: the reveal band lives in the lower viewport, so the
-              // block being reached overlaps the viewport.
-              expect(edge.top, `scrollY ${y}`).toBeLessThan(viewport.height)
-              expect(edge.bottom, `scrollY ${y}`).toBeGreaterThan(0)
+            if (frontier > viewport.height * 0.4 && frontier < viewport.height * 0.98) {
+              sawMid = true
             }
           }
-          expect(sawEdge).toBe(true)
+          expect(sawMid).toBe(true)
 
+          // The reading floor is crisp: unrevealed words are never blurred (review H2).
+          const blur = await page.evaluate(() =>
+            Array.from(
+              new Set(
+                Array.from(document.querySelectorAll(".lit-read .lit-word"), (word) => {
+                  const filter = getComputedStyle(word).filter
+                  return filter === "none" ? "none" : filter
+                }),
+              ),
+            ),
+          )
+          expect(blur).toEqual(["none"])
+
+          // TALL-block contract: while scrolling through the tallest reading block at normal speed,
+          // no already-revealed word goes dim again (per-word geometry keeps revealed text lit).
+          const tallest = await page.evaluate(() => {
+            let best: { top: number; height: number } | null = null
+            for (const block of Array.from(document.querySelectorAll<HTMLElement>(".lit-read"))) {
+              const rect = block.getBoundingClientRect()
+              if (!best || rect.height > best.height) {
+                best = { top: rect.top + scrollY, height: rect.height }
+              }
+            }
+            return best
+          })
+          if (tallest) {
+            const litStates = new Map<string, boolean>()
+            const startY = Math.max(0, Math.round(tallest.top - viewport.height))
+            const endY = Math.min(maxY, Math.round(tallest.top + tallest.height))
+            for (let y = startY; y <= endY; y += 60) {
+              await page.evaluate(scrollSecret, y)
+              await page.evaluate(
+                () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+              )
+              const lit = await page.evaluate(() =>
+                Array.from(document.querySelectorAll<HTMLElement>(".lit-read .lit-word")).map(
+                  (word, index) => ({
+                    key: `${index}:${(word.textContent ?? "").slice(0, 8)}`,
+                    lit: Number.parseFloat(getComputedStyle(word).backgroundPositionX) <= 0.5,
+                  }),
+                ),
+              )
+              for (const { key, lit: isLit } of lit) {
+                if (litStates.get(key) === true) {
+                  expect(isLit, `revealed word re-dimmed at scrollY ${y}: ${key}`).toBe(true)
+                } else {
+                  litStates.set(key, isLit)
+                }
+              }
+            }
+          }
+
+          // Scrolled to the very bottom, everything is lit.
           await page.evaluate(scrollSecret, maxY)
-          const bottom = await page.evaluate(readBlocks)
-          expect(bottom.blocks.every((block) => block.progress === 1)).toBe(true)
-
-          await page.evaluate(scrollSecret, 0)
-          const top = await page.evaluate(readBlocks)
-          expect(top.blocks.filter((block) => block.progress === 0).length).toBeGreaterThan(0)
+          const endFrontier = await page.evaluate(litFrontier)
+          const docHeight = await page.evaluate(() => document.documentElement.scrollHeight)
+          expect(endFrontier).toBeGreaterThan(docHeight - viewport.height * 2)
         })
       }
 
@@ -150,20 +179,25 @@ for (const locale of ["en", "ko"]) {
         await page.emulateMedia({ reducedMotion: "reduce" })
         await page.goto(`/${locale}/manifesto`)
         await page.evaluate(waitForReadingBlocks)
-        const state = await page.evaluate(readBlocks)
-        expect(state.mode).toBe("observer")
-        const colors = await page.evaluate(() =>
-          Array.from(
-            new Set(
-              Array.from(document.querySelectorAll(".lit-read .lit-word"), (word) => {
-                const css = getComputedStyle(word)
-                return `${css.color}|${css.backgroundImage}|${css.filter}`
-              }),
+        expect(await page.evaluate(firstProgress)).toBe("observer")
+        const lit = await page.evaluate(() => {
+          const blocks = Array.from(document.querySelectorAll<HTMLElement>(".lit-read"))
+          const words = Array.from(document.querySelectorAll<HTMLElement>(".lit-read .lit-word"))
+          return {
+            blocksLit: blocks.every(
+              (block) =>
+                Number.parseFloat(getComputedStyle(block).getPropertyValue("--lit-p")) === 1,
             ),
-          ),
-        )
-        expect(colors).toHaveLength(1)
-        expect(colors[0]).toContain("none|none")
+            allTextHi: words.every((word) => getComputedStyle(word).color === "rgb(245, 245, 247)"),
+            noneBlurred: words.every((word) => {
+              const filter = getComputedStyle(word).filter
+              return filter === "none" || filter === "blur(0px)"
+            }),
+          }
+        })
+        expect(lit.blocksLit).toBe(true)
+        expect(lit.allTextHi).toBe(true)
+        expect(lit.noneBlurred).toBe(true)
       })
     })
   }

@@ -62,8 +62,20 @@ export function useLitProgress(
         const endTop = vhPx(style, "--lit-line", viewport) - vhPx(style, "--lit-band", viewport)
         element.style.setProperty(
           "--lit-p",
-          String(clamp01((startTop - rect.top) / (startTop - endTop + rect.height))),
+          String(clamp01((startTop - rect.top) / (startTop - endTop))),
         )
+        // Per-word geometry (fallback only): a word lights as its own bottom crosses the full line.
+        // Read every rect first, then write vars — no layout read inside the write pass; only words
+        // in or near the viewport are touched.
+        const words: { node: HTMLElement; bottom: number; height: number }[] = []
+        for (const word of body.querySelectorAll<HTMLElement>(".lit-word")) {
+          const wordRect = word.getBoundingClientRect()
+          if (wordRect.bottom < -viewport || wordRect.top > viewport * 2) continue
+          words.push({ node: word, bottom: wordRect.bottom, height: wordRect.height || 1 })
+        }
+        for (const { node, bottom, height } of words) {
+          node.style.setProperty("--lit-local", String(clamp01((endTop - bottom) / height + 1)))
+        }
         return
       }
       const startTop = viewport * 0.8

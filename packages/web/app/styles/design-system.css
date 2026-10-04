@@ -209,8 +209,8 @@
     --lit-follow-fade: 22vh;
     --lit-follow-gap: 1.25em;
     --lit-follow-rise: var(--space-6);
-    --lit-line: 84vh;
-    --lit-band: 12vh;
+    --lit-line: 78vh;
+    --lit-band: 8vh;
     --dur-swap-out: 80ms;
     --dur-swap-in: 220ms;
     --dur-spring: 900ms;
@@ -866,12 +866,12 @@
       animation-range-start: cover 20vh;
       animation-range-end: cover calc(100% - 50vh);
     }
-    /* Reveal mode (manifesto reading blocks): the bright edge moves down the block, completing
-       exactly when the block's bottom reaches the full line — the whole block is lit as it leaves
-       the screen, at any block height. */
+    /* Reveal mode (manifesto reading blocks): the bright edge moves down the block as it crosses
+       from the start edge to the full edge. `cover start → cover end(+100%)` completes exactly when
+       the block's top reaches the full line (72vh), matching the JS fallback at any block height. */
     .lit-read.lit-scroll {
       animation-range-start: cover calc(100vh - var(--lit-line) - var(--lit-band));
-      animation-range-end: exit calc(100% - 100vh + var(--lit-line) - var(--lit-band));
+      animation-range-end: cover calc(100vh - var(--lit-line) + var(--lit-band) + 100%);
     }
     .lit-scroll .lit-follow {
       animation: lit-follow linear both;
@@ -926,10 +926,11 @@
   }
 
   /* Reading blocks (manifesto): the same sweep, tuned for long-form prose. Unread words stay
-     legible (--text-lo instead of --text-faint), the blur is halved, and every word is lit until
-     hydration picks a mode, so the page reads before JavaScript does. */
+     legible (--text-lo instead of --text-faint) and are never blurred — a readable floor, not a
+     smeared one — and every word is lit until hydration picks a mode, so the page reads before
+     JavaScript does. */
   .lit-read {
-    --lit-blur: 2px;
+    --lit-blur: 0px;
   }
   .lit-read[data-lit-mode="pending"] {
     --lit-p: 1;
@@ -942,6 +943,12 @@
       var(--text-lo) 55%,
       var(--text-lo) 100%
     );
+  }
+  /* Native timeline path: a tight 2-word stagger is the per-word reveal — a word fully lights
+     within its own couple of words, so already-revealed text never lags the scroll. The fallback
+     sets --lit-local inline per word, which outranks this. */
+  .lit-read.lit-scroll .lit-word {
+    --lit-local: clamp(0, calc((var(--lit-p) * (var(--lit-count) + 2) - var(--i)) / 2), 1);
   }
   .lit-link {
     text-decoration: underline;
