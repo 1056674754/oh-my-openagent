@@ -58,6 +58,11 @@ const supervisorOutputPath = process.env.OMO_SENPI_PLUGIN_OUTPUT === undefined ?
 export const GATEWAY_STORE_WORKER_NAME = "gateway-store-worker.mjs"
 const gatewayStoreWorkerEntryPath = join(packageRoot, "src", "components", "thread", "gateway", "store-worker.ts")
 const gatewayStoreWorkerOutputPath = join(process.env.OMO_SENPI_PLUGIN_OUTPUT ?? pluginRoot, "extensions", GATEWAY_STORE_WORKER_NAME)
+// The gateway_rules store extension's ops module is imported by the store worker through a file
+// URL, so it ships as its own entry beside omo.js; the gateway component resolves this name.
+export const GATEWAY_RULES_EXTENSION_NAME = "gateway-rules-extension.mjs"
+const gatewayRulesExtensionEntryPath = join(packageRoot, "src", "components", "gateway", "store-extension", "index.ts")
+const gatewayRulesExtensionOutputPath = join(process.env.OMO_SENPI_PLUGIN_OUTPUT ?? pluginRoot, "extensions", GATEWAY_RULES_EXTENSION_NAME)
 const toolkitSdkEntryPath = join(packageRoot, "src", "extension", "agent-toolkit-sdk.ts")
 const toolkitSdkOutputPath = join(process.env.OMO_SENPI_PLUGIN_OUTPUT ?? pluginRoot, "runtime", "agent-toolkit-sdk", "sdk.js")
 // The `omo thread` CLI and connector scripts import this SDK without an agent session; it points
@@ -114,6 +119,7 @@ export const extensionBuildPaths = {
   computerUseOutputPath,
   memoryDoctorOutputPath,
   gatewayStoreWorkerOutputPath,
+  gatewayRulesExtensionOutputPath,
 }
 
 // An explicit path wins; with only `outputPath` set, every sidecar lands beside it.
@@ -133,6 +139,7 @@ export function resolveOutputs(options) {
     memoryDoctorOutput: sibling(options.memoryDoctorOutputPath, memoryDoctorOutputPath, "omo-memory-doctor.js"),
     computerUseOutput: sibling(options.computerUseOutputPath, computerUseOutputPath, "omo-computer-use.js"),
     gatewayStoreWorkerOutput: sibling(options.gatewayStoreWorkerOutputPath, gatewayStoreWorkerOutputPath, GATEWAY_STORE_WORKER_NAME),
+    gatewayRulesExtensionOutput: sibling(options.gatewayRulesExtensionOutputPath, gatewayRulesExtensionOutputPath, GATEWAY_RULES_EXTENSION_NAME),
   }
 }
 
@@ -157,6 +164,7 @@ export async function buildExtension(options = {}) {
     computerUseOutput,
     memoryDoctorOutput,
     gatewayStoreWorkerOutput,
+    gatewayRulesExtensionOutput,
   } = resolveOutputs(options)
   const toolkitSdkInputs = await buildEntry(toolkitSdkEntryPath, toolkitSdkOutput, buildDefines, sdkExternalSpecifiers)
   const mainInputs = await buildEntry(entryPath, output, buildDefines)
@@ -168,6 +176,7 @@ export async function buildExtension(options = {}) {
   const memoryDoctorInputs = await buildEntry(memoryDoctorEntryPath, memoryDoctorOutput, buildDefines)
   const computerUseInputs = await buildEntry(computerUseEntryPath, computerUseOutput, buildDefines)
   const gatewayStoreWorkerInputs = await buildEntry(gatewayStoreWorkerEntryPath, gatewayStoreWorkerOutput, buildDefines, sdkExternalSpecifiers)
+  const gatewayRulesExtensionInputs = await buildEntry(gatewayRulesExtensionEntryPath, gatewayRulesExtensionOutput, buildDefines)
   const threadSdkInputs = await buildEntry(threadSdkEntryPath, threadSdkOutput, buildDefines, sdkExternalSpecifiers)
   // Bundling inlines assets.ts but its markdown is read from disk at runtime next to the bundle,
   // so the persona and the computer-use prelude are staged into the directory the loader runs from.
@@ -186,6 +195,7 @@ export async function buildExtension(options = {}) {
     computerUseInputs,
     memoryDoctorInputs,
     gatewayStoreWorkerInputs,
+    gatewayRulesExtensionInputs,
     threadSdkInputs,
   }
 }
