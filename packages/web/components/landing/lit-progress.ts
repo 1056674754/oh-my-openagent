@@ -31,6 +31,46 @@ function vhPx(style: CSSStyleDeclaration, property: string, viewport: number): n
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value))
 
 /**
+ * The reveal's single authoritative driver: one document-level scroll/resize/scrollend listener
+ * that lights every reveal word by its own document position. A word lights as its bottom crosses
+ * the full line (--lit-line - --lit-band) of any reading block on the page. Because the input is
+ * document-relative, already-revealed text stays lit and the lit frontier is monotonic — there is
+ * no per-block observer to go stale once a block scrolls past. Registered once, rAF-batched.
+ */
+let revealDriverArmed = false
+function armRevealDriver(): void {
+  if (revealDriverArmed) return
+  revealDriverArmed = true
+  let frame = 0
+  const update = () => {
+    frame = 0
+    const viewport = window.innerHeight
+    for (const block of Array.from(document.querySelectorAll<HTMLElement>(".lit-read"))) {
+      const body = block.querySelector<HTMLElement>(".lit-text")
+      if (!body) continue
+      const endTop =
+        vhPx(getComputedStyle(block), "--lit-line", viewport) -
+        vhPx(getComputedStyle(block), "--lit-band", viewport)
+      const words: { node: HTMLElement; bottom: number; height: number }[] = []
+      for (const word of body.querySelectorAll<HTMLElement>(".lit-word")) {
+        const rect = word.getBoundingClientRect()
+        words.push({ node: word, bottom: rect.bottom, height: rect.height || 1 })
+      }
+      for (const { node, bottom, height } of words) {
+        node.style.setProperty("--lit-local", String(clamp01((endTop - bottom) / height + 1)))
+      }
+    }
+  }
+  const schedule = () => {
+    if (frame === 0) frame = requestAnimationFrame(update)
+  }
+  window.addEventListener("scroll", schedule, { passive: true })
+  window.addEventListener("resize", schedule)
+  document.addEventListener("scrollend", schedule)
+  update()
+}
+
+/**
  * Scroll-driven reveal. `reveal` (manifesto): a bright edge moves down the block; everything above
  * it stays lit, words below rest at the unread floor — a whole screenful is always readable.
  * Default paragraph (landing secret): the body sweeps across `20vh → 50vh`, then `.lit-follow`
@@ -43,7 +83,9 @@ export function useLitProgress(
   reveal: boolean,
 ): LitMode {
   const [driven, setMode] = useState<LitMode>("pending")
-  const mode: LitMode = reducedMotion ? "observer" : driven
+  // Reveal mode is always driven by the shared observer driver; paragraph mode uses the timeline
+  // when available and the observer fallback otherwise; reduced motion never animates.
+  const mode: LitMode = reducedMotion || reveal ? "observer" : driven
 
   useEffect(() => {
     if (reducedMotion) return
@@ -51,33 +93,18 @@ export function useLitProgress(
     const body = element?.querySelector<HTMLElement>(".lit-text")
     const follow = element?.querySelector<HTMLElement>(".lit-follow") ?? null
     if (!element || !body) return
+    if (reveal) {
+      // The reveal is driven by the shared document-level per-word driver (monotonic frontier).
+      // Its mode is derived as "observer" above; no setState here (avoids a cascading render).
+      armRevealDriver()
+      return
+    }
     const useTimeline = registerLitProgress() && supportsScrollTimeline()
 
     const updateProgress = () => {
       const rect = body.getBoundingClientRect()
       const viewport = window.innerHeight
       const style = getComputedStyle(element)
-      if (reveal) {
-        const startTop = vhPx(style, "--lit-line", viewport) + vhPx(style, "--lit-band", viewport)
-        const endTop = vhPx(style, "--lit-line", viewport) - vhPx(style, "--lit-band", viewport)
-        element.style.setProperty(
-          "--lit-p",
-          String(clamp01((startTop - rect.top) / (startTop - endTop))),
-        )
-        // Per-word geometry (fallback only): a word lights as its own bottom crosses the full line.
-        // Read every rect first, then write vars — no layout read inside the write pass; only words
-        // in or near the viewport are touched.
-        const words: { node: HTMLElement; bottom: number; height: number }[] = []
-        for (const word of body.querySelectorAll<HTMLElement>(".lit-word")) {
-          const wordRect = word.getBoundingClientRect()
-          if (wordRect.bottom < -viewport || wordRect.top > viewport * 2) continue
-          words.push({ node: word, bottom: wordRect.bottom, height: wordRect.height || 1 })
-        }
-        for (const { node, bottom, height } of words) {
-          node.style.setProperty("--lit-local", String(clamp01((endTop - bottom) / height + 1)))
-        }
-        return
-      }
       const startTop = viewport * 0.8
       const endTop = viewport * 0.5 - rect.height
       element.style.setProperty(

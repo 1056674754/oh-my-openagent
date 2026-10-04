@@ -866,13 +866,11 @@
       animation-range-start: cover 20vh;
       animation-range-end: cover calc(100% - 50vh);
     }
-    /* Reveal mode (manifesto reading blocks): the bright edge moves down the block as it crosses
-       from the start edge to the full edge. `cover start → cover end(+100%)` completes exactly when
-       the block's top reaches the full line (72vh), matching the JS fallback at any block height. */
-    .lit-read.lit-scroll {
-      animation-range-start: cover calc(100vh - var(--lit-line) - var(--lit-band));
-      animation-range-end: cover calc(100vh - var(--lit-line) + var(--lit-band) + 100%);
-    }
+    /* Reveal mode (manifesto reading blocks): the reveal is driven by the JS per-word geometry in
+       lit-progress.ts (each word lights as its bottom crosses the full line), so the lit frontier
+       is monotonic and already-revealed text never lags the scroll. The JS observer fallback is the
+       single authoritative driver; the CSS scroll-timeline approximation (a block cascade) cannot
+       track tall blocks word-by-word, so the reveal does not opt into it. */
     .lit-scroll .lit-follow {
       animation: lit-follow linear both;
       animation-timeline: --lit-body;
@@ -943,12 +941,6 @@
       var(--text-lo) 55%,
       var(--text-lo) 100%
     );
-  }
-  /* Native timeline path: a tight 2-word stagger is the per-word reveal — a word fully lights
-     within its own couple of words, so already-revealed text never lags the scroll. The fallback
-     sets --lit-local inline per word, which outranks this. */
-  .lit-read.lit-scroll .lit-word {
-    --lit-local: clamp(0, calc((var(--lit-p) * (var(--lit-count) + 2) - var(--i)) / 2), 1);
   }
   .lit-link {
     text-decoration: underline;
