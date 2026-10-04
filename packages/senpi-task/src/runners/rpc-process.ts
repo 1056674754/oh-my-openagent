@@ -117,14 +117,15 @@ export class RpcProcessRunner {
     })
   }
 
-  // A separate `senpi --mode rpc` process has no way to receive an in-memory fallback chain, so the
-  // child runs on the user's settings; say so once rather than drop the chain silently.
+  // A separate `senpi --mode rpc` process has no way to receive an in-memory fallback chain. The manager
+  // still walks the chain when a turn fails before any tool call (#tryRuntimeFallback); what is lost is
+  // the in-session hop after a tool call. Say so once rather than drop it silently.
   private noticeFallbackChainUnsupported(spec: RpcRunnerSpec): void {
     if (this.fallbackChainUnsupportedNoticed || (spec.fallbackModels ?? []).length === 0) return
     this.fallbackChainUnsupportedNoticed = true
     this.onWarning(
-      "task children started as their own process run without their configured fallback models; " +
-        "they fall back only through your senpi settings",
+      "task children started as their own process switch to their fallback models only when a turn " +
+        "fails before any tool call; after a tool call they fall back only through your senpi settings",
     )
   }
 }

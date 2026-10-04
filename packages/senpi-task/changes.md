@@ -16,6 +16,13 @@
 
 The tests fail without the buffer and with a 1,000-event cap.
 
+Review follow-ups (same change):
+- Until the buffer is released it is the single ordered log. An event that arrives meanwhile, including one an observer causes while its own replay is running, is appended. An observer still replaying reads it through its cursor; only observers that already finished replaying get it live. So each observer sees each event exactly once, in emission order.
+- A listener that throws during replay is reported (`onListenerError`, logged by the handle) instead of escaping `subscribe`, which runs after the child is already live.
+- `clearActive()` releases the buffer, so a child that ends before anyone subscribes keeps nothing.
+
+`rpc-process.ts` and `rpc-host/session-open.ts`: the one-time warnings now state the real limit. A process child, or a child on a host without `retry_fallback_profile`, still switches to its fallback models when a turn fails before any tool call (the manager's runtime fallback). What it loses is the switch after a tool call.
+
 ## 2026-10-04 - A daemon-hosted child gets its own fallback chain on open_session (#9512)
 
 A child run on the shared task host never got its configured fallback models. `RpcRunnerSpec` had no field for them, the host session ran on the host's settings, and its in-session fallback refused to switch once the turn had made tool calls.

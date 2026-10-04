@@ -80,4 +80,58 @@ describe("events a warm host delivers before the manager subscribes (#9512)", ()
     expect(seen[0]).toBe(fallbackApplied)
     expect(seen.at(-1)).toBe(turnEnded)
   })
+
+  test("#given an observer whose handling of a replayed event makes the child emit another #when both observers attach #then each sees every event exactly once in emission order", () => {
+    // given
+    const listeners = createHandleListeners()
+    const caused = { type: "message_update", index: 1 } as unknown as ChildEvent
+    listeners.emitEvent(fallbackApplied)
+    listeners.emitEvent(turnEnded)
+    const transcript: ChildEvent[] = []
+    listeners.registrations.subscribe((event) => {
+      transcript.push(event)
+      if (event === fallbackApplied) listeners.emitEvent(caused)
+    })
+
+    // when
+    const stats = collect(listeners)
+
+    // then
+    expect(transcript).toEqual([fallbackApplied, turnEnded, caused])
+    expect(stats).toEqual([fallbackApplied, turnEnded, caused])
+  })
+
+  test("#given an observer that throws on a replayed event #when the manager attaches observers #then subscribing does not throw, the failure is reported, and the other observer still sees every event", () => {
+    // given
+    const failures: unknown[] = []
+    const listeners = createHandleListeners({ onListenerError: (error) => void failures.push(error) })
+    listeners.emitEvent(fallbackApplied)
+    listeners.emitEvent(turnEnded)
+
+    // when
+    const subscribeThrowing = () => listeners.registrations.subscribe(() => {
+      throw new Error("observer failed")
+    })
+    expect(subscribeThrowing).not.toThrow()
+    const stats = collect(listeners)
+
+    // then
+    expect(failures).toHaveLength(2)
+    expect(stats).toEqual([fallbackApplied, turnEnded])
+  })
+
+  test("#given a child that ended before anyone subscribed #when an observer attaches afterwards #then nothing from the ended child is kept or replayed", () => {
+    // given
+    const listeners = createHandleListeners()
+    listeners.emitEvent(fallbackApplied)
+    listeners.emitEvent(turnEnded)
+    listeners.clearActive()
+
+    // when
+    const late = collect(listeners)
+    listeners.emitEvent(turnEnded)
+
+    // then
+    expect(late).toEqual([turnEnded])
+  })
 })
