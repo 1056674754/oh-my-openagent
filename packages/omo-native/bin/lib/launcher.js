@@ -6,6 +6,8 @@ import { doctorCoverageLines } from "./category-coverage.js"
 import { doctorComputerUseLines } from "./computer-use-doctor.js"
 import { doctorConfigLines } from "./config-doctor.js"
 import { runDaemonCommand } from "./daemon.js"
+import { runThreadCommand } from "./thread.js"
+import { isHostStatusAll, runHostStatusAll, sessionActivityReader } from "./host-status.js"
 import { runDoctor } from "./doctor.js"
 import { ensureEnginePrepared, preparePluginLaunchSpec } from "./engine-prepare.js"
 import { migrateLegacyBunGlobalManifest } from "./legacy-bun-global-migration.js"
@@ -231,10 +233,23 @@ export async function runLauncher(args = process.argv.slice(2)) {
     process.exitCode = 2
     return
   }
+  if (command === "thread") {
+    process.exitCode = await runThreadCommand(args.slice(1), {
+      engine: { run: engineHostCall },
+      pluginRoot: join(packageRoot, "plugin"),
+      agentDir: canonicalAgentDir(),
+      env: process.env,
+      cwd: process.cwd(),
+      stdout: process.stdout,
+      stderr: process.stderr,
+      platform: process.platform,
+    })
+    return
+  }
   // The daemon is the engine's to run; omo only supplies the launch spec, the task settings from
   // the omo config (daemon-config.js), and an exit code the caller can branch on.
   if (command === "daemon") {
-    const outcome = runDaemonCommand(args.slice(1), {
+    const outcome = await runDaemonCommand(args.slice(1), {
       engine: { run: engineHostCall },
       migration: { run: rollbackMigrateCall },
       pluginRoot: join(packageRoot, "plugin"),
@@ -244,13 +259,10 @@ export async function runLauncher(args = process.argv.slice(2)) {
       stderr: process.stderr,
       platform: process.platform,
     })
-    // `omo daemon attach <launch args>`: the daemon is reachable, so this becomes a normal launch
-    // whose environment points the engine at the shared socket instead of starting its own.
-    if (typeof outcome === "object") {
-      const senpi = preparedSenpi()
-      await spawnNode(senpi.cliPath, ["--extension", join(packageRoot, "plugin"), ...outcome.args], {
-        env: { ...senpiEnvironment(senpi.packageRoot), ...outcome.env },
-      })
+    // `omo daemon adopt`: the host released the session, so it resumes here as a normal launch, in its own directory.
+    if (typeof outcome === "object" && Array.isArray(outcome.launch)) {
+      if (typeof outcome.cwd === "string" && existsSync(outcome.cwd)) process.chdir(outcome.cwd)
+      await spawnSenpi(outcome.launch, true)
       return
     }
     process.exitCode = outcome
@@ -301,6 +313,17 @@ export async function runLauncher(args = process.argv.slice(2)) {
   // engine's app-server dispatch. It loads into every thread, including the daemon's.
   if (command === "app-server") {
     await spawnSenpi(args.includes("--no-extensions") ? args : [...args, "--extension", join(packageRoot, "plugin")], false)
+    return
+  }
+  // `host status --all` stays the engine's answer; omo only adds each terminal row's last activity.
+  if (isHostStatusAll(args, process.env)) {
+    process.exitCode = await runHostStatusAll(args, {
+      engine: { run: engineHostCall },
+      env: process.env,
+      stdout: process.stdout,
+      stderr: process.stderr,
+      readActivity: await sessionActivityReader(join(packageRoot, "plugin")),
+    })
     return
   }
   if (earlyCommands.has(command) || command === "update") {
