@@ -16,6 +16,11 @@ async function attachGlyphEvidence(
 }
 
 export async function expectUniformWordGlyphs(page: Page): Promise<number> {
+  // Match rasterization across the gradient actual frame and flat endpoint references.
+  // LCD text can give their thin vertical stems different colored fringes.
+  const smoothing = await page.addStyleTag({
+    content: ".lit-read, .lit-read * { -webkit-font-smoothing: antialiased !important; }",
+  })
   const actual = await page.screenshot({ animations: "disabled", scale: "css" })
   const words = await page.evaluate(() => {
     const visible = Array.from(
@@ -85,6 +90,7 @@ export async function expectUniformWordGlyphs(page: Page): Promise<number> {
       delete word.dataset.uniformReference
     }
   })
+  await smoothing.evaluate((style) => style.parentNode?.removeChild(style))
   const measurement = await page.evaluate(
     async ({ actual, low, high, words }) => {
       async function pixels(base64: string): Promise<ImageData> {
