@@ -209,8 +209,8 @@
     --lit-follow-fade: 22vh;
     --lit-follow-gap: 1.25em;
     --lit-follow-rise: var(--space-6);
-    --lit-line: 50vh;
-    --lit-band: 1vh;
+    --lit-line: 84vh;
+    --lit-band: 12vh;
     --dur-swap-out: 80ms;
     --dur-swap-in: 220ms;
     --dur-spring: 900ms;
@@ -856,24 +856,22 @@
     white-space: pre-line;
     view-timeline: --lit-body block;
   }
-  /* Line mode (`lit-lines`): each authored line is a block with its own view timeline, and its
-     words light while the line crosses the reading line (--lit-line ± --lit-band). Lines do not
-     overlap vertically, so at most one line (plus a few words of its neighbour) is ever mid-sweep. */
-  .lit-line {
-    display: block;
-  }
   @supports (animation-timeline: view()) {
-    .lit-progress.lit-scroll:not(.lit-lines) {
+    .lit-progress.lit-scroll {
       animation: lit-progress linear both;
       animation-timeline: --lit-body;
+    }
+    /* Paragraph mode (landing secret): sweep the body across `cover 20vh → 100% - 50vh`. */
+    .lit-progress.lit-scroll:not(.lit-read) {
       animation-range-start: cover 20vh;
       animation-range-end: cover calc(100% - 50vh);
     }
-    .lit-lines.lit-scroll .lit-line {
-      animation: lit-progress linear both;
-      animation-timeline: view();
+    /* Reveal mode (manifesto reading blocks): the bright edge moves down the block, completing
+       exactly when the block's bottom reaches the full line — the whole block is lit as it leaves
+       the screen, at any block height. */
+    .lit-read.lit-scroll {
       animation-range-start: cover calc(100vh - var(--lit-line) - var(--lit-band));
-      animation-range-end: cover calc(100% - var(--lit-line) + var(--lit-band));
+      animation-range-end: exit calc(100% - 100vh + var(--lit-line) - var(--lit-band));
     }
     .lit-scroll .lit-follow {
       animation: lit-follow linear both;
@@ -1446,8 +1444,7 @@
       display: none;
     }
     .lit-progress,
-    .lit-progress.lit-scroll,
-    .lit-lines.lit-scroll .lit-line {
+    .lit-progress.lit-scroll {
       --lit-p: 1;
       animation: none;
     }

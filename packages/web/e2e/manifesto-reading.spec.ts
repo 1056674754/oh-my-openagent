@@ -2,9 +2,10 @@ import { expect, test } from "@playwright/test"
 
 import { scrollSecret } from "./secret-reading-state"
 
-interface LineState {
+interface BlockState {
   readonly index: number
   readonly top: number
+  readonly bottom: number
   readonly progress: number
 }
 
@@ -32,21 +33,22 @@ async function waitForReadingBlocks(): Promise<void> {
   )
 }
 
-function readLines(): { mode: string; lines: LineState[] } {
+function readBlocks(): { mode: string; blocks: BlockState[] } {
   const first = document.querySelector<HTMLElement>(".lit-read")
-  const lines = Array.from(document.querySelectorAll<HTMLElement>(".lit-read .lit-line"))
+  const blocks = Array.from(document.querySelectorAll<HTMLElement>(".lit-read"))
   return {
     mode: first?.dataset.litMode ?? "missing",
-    lines: lines.map((line, index) => ({
-      index,
-      top: line.getBoundingClientRect().top,
-      progress: Number.parseFloat(getComputedStyle(line).getPropertyValue("--lit-p")),
-    })),
+    blocks: blocks.map((block, index) => {
+      const rect = block.getBoundingClientRect()
+      return {
+        index,
+        top: rect.top,
+        bottom: rect.bottom,
+        progress: Number.parseFloat(getComputedStyle(block).getPropertyValue("--lit-p")),
+      }
+    }),
   }
 }
-
-const midSweep = (lines: readonly LineState[]): LineState[] =>
-  lines.filter((line) => line.progress > 0 && line.progress < 1)
 
 for (const locale of ["en", "ko"]) {
   for (const viewport of [
@@ -57,7 +59,9 @@ for (const locale of ["en", "ko"]) {
       test.use({ viewport })
 
       for (const variant of ["timeline", "fallback"]) {
-        test(`one line sweeps at a time, reversibly (${variant})`, async ({ page }) => {
+        test(`a readable screenful stays lit while the edge sweeps (${variant})`, async ({
+          page,
+        }) => {
           await page.emulateMedia({ reducedMotion: "no-preference" })
           if (variant === "fallback") {
             await page.addInitScript(() => {
@@ -72,46 +76,73 @@ for (const locale of ["en", "ko"]) {
           }
           await page.goto(`/${locale}/manifesto`)
           await page.evaluate(waitForReadingBlocks)
-          const initial = await page.evaluate(readLines)
+          const initial = await page.evaluate(readBlocks)
           expect(initial.mode).toBe(variant === "timeline" ? "scroll" : "observer")
-          expect(initial.lines.length).toBeGreaterThan(30)
+          expect(initial.blocks.length).toBeGreaterThan(4)
 
           const maxY = await page.evaluate(
             () => document.documentElement.scrollHeight - innerHeight,
           )
-          const readingLine = viewport.height / 2
-          let sawSweep = false
+          let sawEdge = false
+          let previousProgress: number[] = []
+          // After an instant jump the CSS view() timeline's currentTime lags one rendering update
+          // behind the fallback (which is synchronous); wait for every block to report the settled
+          // progress the range math guarantees before asserting.
+          const settleTimeline = () =>
+            page.waitForFunction(
+              () => {
+                const vh = innerHeight
+                for (const block of Array.from(
+                  document.querySelectorAll<HTMLElement>(".lit-read"),
+                )) {
+                  const rect = block.getBoundingClientRect()
+                  const p = Number.parseFloat(getComputedStyle(block).getPropertyValue("--lit-p"))
+                  if (rect.bottom < 0 && p !== 1) return false
+                  if (rect.top > vh && p !== 0) return false
+                }
+                return true
+              },
+              undefined,
+              { timeout: 5000 },
+            )
           for (let y = 200; y < maxY; y += 89) {
             await page.evaluate(scrollSecret, y)
-            const { lines } = await page.evaluate(readLines)
-            const active = midSweep(lines)
-            // At most the line on the reading line plus the first words of its neighbour.
-            expect(active.length, `scrollY ${y}`).toBeLessThanOrEqual(2)
-            const [first, second] = active
-            if (first && second) expect(second.index - first.index).toBe(1)
-            for (const line of active) {
-              sawSweep = true
-              expect(Math.abs(line.top + 20 - readingLine), `scrollY ${y}`).toBeLessThan(
-                viewport.height * 0.12,
-              )
+            await settleTimeline()
+            const { blocks } = await page.evaluate(readBlocks)
+            // The reveal is monotonic scrolling down: no block's progress decreases.
+            for (const block of blocks) {
+              const previous = previousProgress[block.index]
+              if (previous !== undefined) {
+                expect(block.progress, `scrollY ${y} block ${block.index}`).toBeGreaterThanOrEqual(
+                  previous - 1e-6,
+                )
+              }
             }
-            // Everything well above the reading line is lit, everything well below is not.
-            for (const line of lines) {
-              if (line.top < readingLine - 120) expect(line.progress, `scrollY ${y}`).toBe(1)
-              if (line.top > readingLine + 120) expect(line.progress, `scrollY ${y}`).toBe(0)
+            previousProgress = blocks.map((block) => block.progress)
+            const edge = blocks.find((block) => block.progress > 0 && block.progress < 1)
+            if (edge) {
+              sawEdge = true
+              // A block the edge has fully passed (scrolled above the viewport) is fully revealed.
+              for (const block of blocks) {
+                if (block.bottom < 0) {
+                  expect(block.progress, `scrollY ${y} block ${block.index}`).toBe(1)
+                }
+              }
+              // The edge block is on screen: the reveal band lives in the lower viewport, so the
+              // block being reached overlaps the viewport.
+              expect(edge.top, `scrollY ${y}`).toBeLessThan(viewport.height)
+              expect(edge.bottom, `scrollY ${y}`).toBeGreaterThan(0)
             }
           }
-          expect(sawSweep).toBe(true)
+          expect(sawEdge).toBe(true)
 
           await page.evaluate(scrollSecret, maxY)
-          const bottom = await page.evaluate(readLines)
-          expect(bottom.lines.every((line) => line.progress === 1)).toBe(true)
+          const bottom = await page.evaluate(readBlocks)
+          expect(bottom.blocks.every((block) => block.progress === 1)).toBe(true)
 
           await page.evaluate(scrollSecret, 0)
-          const top = await page.evaluate(readLines)
-          expect(top.lines.filter((line) => line.progress === 0).length).toBeGreaterThan(
-            top.lines.length / 2,
-          )
+          const top = await page.evaluate(readBlocks)
+          expect(top.blocks.filter((block) => block.progress === 0).length).toBeGreaterThan(0)
         })
       }
 
@@ -119,7 +150,7 @@ for (const locale of ["en", "ko"]) {
         await page.emulateMedia({ reducedMotion: "reduce" })
         await page.goto(`/${locale}/manifesto`)
         await page.evaluate(waitForReadingBlocks)
-        const state = await page.evaluate(readLines)
+        const state = await page.evaluate(readBlocks)
         expect(state.mode).toBe("observer")
         const colors = await page.evaluate(() =>
           Array.from(
