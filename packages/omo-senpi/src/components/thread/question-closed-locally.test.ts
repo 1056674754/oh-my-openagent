@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, watch } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { basename, dirname, join } from "node:path"
+import { join } from "node:path"
 
 import { createThreadComponent } from "./component"
 import type { RegisterControlEndpointOptions } from "./gateway/adapter"
@@ -137,40 +137,24 @@ async function setup() {
   const closeLocally = (request: string) => pi.events.emit("ask-user:closed", { requestId: request, status: "answered" })
   /** senpi `startQuestion` announcing a newly opened question (`ASK_USER_ASKED_EVENT`). */
   const askLocally = (request: string) => pi.events.emit("ask-user:asked", { request: { requestId: request } })
-  /** Resolves once the outbox marker names `cursor` (the write the close makes); subscribe before the action that writes it. */
-  const markerFor = (cursor: number) => {
-    const marker = gatewayOutboxMarkerPath(agentDir)
-    mkdirSync(dirname(marker), { recursive: true })
-    return new Promise<void>((resolve) => {
-      const watcher = watch(dirname(marker), (_event, name) => {
-        if (name !== basename(marker)) return
-        let named: unknown
-        try {
-          named = (JSON.parse(readFileSync(marker, "utf8")) as { readonly cursor?: unknown }).cursor
-        } catch {
-          return
-        }
-        if (named !== cursor) return
-        watcher.close()
-        resolve()
-      })
-    })
-  }
+  /** The cursor the outbox marker names now. The store rewrites the marker inside the write's own transaction, so it is current once that write's promise settles. */
+  const markerCursor = (): unknown => (JSON.parse(readFileSync(gatewayOutboxMarkerPath(agentDir), "utf8")) as { readonly cursor?: unknown }).cursor
   const question = async (cursor: number) => {
     const page = await connectorStore.readOutbox({ now: Date.now(), binding_id: bindingId, after_cursor: cursor - 1, limit: 1 })
     if (page.kind !== "ok") throw new Error(JSON.stringify(page))
     return page.rows[0]
   }
-  return { sdk, bindingId, relay, closeLocally, askLocally, markerFor, question, connectorStore, closes }
+  return { sdk, bindingId, relay, closeLocally, askLocally, markerCursor, question, connectorStore, closes }
 }
 
 test("#given a session relayed two ask_user questions to its chat thread #when it answers one in its own client #then that question is no longer pending, a chat answer to it is already_answered, and the other stays pending", async () => {
   const s = await setup()
   const first = await s.relay("ask-1")
   const second = await s.relay("ask-2")
-  const marker = s.markerFor(first.cursor)
   s.closeLocally("ask-1")
-  await within(marker, "the outbox marker after the local close")
+  expect(s.closes).toHaveLength(1)
+  await within(Promise.all(s.closes), "the local close")
+  expect(s.markerCursor()).toBe(first.cursor)
   expect(await s.question(first.cursor)).toMatchObject({ event: "question", state: "pending", question_state: "answered", answered_by: null })
   expect(await s.question(second.cursor)).toMatchObject({ question_state: "pending" })
   const late = await s.sdk.answer({ binding_id: s.bindingId, reply_token: first.reply_token, answer: "option two" })
@@ -183,9 +167,8 @@ test("#given a relayed question #when a thread_answer claim is handed over and t
   const claim = await s.connectorStore.claimAnswer({ now: Date.now(), binding_id: s.bindingId, reply_token: asked.reply_token, answer: "option two" })
   if (claim.kind !== "ok") throw new Error(JSON.stringify(claim))
   expect(await s.question(asked.cursor)).toMatchObject({ question_state: "answered", answer_state: "in_flight" })
-  const marker = s.markerFor(asked.cursor)
   expect(await s.connectorStore.confirmAnswer({ reply_token: asked.reply_token, claimed_at: claim.claimed_at, answer: "option two" })).toBe(true)
-  await within(marker, "the outbox marker after the answer was delivered")
+  expect(s.markerCursor()).toBe(asked.cursor)
   expect(await s.question(asked.cursor)).toMatchObject({ question_state: "answered", answer_state: "delivered" })
 }, 30_000)
 
@@ -194,9 +177,8 @@ test("#given a relayed question #when a thread_answer claim's hand-off fails and
   const asked = await s.relay("ask-release")
   const claim = await s.connectorStore.claimAnswer({ now: Date.now(), binding_id: s.bindingId, reply_token: asked.reply_token, answer: "option two" })
   if (claim.kind !== "ok") throw new Error(JSON.stringify(claim))
-  const marker = s.markerFor(asked.cursor)
   expect(await s.connectorStore.releaseAnswer({ reply_token: asked.reply_token, claimed_at: claim.claimed_at })).toBe(true)
-  await within(marker, "the outbox marker after the claim was released")
+  expect(s.markerCursor()).toBe(asked.cursor)
   expect(await s.question(asked.cursor)).toMatchObject({ question_state: "pending", answer_state: null })
 }, 30_000)
 
@@ -205,9 +187,10 @@ test("#given a thread_answer claim being handed over #when the session closes th
   const asked = await s.relay("ask-race")
   const claim = await s.connectorStore.claimAnswer({ now: Date.now(), binding_id: s.bindingId, reply_token: asked.reply_token, answer: "option two" })
   if (claim.kind !== "ok") throw new Error(JSON.stringify(claim))
-  const closed = s.markerFor(asked.cursor)
   s.closeLocally("ask-race")
-  await within(closed, "the outbox marker after the local close")
+  expect(s.closes).toHaveLength(1)
+  await within(Promise.all(s.closes), "the local close")
+  expect(s.markerCursor()).toBe(asked.cursor)
   expect(await s.connectorStore.releaseAnswer({ reply_token: asked.reply_token, claimed_at: claim.claimed_at })).toBe(false)
   expect(await s.question(asked.cursor)).toMatchObject({ question_state: "answered", answer_state: "delivered", answered_by: null })
   const late = await s.sdk.answer({ binding_id: s.bindingId, reply_token: asked.reply_token, answer: "option one" })
@@ -220,9 +203,10 @@ test("#given a thread_answer claim being handed over #when the session takes tha
   const author = { platform_user_id: "U1", display: "Alice" }
   const claim = await s.connectorStore.claimAnswer({ now: Date.now(), binding_id: s.bindingId, reply_token: asked.reply_token, answer: "option two", answered_by: author })
   if (claim.kind !== "ok") throw new Error(JSON.stringify(claim))
-  const closed = s.markerFor(asked.cursor)
   s.closeLocally("ask-taken")
-  await within(closed, "the outbox marker after the close event")
+  expect(s.closes).toHaveLength(1)
+  await within(Promise.all(s.closes), "the local close")
+  expect(s.markerCursor()).toBe(asked.cursor)
   expect(await s.connectorStore.confirmAnswer({ reply_token: asked.reply_token, claimed_at: claim.claimed_at, answer: "option two", answered_by: author })).toBe(true)
   expect(await s.question(asked.cursor)).toMatchObject({ question_state: "answered", answer_state: "delivered", answered_by: author })
 }, 30_000)
