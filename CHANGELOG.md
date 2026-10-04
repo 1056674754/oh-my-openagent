@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.18] - 2026-10-04
+
 **`omo models discover`, `omo schedule` and the other one-shot engine commands run again instead of opening the TUI.** 5.1.18 runs on senpi 2026.10.9. The launcher passed only a fixed list of commands straight to the engine and put `--extension <plugin>` in front of everything else, so the engine never saw its own command and started an interactive session with the arguments. Every engine command is now handed over unchanged. Thanks to @ushion0a for the report and the repro. ([#9572](https://github.com/code-yeongyu/oh-my-openagent/issues/9572), [#9573](https://github.com/code-yeongyu/oh-my-openagent/pull/9573))
 
 ### Fixed
