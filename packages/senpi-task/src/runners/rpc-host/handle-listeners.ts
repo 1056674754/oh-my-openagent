@@ -23,10 +23,28 @@ export interface HandleListeners {
   clearActive(): void
 }
 
+/**
+ * Events a warm host delivers before the manager subscribes. The manager attaches its observers only
+ * after `start` returns, and a warm host can run a whole first turn (a fallback hop included) in that
+ * window (#9512). Every one of them is kept until the first observer attaches - a partial history
+ * would bring the record gap back - then replayed to each observer attached in that same tick and
+ * released.
+ */
+
 /** Listener registries that survive a transport replacement and retire with the active handle. */
 export function createHandleListeners(): HandleListeners {
   const extensionEvents = createChildExtensionEvents()
   const eventListeners = new Set<ChildEventListener>()
+  let earlyEvents: ChildEvent[] | undefined = []
+  const replayEarlyEvents = (listener: ChildEventListener): void => {
+    if (earlyEvents === undefined) return
+    if (eventListeners.size === 1) {
+      queueMicrotask(() => {
+        earlyEvents = undefined
+      })
+    }
+    for (const event of earlyEvents) listener(event)
+  }
   const parkedListeners = new Set<(event: HostSessionParked) => void>()
   const turnResumedListeners = new Set<() => void>()
   const resumedListeners = new Set<() => void>()
@@ -34,6 +52,7 @@ export function createHandleListeners(): HandleListeners {
   const registrations: ListenerRegistrations = {
     subscribe: (listener) => {
       eventListeners.add(listener)
+      replayEarlyEvents(listener)
       return () => eventListeners.delete(listener)
     },
     subscribeExtensionEvents: extensionEvents.subscribe,
@@ -55,6 +74,10 @@ export function createHandleListeners(): HandleListeners {
     extensionEvents,
     registrations,
     emitEvent: (event) => {
+      if (earlyEvents !== undefined && eventListeners.size === 0) {
+        earlyEvents.push(event)
+        return
+      }
       for (const listener of eventListeners) listener(event)
     },
     emitParked: (event) => {

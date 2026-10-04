@@ -4,6 +4,18 @@
 
 `createRpcChildHandle` takes an optional `terminateChild` (default `terminateRpcChild`, so production is unchanged), and the test injects a recording fake. Its assertions now also check the call it recorded. A guard test stubs `process.kill` to throw and asserts that terminating a handle over a fake child never calls it. With the old handle, both fail; with the fix, they pass. The other rpc tests with a literal pid (`handle.test.ts`, `handle-steer-delivery`, `handle-user-abort`) never call `terminate()`.
 
+## 2026-10-04 - A warm host's first-turn events reach the task record (#9512)
+
+`runners/rpc-host/handle-listeners.ts`: the manager subscribes a child's observers (transcript log, run stats) only after `runner.start` returns. A warm host can finish a whole first turn in that window, including an in-session fallback hop (`retry_fallback_applied`). The handle used to deliver those events to an empty listener set, so the task record kept the dead primary model and no fallback attempt. Events emitted before the first subscription are now all kept, with no cap, because a partial history would bring the gap back. They are replayed to every observer attached in that same tick, then released.
+
+`handle-listeners.test.ts` covers:
+- the replay to two observers;
+- no second replay to a later observer;
+- live delivery afterwards;
+- a long first turn whose fallback hop is the first of 5,002 events, all of which still arrive in order.
+
+The tests fail without the buffer and with a 1,000-event cap.
+
 ## 2026-10-04 - A daemon-hosted child gets its own fallback chain on open_session (#9512)
 
 A child run on the shared task host never got its configured fallback models. `RpcRunnerSpec` had no field for them, the host session ran on the host's settings, and its in-session fallback refused to switch once the turn had made tool calls.
