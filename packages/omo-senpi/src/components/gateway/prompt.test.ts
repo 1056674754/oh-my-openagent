@@ -108,7 +108,7 @@ describe("gateway rules prompt handler", () => {
     const result = await handler(payload("BASE PROMPT"), sessionCtx("sess-1"))
 
     // then
-    expect(result?.systemPrompt.startsWith("BASE PROMPT\n\n")).toBe(true)
+    expect(result?.systemPrompt?.startsWith("BASE PROMPT\n\n")).toBe(true)
     expect(result?.systemPrompt).toContain('<operating-rules version="v1">')
     expect(result?.systemPrompt).toContain("- answer in bullet points")
   })
@@ -147,7 +147,7 @@ describe("gateway rules prompt handler", () => {
     // then
     expect(second?.systemPrompt).toContain('version="v2"')
     expect(second?.systemPrompt).not.toContain('version="v1"')
-    expect(second?.systemPrompt.split("<!-- omo-gateway:rules:begin -->").length - 1).toBe(1)
+    expect(second?.systemPrompt?.split("<!-- omo-gateway:rules:begin -->").length).toBe(2)
   })
 
   test("#given no gateway store #when the handler runs #then it returns undefined", async () => {
