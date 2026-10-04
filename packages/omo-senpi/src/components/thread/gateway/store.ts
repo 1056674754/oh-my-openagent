@@ -59,7 +59,7 @@ export type GatewayStoreOptions = {
     readonly onWorkerStarted?: (worker: Worker) => void
     /** A shorter idle interval than `GATEWAY_STORE_IDLE_RETIRE_MS`. */
     readonly idleRetireMs?: number
-    /** Runs right after an idle worker is detached, before it is closed: a call made here lands on a fresh worker. */
+    /** Runs right after an idle worker is detached and its close requested, before the close settles: a call made here lands on a fresh worker. */
     readonly onWorkerRetiring?: (worker: Worker) => void
     /** Runs once a retired worker has closed its database and exited. */
     readonly onWorkerRetired?: (worker: Worker) => void
@@ -183,6 +183,8 @@ export function createGatewayStore(options: GatewayStoreOptions): GatewayStore {
   /** Store calls between their entry and their settle, the worker's open included. */
   let callsInFlight = 0
   let idleTimer: ReturnType<typeof setTimeout> | undefined
+  /** The close-and-terminate of a retired worker, until it settles: `dispose` waits for it. */
+  let retiring: Promise<void> | undefined
   const idleRetireMs = options._test?.idleRetireMs ?? GATEWAY_STORE_IDLE_RETIRE_MS
   let resolveTarget = options.resolveTarget
   /** The registrations the current worker holds, restored on the next worker after one exits. */
@@ -312,11 +314,15 @@ export function createGatewayStore(options: GatewayStoreOptions): GatewayStore {
     if (disposed || idle === undefined || opened === undefined || callsInFlight > 0 || currentWorkerBusy()) return
     worker = undefined
     opened = undefined
-    options._test?.onWorkerRetiring?.(idle)
-    void post("close", null, idle)
+    const closing: Promise<void> = post("close", null, idle)
       .catch(() => undefined)
       .then(() => idle.terminate())
       .then(() => options._test?.onWorkerRetired?.(idle), () => options._test?.onWorkerRetired?.(idle))
+      .finally(() => {
+        if (retiring === closing) retiring = undefined
+      })
+    retiring = closing
+    options._test?.onWorkerRetiring?.(idle)
   }
 
   /** Holds the worker from retiring for the whole call, its open included, then re-arms the idle timer. */
@@ -424,6 +430,9 @@ export function createGatewayStore(options: GatewayStoreOptions): GatewayStore {
       if (disposed) return
       disposed = true
       cancelIdleRetire()
+      // A worker retired just before still holds its database until its close settles; a caller that
+      // removes the agent directory after `dispose` must find it closed.
+      await retiring
       const active = worker
       if (active === undefined) return
       await post("close", null).catch(() => undefined)

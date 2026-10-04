@@ -77,6 +77,25 @@ test("#given writes before, during and after an idle retire #when the retire fir
   expect(await insertionOrder(store)).toEqual({ kind: "ok", value: [{ id: 1, value: "before" }, { id: 2, value: "during" }, { id: 3, value: "after" }] })
 })
 
+// Contract: after dispose() no worker holds the database, even one that was still retiring (a caller may remove the agent dir next).
+test("#given a worker that is retiring #when the store is disposed #then dispose resolves only after that worker exited", async () => {
+  const h = (harness = createGatewayHarness())
+  let exited = false
+  const disposal = signal<{ readonly done: Promise<void> }>()
+  let store!: GatewayStore
+  store = h.store({
+    _test: {
+      idleRetireMs: 1,
+      onWorkerStarted: (worker) => { worker.once("exit", () => { exited = true }) },
+      onWorkerRetiring: () => disposal.fire({ done: store.dispose() }),
+    },
+  })
+  await store.stats()
+  const { done } = await within(disposal.promise, 5_000, "the idle retire to start")
+  await within(done, 5_000, "dispose to resolve")
+  expect(exited).toBe(true)
+})
+
 // Reachability: a terminal whose store worker retired while it sat idle still takes a message at once.
 test("#given a target session whose store worker retired #when a peer sends to it #then the message is started and applied", async () => {
   const h = (harness = createGatewayHarness())
