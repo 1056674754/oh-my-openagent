@@ -182,6 +182,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     currentPort: () => client,
     acceptsLifecycleEvent: () => !parked && !detached && outcome === undefined,
     onEvent: (event: Parameters<ChildEventListener>[0]) => { onSessionEvent(event); listeners.emitEvent(event) },
+    onExtensionEvent: listeners.extensionEvents.publish,
     onParked: park,
     onClosed: (event: { readonly reason: string | undefined }) => endSession({ kind: "session_closed", reason: event.reason }),
     onTransportGone: recovery.onTransportGone,
@@ -272,9 +273,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     transportRecovering: () => recovery.recovering() && outcome === undefined,
     markStopping: stop.markStopping,
     stopWhenReachable: stop.stopWhenReachable,
-    subscribe: listeners.subscribe,
-    onParked: listeners.onParked,
-    onTurnResumed: listeners.onTurnResumed,
+    ...listeners.registrations,
     adoptFinishedTurn: async (finalResponse) => {
       if (turnOutcome !== undefined || settlement.pending() !== undefined) return
       // A state read that fails is not proof of idleness, and must never cost the reattach: stay busy.
@@ -282,7 +281,6 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
       if (state === undefined || !sessionIsIdle(state)) return
       if (turnOutcome === undefined && settlement.pending() === undefined) settleTurn({ status: "completed", finalResponse })
     },
-    onSelfResumed: listeners.onSelfResumed,
     waitForIdle: () => waiters.waitForIdle(reachedIdle || outcome !== undefined),
     hasExited: () => outcome !== undefined,
     waitForOutcome: () => waiters.waitForOutcome(turnOutcome, outcome, finalText),
