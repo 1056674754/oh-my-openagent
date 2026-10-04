@@ -1,3 +1,21 @@
+## 2026-10-04 - A runtime advisory no longer makes a failed reflection child look like a provider outage (#9553)
+
+On Windows every failed memory reflection child was recorded as "refused by its provider", and automatic reflection parked for hours. `worker/model-miss.ts` `providerFailureDetail` took the first stderr line as the provider's answer. On a Bun host on win32 that line is Bun's `child reaper unavailable under Bun on win32: ...` advisory, which Bun prints once per terminated worker thread before anything the child says. The shared retryable-error classifier matches the bare word `unavailable`, so any failure became `provider_unavailable`, the real cause was hidden, and every candidate in the chain was marked as refused.
+
+The detail line is now chosen by what it is:
+- the first error-shaped line: an HTTP status answer (`503: ...`), a provider JSON error body, or an `Error`/`TypeError`/`ENOENT`-style line;
+- otherwise the first line that is not a runtime advisory (`under Bun/Node/Deno`).
+
+An advisory on its own can no longer classify as a provider outage, and a real provider error printed after it still does.
+
+Tests (`model-miss.test.ts`) use the exact advisory:
+- advisory then an unrelated error: the child's own failure;
+- advisory then a real 429: a provider outage named by the provider's line;
+- advisory alone: no outage;
+- an unknown future notice that contains "temporarily unavailable", then a real error: the real error decides, so the fix does not depend on a list of known advisories.
+
+All four fail on dev.
+
 ## 2026-10-04 - Gateway operating-rules injection into lead and bound sessions (#9190)
 
 - New `components/gateway`: the scope lead and every session with an active binding get the scope's compiled behavioral rules as one `<operating-rules version="<rules sha>">` block in the system prompt through `before_agent_start`, rendered beside the memory block. The component lazily connects only when the `gateway.scopes` config is non-empty and the store database exists; every other session's prompt passes through byte-identical. Rules are computed by the gateway package; omo owns only the `gateway_rules` store extension (a `gateway_rules_blocks` table plus the `rulesCommitted`/`blockForSession` ops) and the exactly-once `rules_changed` fanout per session and version. `plugin/scripts/build-extension-core.mjs` emits the ops module as `extensions/gateway-rules-extension.mjs` beside `omo.js`, covered by the build freshness check.
