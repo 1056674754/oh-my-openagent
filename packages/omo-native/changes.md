@@ -4,6 +4,10 @@ The engine needs bun 1.4 (`node:sqlite`, and the `worker_threads` compatibility 
 
 Now every path checks the floor. A bun the user chose (a bun-global install or `OMO_RUNTIME=bun`) that is older stops at startup with `omo: OmO needs Bun >= 1.4.0 (found 1.3.14); run \`bun upgrade\`` instead of silently switching runtimes. Any other install keeps using node when the bun it finds is older. A process already running on an older bun that nobody chose hands off to a real node (bun's own `node` shim does not count), pinned with `OMO_RUNTIME=node` so it cannot bounce back. With no real node, it fails with the same message. Bun 1.4+ is unchanged, apart from one `bun --version` probe on the node-launched path of a bun-global install.
 
+## 2026-10-04 - The provisioned-handoff test's teardown no longer fails the Windows shard (#9556)
+
+`packages/omo-native/test/provisioned-handoff.test.ts` removed its temp root with a bare `rmSync` in `afterAll`. On Windows, a file the just-exited compiled `omo` child still held made it throw `EBUSY`; bun reported that as an unnamed failed test and failed `test (windows-latest, 2/2)` on unrelated PRs. The teardown now uses the shared `test-support/remove-tree.ts` `removeTree`, which retries a transient `EBUSY`/`EPERM` within a bounded budget and still throws a persistent one.
+
 ## 2026-10-04 - Every one-shot engine command reaches the engine, so `omo models discover` works (#9572)
 
 The engine dispatches its one-shot commands on `argv[0]`, but the launcher handed only a fixed list straight through (`install, remove, list, config, auth, app-server, host`, plus `update`) and put `--extension <plugin>` in front of everything else. So `omo models discover <provider>` started an interactive session instead of discovering models, and `omo schedule ...` and the `uninstall` alias of `remove` did the same.
