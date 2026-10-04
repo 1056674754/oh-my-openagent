@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test, type Page } from "@playwright/test"
 
 import { scrollSecret } from "./secret-reading-state"
 
@@ -29,6 +29,96 @@ async function waitForReadingBlocks(): Promise<void> {
 function firstProgress(): string {
   const first = document.querySelector<HTMLElement>(".lit-read")
   return first?.dataset.litMode ?? "missing"
+}
+
+async function expectUniformWordGlyphs(page: Page): Promise<number> {
+  const actual = await page.screenshot({ animations: "disabled", scale: "css" })
+  const words = await page.evaluate(() => {
+    const visible = Array.from(
+      document.querySelectorAll<HTMLElement>(".lit-read .lit-word"),
+    ).filter((word) => {
+      const rect = word.getBoundingClientRect()
+      return (
+        rect.top >= 0 && rect.bottom <= innerHeight && rect.left >= 0 && rect.right <= innerWidth
+      )
+    })
+    const words = visible.map((word) => {
+      const rect = word.getBoundingClientRect()
+      const css = getComputedStyle(word)
+      const saved = word.getAttribute("style")
+      const color = css.color
+      word.dataset.uniformSavedStyle = saved ?? ""
+      // Preserve the word's current reveal brightness, but paint every glyph uniformly.
+      word.style.setProperty("background", "none", "important")
+      word.style.setProperty("color", color, "important")
+      word.style.setProperty("-webkit-text-fill-color", color, "important")
+      word.style.setProperty("filter", "none", "important")
+      word.style.setProperty("mask-image", "none", "important")
+      word.style.setProperty("text-shadow", "none", "important")
+      word.dataset.uniformReference = "true"
+      return {
+        text: word.textContent,
+        x: rect.left,
+        y: rect.top,
+        width: rect.width,
+        height: rect.height,
+      }
+    })
+    const style = document.createElement("style")
+    style.id = "uniform-word-reference"
+    style.textContent = `
+      [data-uniform-reference] * { color: inherit !important; -webkit-text-fill-color: inherit !important;
+        background: none !important; opacity: 1 !important; filter: none !important;
+        mask-image: none !important; text-shadow: none !important; }
+      [data-uniform-reference]::before, [data-uniform-reference]::after { display: none !important; }
+    `
+    document.head.append(style)
+    return words
+  })
+  const uniform = await page.screenshot({ animations: "disabled", scale: "css" })
+  await page.evaluate(() => {
+    document.getElementById("uniform-word-reference")?.remove()
+    for (const word of document.querySelectorAll<HTMLElement>("[data-uniform-reference]")) {
+      if (word.dataset.uniformSavedStyle) word.setAttribute("style", word.dataset.uniformSavedStyle)
+      else word.removeAttribute("style")
+      delete word.dataset.uniformSavedStyle
+      delete word.dataset.uniformReference
+    }
+  })
+  const differences = await page.evaluate(
+    async ({ actual, uniform, words }) => {
+      async function pixels(base64: string): Promise<ImageData> {
+        const image = new Image()
+        image.src = `data:image/png;base64,${base64}`
+        await image.decode()
+        const canvas = document.createElement("canvas")
+        canvas.width = image.width
+        canvas.height = image.height
+        const context = canvas.getContext("2d")!
+        context.drawImage(image, 0, 0)
+        return context.getImageData(0, 0, image.width, image.height)
+      }
+      const [a, b] = await Promise.all([pixels(actual), pixels(uniform)])
+      return words.flatMap((word) => {
+        let changed = 0
+        for (let y = Math.ceil(word.y); y < Math.floor(word.y + word.height); y += 1) {
+          for (let x = Math.ceil(word.x); x < Math.floor(word.x + word.width); x += 1) {
+            const offset = (y * a.width + x) * 4
+            if (
+              [0, 1, 2].some(
+                (channel) => Math.abs(a.data[offset + channel]! - b.data[offset + channel]!) > 3,
+              )
+            )
+              changed += 1
+          }
+        }
+        return changed > 2 ? [{ text: word.text, changed }] : []
+      })
+    },
+    { actual: actual.toString("base64"), uniform: uniform.toString("base64"), words },
+  )
+  expect(differences, "glyph pixels must match one solid brightness per word").toEqual([])
+  return words.length
 }
 
 for (const locale of ["en", "ko"]) {
@@ -260,78 +350,62 @@ for (const locale of ["en", "ko"]) {
         }
       })
 
-      // Per-word, never split: at any frame, every word's glyphs share ONE brightness — the reveal
-      // steps BETWEEN words, so no word is cut in half by a line-wide gradient. Assert no word
-      // renders a clipped text gradient (which is what split words before).
+      // Compare actual glyph pixels to the same frame painted with one solid colour per word.
+      // This tests rendering, including gradients, masks and nested glyph opacity, rather than
+      // assuming a particular CSS implementation prevents splits.
       test("no word is ever split in half", async ({ page }) => {
         await page.emulateMedia({ reducedMotion: "no-preference" })
         await page.goto(`/${locale}/manifesto`)
         await page.evaluate(waitForReadingBlocks)
         const maxY = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)
+        let checkedWords = 0
         for (const frac of [0.2, 0.4, 0.6, 0.8]) {
           await page.evaluate(scrollSecret, Math.round(maxY * frac))
           await page.evaluate(
             () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
           )
-          const split = await page.evaluate(() => {
-            for (const word of Array.from(
-              document.querySelectorAll<HTMLElement>(".lit-read .lit-word"),
-            )) {
-              const css = getComputedStyle(word)
-              // A word rendered as a clipped text gradient can be split; a per-word opacity/colour
-              // fade cannot. The reveal must NOT use background-clip: text.
-              const clip = css.webkitBackgroundClip || css.backgroundClip
-              const hasGradient = css.backgroundImage.includes("gradient")
-              if (hasGradient && (clip === "text" || css.color === "rgba(0, 0, 0, 0)")) {
-                return (word.textContent ?? "").slice(0, 12)
-              }
-            }
-            return null
-          })
-          expect(split, `scrollY frac ${frac}`).toBeNull()
+          checkedWords += await expectUniformWordGlyphs(page)
         }
+        expect(checkedWords).toBeGreaterThan(0)
       })
 
-      // Reading order: on any line, a word is never lit before the word to its left (the stagger
-      // runs left-to-right from the text column's left edge, not the viewport).
-      test("the reveal respects left-to-right reading order", async ({ page }) => {
+      // Continuous brightness follows reading order, including the last word before a wrap.
+      test("the reveal respects reading order across wrapped lines", async ({ page }) => {
         await page.emulateMedia({ reducedMotion: "no-preference" })
         await page.goto(`/${locale}/manifesto`)
         await page.evaluate(waitForReadingBlocks)
         const maxY = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)
-        for (const frac of [0.25, 0.45, 0.65]) {
-          await page.evaluate(scrollSecret, Math.round(maxY * frac))
+        let wrappedPairs = 0
+        for (let y = 0; y <= maxY; y += 60) {
+          await page.evaluate(scrollSecret, y)
           await page.evaluate(
             () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
           )
-          const violations = await page.evaluate(() => {
-            const words = Array.from(document.querySelectorAll<HTMLElement>(".lit-read .lit-word"))
-            const byLine = new Map<number, { left: number; lit: boolean }[]>()
-            for (const word of words) {
-              const rect = word.getBoundingClientRect()
-              const key = Math.round(rect.bottom)
-              const lit =
-                Number.parseFloat(getComputedStyle(word).getPropertyValue("--lit-local")) >= 1
-              if (!byLine.has(key)) byLine.set(key, [])
-              byLine.get(key)!.push({ left: rect.left, lit })
-            }
-            let count = 0
-            for (const line of byLine.values()) {
-              line.sort((a, b) => a.left - b.left)
-              // A violation is a lit word to the RIGHT of an unlit word (lit before its left
-              // neighbour). Scan for an unlit word that has a lit word anywhere to its right.
-              let litToRight = false
-              for (let i = line.length - 1; i >= 0; i -= 1) {
-                const word = line[i]
-                if (!word) continue
-                if (word.lit) litToRight = true
-                else if (litToRight) count += 1
+          const state = await page.evaluate(() => {
+            let wraps = 0
+            const violations: string[] = []
+            for (const body of document.querySelectorAll(".lit-read .lit-text")) {
+              const words = Array.from(body.querySelectorAll<HTMLElement>(".lit-word"))
+              for (let i = 1; i < words.length; i += 1) {
+                const previous = words[i - 1]!
+                const current = words[i]!
+                if (
+                  current.getBoundingClientRect().bottom >
+                  previous.getBoundingClientRect().bottom + 1
+                )
+                  wraps += 1
+                const brightness = (word: HTMLElement) =>
+                  Number.parseFloat(getComputedStyle(word).getPropertyValue("--lit-local"))
+                if (brightness(current) > brightness(previous) + 0.001)
+                  violations.push(`${previous.textContent} / ${current.textContent}`)
               }
             }
-            return count
+            return { wraps, violations }
           })
-          expect(violations, `scrollY frac ${frac}`).toBe(0)
+          wrappedPairs += state.wraps
+          expect(state.violations, `scrollY ${y}`).toEqual([])
         }
+        expect(wrappedPairs).toBeGreaterThan(0)
       })
 
       // The reveal travels word by word: across a scroll sweep, some line shows a gradient of

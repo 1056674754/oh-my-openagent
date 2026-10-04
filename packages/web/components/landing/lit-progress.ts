@@ -71,8 +71,23 @@ function armRevealDriver(): void {
       // viewport), so reading order holds at any width.
       const bodyRect = body.getBoundingClientRect()
       const lineWidth = Math.max(1, bodyRect.width)
+      const lineBottoms = Array.from(new Set(words.map(({ bottom }) => bottom))).sort(
+        (a, b) => a - b,
+      )
       for (const { node, bottom, height, left } of words) {
-        const withinLine = (((left - bodyRect.left) % lineWidth) / lineWidth) * height * 2
+        const line = lineBottoms.indexOf(bottom)
+        const nextBottom = lineBottoms[line + 1]
+        const previousBottom = lineBottoms[line - 1]
+        // Keep the last word's reveal threshold above the next line's first word. Use actual
+        // wrapped-line spacing (including responsive typography), rather than two word heights.
+        const spacing =
+          nextBottom !== undefined
+            ? nextBottom - bottom
+            : previousBottom !== undefined
+              ? bottom - previousBottom
+              : height * 2
+        const stagger = Math.min(height * 2, spacing)
+        const withinLine = clamp01((left - bodyRect.left) / lineWidth) * stagger
         node.style.setProperty(
           "--lit-local",
           String(clamp01((endTop - bottom - withinLine) / (height * 1.6) + 1)),
