@@ -1,3 +1,9 @@
+## 2026-10-04 - Test runs keep the engine's agent dir in their temp home (#9578)
+
+`test-setup.ts` pointed `HOME` at a per-process temp dir but DELETED the agent-dir variables (`OMO_CODING_AGENT_DIR`, `SENPI_CODING_AGENT_DIR`, `PI_CODING_AGENT_DIR`). The engine resolves its agent dir from those variables first and from `os.homedir()` otherwise. `os.homedir()` keeps the real home it read at process start, so any test that booted the packaged extension wrote into the developer's (or CI host's) real agent dir. `bun test ./packages/omo-senpi/` left a real task host running there, with its shard meta and daemon dir.
+
+The new `test-hermetic-home.ts` is the one place that sets the hermetic home. It points all three variables at `<temp home>/.omo/agent`. When the run ends it stops any process whose command line names this process's own temp home, and it fails the run if this test process registered a host shard under a real agent dir (identified by the shard meta's `created_by_pid`, so a live session's shards are never counted). The root preload and the package-local preloads use it.
+
 ## 2026-10-04 - Adopt senpi 2026.10.8
 
 Every `@code-yeongyu/senpi` pin moves from 2026.10.7 to 2026.10.8: the root devDependency, `omo-native` and its provider map, the `omo-senpi` and `senpi-task` peer and dev pins (with their `senpi-tui` and `senpi-ai` aliases), the pin tests and the engine named in `senpi-task`'s coverage test. The engine makes an idle host exit once its sessions are done (senpi#2713) and stops failing a busy cold Python start as a hang (senpi#2718, the cause of omo#9495's Windows flake); the generated plugin bundles are regenerated for it on Linux.

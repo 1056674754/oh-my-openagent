@@ -1,3 +1,7 @@
+## 2026-10-04 - Package-local test runs get the hermetic home (#9578)
+
+`bunfig.toml` preloads `../senpi-task/test-support/warm-lazy-runtime.ts`, so `bun test` from inside `packages/omo-senpi` gets the same hermetic home, agent dir and warmed lazy barrels as a repo-root run. Before, a package-local run had no preload at all: it used the real home and failed 17 entry-renderer tests on the unwarmed pi-tui barrel.
+
 ## 2026-10-04 - The committed gateway rules sidecar is no longer an ignored path
 
 `packages/omo-senpi/.gitignore` ignores `/plugin/extensions/*` and re-admits each committed bundle with a `!` line. The `gateway_rules` store-extension sidecar (`gateway-rules-extension.mjs`, from #9540) was committed without its `!` line, so `script/tracked-ignored-paths-audit.test.ts` failed on `dev` and on the v5.1.17 release-state PR. A local `git add` of a fresh regen would also silently skip that file. Added the negation next to its sibling `gateway-store-worker.mjs`.
