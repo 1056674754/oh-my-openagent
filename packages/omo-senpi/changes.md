@@ -1,3 +1,16 @@
+## 2026-10-05 - An idle gateway store no longer keeps its worker thread alive
+
+Every session that touches the gateway store (each terminal with a control endpoint, and every sender) started one store worker thread and kept it until the session ended. A measured idle worker retains 2.94 MB: an empty Bun worker plus the bundled store code and SQLite. That put the terminal control endpoint's idle cost at about 4.1 MB against the 3 MB budget.
+
+`store.ts` now retires the worker after `GATEWAY_STORE_IDLE_RETIRE_MS` (60 s) with no store call in flight. The worker is detached first, so a call made from that moment starts a fresh worker instead of posting to the closing one. Only then is its database closed and the thread terminated. A call holds the worker from its entry to its settle, the open included, so a worker with a request in flight never retires and no request is failed or replayed by a retire. The next call pays one open, about 12 ms, and the fresh worker gets the extension registrations restored as after a crash.
+
+Tests (`store-idle-retire.test.ts`; the last one in `component.test.ts`):
+- after the idle interval the worker thread exits, and the next write lands on a fresh worker that keeps the registrations;
+- writes made before, during and after a retire each commit exactly once, in the order they were made. A retire that terminates without detaching first fails this;
+- a peer's send to a session whose worker retired is `started` and applied;
+- `dispose()` called while a worker is retiring resolves only after that worker has exited, so a caller that removes the agent directory next never races an open database handle;
+- an unreadable legacy mailbox is retried at every store open, and now that the store reopens after each idle minute, its warning is logged once per session rather than at each reopen.
+
 ## 2026-10-04 - Package-local test runs get the hermetic home (#9578)
 
 `bunfig.toml` preloads `../senpi-task/test-support/warm-lazy-runtime.ts`, so `bun test` from inside `packages/omo-senpi` gets the same hermetic home, agent dir and warmed lazy barrels as a repo-root run. Before, a package-local run had no preload at all: it used the real home and failed 17 entry-renderer tests on the unwarmed pi-tui barrel.
