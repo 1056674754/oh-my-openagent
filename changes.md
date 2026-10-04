@@ -1,3 +1,13 @@
+## 2026-10-04 - Adopt senpi 2026.10.8
+
+Every `@code-yeongyu/senpi` pin moves from 2026.10.7 to 2026.10.8: the root devDependency, `omo-native` and its provider map, the `omo-senpi` and `senpi-task` peer and dev pins (with their `senpi-tui` and `senpi-ai` aliases), the pin tests and the engine named in `senpi-task`'s coverage test. The engine makes an idle host exit once its sessions are done (senpi#2713) and stops failing a busy cold Python start as a hang (senpi#2718, the cause of omo#9495's Windows flake); the generated plugin bundles are regenerated for it on Linux.
+
+## 2026-10-04 - Format examples in OmO prompts are no longer markdown quote lines (#9538)
+
+Several prompts OmO ships showed a reply format as a markdown quote line: the Hephaestus routing line and handoff template in the Codex bundled rules (`packages/omo-codex/plugin/components/rules/bundled-rules/hephaestus/gpt-6.md`, `gpt-5.6.md`), the handoff template in the OpenCode Hephaestus GPT-5.6 and Sisyphus Grok 4 prompts, and the `"I detect [...] intent - [reason]. My approach: [...]"` line in the Sisyphus default, Claude Opus 4.7 / 4.8 / 5 and Fable 5 prompts and `sisyphus-dynamic-prompt-role.ts`. The model copies a format example as the shape of its reply, `>` included, so whole answers rendered as blockquotes that read like a paused aside. The same defect in the senpi engine is code-yeongyu/senpi#2714. Each line loses its leading `> `; labels and wording are unchanged. Emphasis blockquotes that are not reply formats stay.
+
+`sisyphus-agent-factory.test.ts` (every routed Sisyphus family), `delegation-table-contract.test.ts` (Hephaestus GPT-5.6) and the Codex rules `hephaestus-model-variant.test.ts` (every shipped bundled rule) fail when a line with `[placeholder]` slots is a quote line; all three fail on `dev`.
+
 ## 2026-10-04 - Adopt senpi 2026.10.7
 
 Every `@code-yeongyu/senpi` pin moves from 2026.10.6 to 2026.10.7: the root devDependency, `omo-native` and its provider map, the `omo-senpi` and `senpi-task` peer and dev pins (with their `senpi-tui` and `senpi-ai` aliases), the pin tests and the engine named in `senpi-task`'s coverage test. The engine lets `host handoff` replace an old host still serving the client's own socket with no session open (senpi#2701) and carries 2026.10.7's code mode work; the generated plugin bundles are regenerated for it on Linux.
