@@ -137,6 +137,31 @@ for (const locale of ["en", "ko"]) {
             expect(["none", "blur(0px)"]).toContain(filter)
           }
 
+          // The unread floor keeps WCAG AA contrast: an unlit word is never dimmed below the
+          // --text-lo floor by an opacity multiplier (review N1). Measure the rendered colour of a
+          // word that is fully unlit and assert it is the floor colour, not something dimmer.
+          const floorContrast = await page.evaluate(() => {
+            for (const word of Array.from(
+              document.querySelectorAll<HTMLElement>(".lit-read .lit-word"),
+            )) {
+              const local = Number.parseFloat(
+                getComputedStyle(word).getPropertyValue("--lit-local"),
+              )
+              if (local <= 0.01) {
+                return {
+                  color: getComputedStyle(word).color,
+                  opacity: getComputedStyle(word).opacity,
+                }
+              }
+            }
+            return null
+          })
+          if (floorContrast) {
+            // The floor renders at full opacity and the --text-lo colour (5.95:1 on --ink-0).
+            expect(Number.parseFloat(floorContrast.opacity)).toBe(1)
+            expect(floorContrast.color).toBe("rgb(139, 140, 149)")
+          }
+
           // Scrolled to the very bottom, every reveal word is fully lit.
           await page.evaluate(scrollSecret, maxY)
           await settle()
@@ -173,6 +198,19 @@ for (const locale of ["en", "ko"]) {
         expect(lit.blocksLit).toBe(true)
         expect(lit.allTextHi).toBe(true)
         expect(lit.noneBlurred).toBe(true)
+        // Reduced motion shows every word fully lit: none is dimmed by the reveal (review N2).
+        const fullyLit = await page.evaluate(() =>
+          Array.from(document.querySelectorAll<HTMLElement>(".lit-read .lit-word")).every(
+            (word) => {
+              const css = getComputedStyle(word)
+              return (
+                Number.parseFloat(css.opacity) === 1 &&
+                Number.parseFloat(css.getPropertyValue("--lit-local")) >= 1
+              )
+            },
+          ),
+        )
+        expect(fullyLit).toBe(true)
       })
 
       // Without JavaScript the page reads in full: reveal blocks render `pending` (lit) so text is

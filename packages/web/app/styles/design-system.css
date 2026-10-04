@@ -941,13 +941,16 @@
     /* Per-word fade (not a line-wide background gradient): each word's brightness is ONE value, so
        no word is ever split in half mid-transition. --lit-local (0..1) lerps the word between the
        unread floor and full lit; the stagger steps BETWEEN words. */
+    /* Per-word fade (not a line-wide background gradient): each word's brightness is ONE value, so
+       no word is ever split in half mid-transition. --lit-local (0..1) lerps the word between the
+       unread floor and full lit; the stagger steps BETWEEN words. Opacity stays 1 — the floor must
+       keep its full --text-lo contrast (5.95:1, WCAG AA); dimming is done by colour alone. */
     background: none;
     color: color-mix(
       in oklab,
       var(--text-hi) calc(var(--lit-local) * 100%),
       var(--text-lo) calc((1 - var(--lit-local)) * 100%)
     );
-    opacity: calc(0.55 + var(--lit-local) * 0.45);
     filter: blur(calc((1 - var(--lit-local)) * var(--lit-blur)));
   }
   .lit-link {
@@ -1463,6 +1466,7 @@
     }
     .lit-word,
     .lit-read .lit-word {
+      --lit-local: 1;
       background-image: none;
       color: var(--text-hi);
       filter: none;

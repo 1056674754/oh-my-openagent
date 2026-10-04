@@ -40,6 +40,13 @@ const clamp01 = (value: number): number => Math.min(1, Math.max(0, value))
 let revealDriverArmed = false
 function armRevealDriver(): void {
   if (revealDriverArmed) return
+  // Reduced motion: the page renders fully lit and the reveal never runs.
+  if (
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  ) {
+    return
+  }
   revealDriverArmed = true
   let frame = 0
   const update = () => {
