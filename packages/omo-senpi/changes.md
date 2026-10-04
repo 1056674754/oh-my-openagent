@@ -1,3 +1,30 @@
+## 2026-10-04 - Package-local test runs get the hermetic home (#9578)
+
+`bunfig.toml` preloads `../senpi-task/test-support/warm-lazy-runtime.ts`, so `bun test` from inside `packages/omo-senpi` gets the same hermetic home, agent dir and warmed lazy barrels as a repo-root run. Before, a package-local run had no preload at all: it used the real home and failed 17 entry-renderer tests on the unwarmed pi-tui barrel.
+
+## 2026-10-04 - ulw-plan no longer names a delegation category that does not exist (#9561)
+
+The `ulw-plan` skill's delegation-router row listed a `git` category that no edition ships (`SKILL.md`), and its reference copy (`references/full-workflow.md`) also still listed `deep`, which was split into `deep-low` and `deep-high`. A plan that followed either name sent `task(category: ...)` to a category the user's session does not have. Both rows now list exactly the built-in categories.
+
+## 2026-10-04 - The committed gateway rules sidecar is no longer an ignored path
+
+`packages/omo-senpi/.gitignore` ignores `/plugin/extensions/*` and re-admits each committed bundle with a `!` line. The `gateway_rules` store-extension sidecar (`gateway-rules-extension.mjs`, from #9540) was committed without its `!` line, so `script/tracked-ignored-paths-audit.test.ts` failed on `dev` and on the v5.1.17 release-state PR. A local `git add` of a fresh regen would also silently skip that file. Added the negation next to its sibling `gateway-store-worker.mjs`.
+
+## 2026-10-04 - A runtime advisory no longer makes a failed reflection child look like a provider outage (#9553)
+
+On Windows every failed memory reflection child was recorded as "refused by its provider", and automatic reflection parked for hours. `worker/model-miss.ts` `providerFailureDetail` took the first stderr line as the provider's answer. On a Bun host on win32 that line is Bun's `child reaper unavailable under Bun on win32: ...` advisory, printed once per terminated worker thread before anything the child says. The shared retryable-error classifier matches the bare word `unavailable`, so any failure became `provider_unavailable`, the real cause was hidden, and every candidate in the chain was marked as refused.
+
+The detail is now the first line that is not an advisory: a runtime reporting on its own host (`... under Bun/Node/Deno ...`), or a line that announces itself with a log-level prefix (`note:`, `info:`, `warning:`, ...). The first real line still decides, which matters because senpi prints the provider's answer first and a stack (`Error: ...`) may follow it.
+
+Tests (`model-miss.test.ts`, the exact advisory text):
+- advisory then an unrelated error: the child's own failure;
+- advisory then a real 429: a provider outage named by the provider's line;
+- advisory alone: no outage;
+- an unknown `note:` advisory saying "temporarily unavailable" then a real error: the error decides;
+- a provider sentence then a stack `Error:` line: the provider's sentence decides.
+
+**Known limit:** an advisory with neither a runtime marker nor a log-level prefix, and nothing after it, is still taken as the detail. There is no better line to report then.
+
 ## 2026-10-04 - Gateway operating-rules injection into lead and bound sessions (#9190)
 
 - New `components/gateway`: the scope lead and every session with an active binding get the scope's compiled behavioral rules as one `<operating-rules version="<rules sha>">` block in the system prompt through `before_agent_start`, rendered beside the memory block. The component lazily connects only when the `gateway.scopes` config is non-empty and the store database exists; every other session's prompt passes through byte-identical. Rules are computed by the gateway package; omo owns only the `gateway_rules` store extension (a `gateway_rules_blocks` table plus the `rulesCommitted`/`blockForSession` ops) and the exactly-once `rules_changed` fanout per session and version. `plugin/scripts/build-extension-core.mjs` emits the ops module as `extensions/gateway-rules-extension.mjs` beside `omo.js`, covered by the build freshness check.
@@ -5,6 +32,12 @@
 ## 2026-10-04 - Escape untrusted gateway rule text and add `sessionsWithRules`
 
 - Behavioral rule lines, scope and version render with `&`, `<` and `>` escaped, so a rule carrying the end sentinel or the closing tag can neither break the byte-identical turn guarantee nor close the block early; the `rules_changed` delivery text escapes scope and version the same way. New `sessionsWithRules({scope})` op lists a scope's `gateway_rules_blocks` rows ordered by session id so the gateway can clear sessions whose binding ended while the connector was down.
+
+## 2026-10-04 - Live QA: a task child's fallback after a tool call, and the user's settings untouched (#9512)
+
+`scripts/qa/task-runtime-fallback-e2e.mjs` gains a `limit-after-tool` scenario. The child's primary model makes a real `bash` tool call, then hits a usage limit on the request carrying the tool result, so the fallback has to happen inside the running turn. Every scenario now also records a sha256 of the sandbox `settings.json` before and after the run, and `limit-after-tool` fails unless they match.
+
+On the host-session runner the scenario requires the tool call (`tool_execution`) before the in-session hop (`retry_fallback_applied`), and the record's model to end on the fallback. On the per-child process runner the tool check reads `N/A`, because that runner cannot carry a per-session chain and falls back at the manager level instead. `task-runtime-fallback-mock-provider.ts` serves the `limit-after-tool` model.
 
 ## 2026-10-03 - Ultrawork routing item 4 carries a size test before it fans out (#9499)
 
@@ -589,4 +622,3 @@ With senpi 2026.9.29-4 adopted (wake, admitExternalMessage, terminal control end
 - `components/task/category-unavailable-warning.ts`: when only an unlisted provider serves a hidden category's chain,
   the one notice per session names it and the exact opt-in line
   (`categories.<name>.model = "<gateway>/<model>"`); `details.unlisted_provider_model` carries it for remote clients.
-

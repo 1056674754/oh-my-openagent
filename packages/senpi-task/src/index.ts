@@ -644,3 +644,4 @@ export type {
 } from "./team"
 
 export * from "./tools/team"
+export { createEvalHandleHost, type EvalHandleHostDeps } from "./eval-handles"
