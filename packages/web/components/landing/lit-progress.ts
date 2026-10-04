@@ -87,6 +87,7 @@ function armRevealDriver(): void {
           lines.push({ bottom: word.bottom, height: word.height, words: [word] })
         }
       }
+      const brightness = new Map<HTMLElement, number>()
       for (const [index, line] of lines.entries()) {
         const next = lines[index + 1]
         const previous = lines[index - 1]
@@ -98,11 +99,18 @@ function armRevealDriver(): void {
         const stagger = Math.min(line.height * 2, spacing)
         for (const { node, left } of line.words) {
           const withinLine = clamp01((left - bodyRect.left) / lineWidth) * stagger
-          node.style.setProperty(
-            "--lit-local",
-            String(clamp01((endTop - line.bottom - withinLine) / (line.height * 1.6) + 1)),
+          brightness.set(
+            node,
+            clamp01((endTop - line.bottom - withinLine) / (line.height * 1.6) + 1),
           )
         }
+      }
+      // Font fallback can change line boxes and fade heights. Preserve DOM reading order even
+      // when those metrics split one visual line: no later word may overtake an earlier word.
+      let preceding = 1
+      for (const { node } of words) {
+        preceding = Math.min(preceding, brightness.get(node) ?? 1)
+        node.style.setProperty("--lit-local", String(preceding))
       }
     }
   }

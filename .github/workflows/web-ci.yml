@@ -110,8 +110,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: manifesto-glyph-failures
-          path: packages/web/test-results/**/.attachments/glyph-*
-          include-hidden-files: true
+          path: packages/web/test-results/*/glyph-*
           if-no-files-found: ignore
           retention-days: 7
 
