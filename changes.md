@@ -1,3 +1,7 @@
+## 2026-10-04 - Adopt senpi 2026.10.7
+
+Every `@code-yeongyu/senpi` pin moves from 2026.10.6 to 2026.10.7: the root devDependency, `omo-native` and its provider map, the `omo-senpi` and `senpi-task` peer and dev pins (with their `senpi-tui` and `senpi-ai` aliases), the pin tests and the engine named in `senpi-task`'s coverage test. The engine lets `host handoff` replace an old host still serving the client's own socket with no session open (senpi#2701) and carries 2026.10.7's code mode work; the generated plugin bundles are regenerated for it on Linux.
+
 ## 2026-10-04 - visual-qa carries an Apple HIG checklist, a light/dark phone+desktop capture matrix and a per-item verdict (#9533)
 
 The `visual-qa` shared skill judged a surface only against its reference image, the request text and CJK line breaking, so a screen with no reference - the normal case for our own product UI - passed with a card pinned to the top-left of an empty canvas, a reserved-scrollbar gutter at phone width, a see-through sticky header, a cramped tab bar with the wrong active tab, raw ISO timestamps and engine strings on screen, dark-only captures, a capture browser's chrome inside a screenshot, and a fix proven on one app while a sibling kept the defect.
