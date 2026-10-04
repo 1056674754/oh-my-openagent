@@ -13,6 +13,7 @@ export function outputPathsIn(root) {
     advisorRuntimeOutputPath: join(root, "omo-init-deep-advisor.js"),
     toolkitSdkOutputPath: join(root, "runtime", "agent-toolkit-sdk", "sdk.js"),
     rollbackRuntimeOutputPath: join(root, "runtime", "rollback-migrate.js"),
+    memoryDoctorOutputPath: join(root, "omo-memory-doctor.js"),
     computerUseOutputPath: join(root, "omo-computer-use.js"),
     gatewayStoreWorkerOutputPath: join(root, "gateway-store-worker.mjs"),
     threadSdkOutputPath: join(root, "runtime", "thread-sdk", "sdk.js"),
