@@ -3,6 +3,8 @@ import { posix } from "node:path"
 import { bunTooOldMessage, maybeReexecUnderBun, resolveBunReexec } from "../bin/lib/bun-runtime.js"
 
 const POSIX_HOME = "/home/dev"
+/** An npm global install of the launcher, outside the bun global tree. */
+const plainScript = "/usr/local/lib/node_modules/omo-ai/bin/omo.js"
 
 /** Injected everywhere so no assertion touches the host filesystem; see bun-runtime.test.ts. */
 const identityRealpath = (path: string): string => path
@@ -20,7 +22,6 @@ describe("bun runtime re-exec decision", () => {
   describe("#given the re-exec decision table", () => {
     const bunPath = posix.join(POSIX_HOME, ".bun", "bin", "bun")
     const treeScript = bunTreePackage(posix.join(POSIX_HOME, ".bun"))
-    const plainScript = "/usr/local/lib/node_modules/omo-ai/bin/omo.js"
 
     function decide(overrides: {
       scriptPath?: string
@@ -331,7 +332,6 @@ describe("bun runtime re-exec decision", () => {
   describe("#given the process already runs on an older bun (#9563)", () => {
     const bunPath = posix.join(POSIX_HOME, ".bun", "bin", "bun")
     const treeScript = bunTreePackage(posix.join(POSIX_HOME, ".bun"))
-    const plainScript = "/usr/local/lib/node_modules/omo-ai/bin/omo.js"
     const nodePath = "/usr/local/bin/node"
 
     function run(overrides: {
