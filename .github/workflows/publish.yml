@@ -1471,7 +1471,7 @@ jobs:
           # therefore failed the run AFTER a successful publish. Size the wait to the registry's stated
           # contract and read with --prefer-online so a cached "not found" cannot mask a landed version.
           READINESS_INTERVAL_SECONDS=15
-          READINESS_ATTEMPTS=60   # 60 x 15 s = 15 minutes
+          READINESS_ATTEMPTS=240  # 240 x 15 s = 60 minutes; npm took ~55 minutes to serve omo-ai@5.1.13 (#9492)
           for attempt in $(seq 1 "$READINESS_ATTEMPTS"); do
             IMMUTABLE_VERSION=$(npm view --prefer-online "omo-ai@$OMO_AI_VERSION" version 2>/dev/null || true)
             TARBALL_URL=$(npm view --prefer-online "omo-ai@$OMO_AI_VERSION" dist.tarball 2>/dev/null || true)
