@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **After an upgrade, the first turn no longer fails with "No provider available" while an old engine host is still around.** 5.1.16 runs on senpi 2026.10.7, where `host handoff` (which the desktop runs when the engine changed) can replace an old host that still serves the client's own socket with no session open, instead of refusing it until the host is drained by hand. A host that holds a session is still refused, with the command that retires it. `host status` also names the right engine build for a generation started by a handoff. ([senpi#2701](https://github.com/code-yeongyu/senpi/issues/2701), [senpi#2698](https://github.com/code-yeongyu/senpi/issues/2698))
 
+### Added
+
+**Code-mode `wait()` and `handle()` now work on omo's own task children and workpools.** An eval cell can wait on several agents and get their values in order, and check, cancel, steer or read the output of a run it started. Every call is fenced to the session that started the run and to that exact run: a handle from before a revive is refused as stale and never touches the new run, while a model fallback inside the same run keeps the handle working. Sending to a finished agent starts a new run, and the reply says so (`revived as epoch N`) with the new handle. Watching a run never delays or duplicates its completion notification.
+
 ### Changed
 
 **omo runs on senpi 2026.10.7.** Code mode gets an in-cell `wait()` barrier and `handle()` views in all four kernels, and the JavaScript kernel gains `tool.defined()`, `tool.undefine(name)` and named tools; eval recovers after a cancelled session switch or a failed runtime start instead of staying broken for the rest of the session; the Ruby kernel's memory notice works on Ruby 2.6 again. Full list: [senpi 2026.10.7](https://github.com/code-yeongyu/senpi/releases/tag/v2026.10.7).

@@ -55,6 +55,9 @@ export type SendInput = {
   readonly deliverAs?: SendDelivery
   readonly callerSessionId?: string
   readonly allScope?: boolean
+  // Deliver only to the run a handle minted at this epoch names (fenceRun): any other run answers
+  // `not_continuable` with STALE_RUN_REASON and nothing is delivered. task_send never sets it.
+  readonly expectedRunEpoch?: number
 }
 
 // The SEND DEFAULT is "followUp": codex's followup_task routes a send to a running child as a
@@ -88,6 +91,9 @@ export type InterruptOutcome =
 
 export type CancelOptions = {
   readonly abort?: "request" | "skip"
+  // Cancel only the run a handle minted at this epoch names: any other run answers `noop` with
+  // STALE_RUN_REASON and nothing is cancelled. task_cancel never sets it.
+  readonly expectedRunEpoch?: number
 }
 
 export type CancelOutcome =
