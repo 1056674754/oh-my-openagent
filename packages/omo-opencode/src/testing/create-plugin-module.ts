@@ -1,4 +1,4 @@
-import type { Hooks, Plugin, PluginModule } from "@opencode-ai/plugin"
+import type { Hooks, Plugin, PluginInput, PluginModule, PluginOptions } from "@opencode-ai/plugin"
 import type { HookName } from "../config"
 import { validatePluginConfig } from "../config/validate"
 import { initConfigContext } from "../cli/config-manager/config-context"
@@ -34,6 +34,11 @@ import { migrateLegacyWorkspaceDirectory } from "../shared/legacy-workspace-migr
 import { sweepOmoFamiliesBestEffort } from "../shared/omo-process-sweep"
 import { injectServerAuthIntoClient } from "../shared/opencode-server-auth"
 import { recordPluginTelemetry } from "../shared/posthog"
+import {
+  buildV2LegacyInput,
+  isLegacyPluginInput,
+  registerV2Hooks,
+} from "../shared/v2-host-adapter"
 import {
   initLiveServerRoute,
   setLiveParentWakeRoutingDisabled,
@@ -345,8 +350,39 @@ export function createPluginModule(overrides: Partial<PluginModuleDeps> = {}): P
     return pluginHooks
   }
 
+  /**
+   * OpenCode v2 entry (`{ id, setup }`). Projects the v2 setup context onto the
+   * legacy PluginInput, runs the unchanged legacy core, then bridges the
+   * returned Hooks onto v2 context registrations (the v2 host treats the setup
+   * return value as a cleanup function).
+   */
+  const v2Setup = async (hostContext: unknown): Promise<() => Promise<void>> => {
+    if (isLegacyPluginInput(hostContext)) {
+      const legacyHooks = await serverPlugin(hostContext as PluginInput, undefined)
+      return async () => {
+        await legacyHooks.dispose?.()
+      }
+    }
+    const legacyInput = buildV2LegacyInput(hostContext, deps.log)
+    const hostOptions = hostContext !== null && typeof hostContext === "object" && "options" in hostContext
+      ? (hostContext as { options?: PluginOptions }).options
+      : undefined
+    const hooks = await serverPlugin(legacyInput, hostOptions)
+    const disposeRegistrations = await registerV2Hooks(hooks, hostContext, {
+      directory: legacyInput.directory,
+      logger: deps.log,
+    })
+    return async () => {
+      await disposeRegistrations()
+      await hooks.dispose?.()
+    }
+  }
+
+  // Dual-form module: legacy hosts consume `.server`, the OpenCode v2 host
+  // consumes `.setup`; each loader ignores the key it does not know.
   return {
     id: "oh-my-openagent",
     server: serverPlugin,
-  }
+    setup: v2Setup,
+  } as PluginModule
 }
