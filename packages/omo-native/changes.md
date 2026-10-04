@@ -2,6 +2,12 @@
 
 `packages/omo-native/test/provisioned-handoff.test.ts` removed its temp root with a bare `rmSync` in `afterAll`. On Windows, a file the just-exited compiled `omo` child still held made it throw `EBUSY`; bun reported that as an unnamed failed test and failed `test (windows-latest, 2/2)` on unrelated PRs. The teardown now uses the shared `test-support/remove-tree.ts` `removeTree`, which retries a transient `EBUSY`/`EPERM` within a bounded budget and still throws a persistent one.
 
+## 2026-10-04 - Every one-shot engine command reaches the engine, so `omo models discover` works (#9572)
+
+The engine dispatches its one-shot commands on `argv[0]`, but the launcher handed only a fixed list straight through (`install, remove, list, config, auth, app-server, host`, plus `update`) and put `--extension <plugin>` in front of everything else. So `omo models discover <provider>` started an interactive session instead of discovering models, and `omo schedule ...` and the `uninstall` alias of `remove` did the same.
+
+`bin/lib/engine-commands.js` (`isEngineCommand`) now names every command the engine dispatches before a session starts, including `models discover`, `schedule` and `uninstall`. The npm launcher and the compiled entry (`compile-args.ts`) both hand those over unchanged. `app-server` keeps its plugin after its arguments, and a prompt that merely starts with `models` is still a chat launch with the plugin. `test/engine-commands.test.ts` walks the installed engine's own dispatch (`cli/deferred-commands`, the package verbs, auth, `models discover`), so a command the engine adds fails until the launcher routes it.
+
 ## 2026-10-02 - Gate each platform publish on that platform's release-binary smoke (#9385)
 
 In `.github/workflows/publish-platform.yml` the build leg uploaded the npm payload artifact (`binary-<platform>`)

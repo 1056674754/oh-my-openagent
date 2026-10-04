@@ -1,3 +1,22 @@
+## 2026-10-04 - The committed gateway rules sidecar is no longer an ignored path
+
+`packages/omo-senpi/.gitignore` ignores `/plugin/extensions/*` and re-admits each committed bundle with a `!` line. The `gateway_rules` store-extension sidecar (`gateway-rules-extension.mjs`, from #9540) was committed without its `!` line, so `script/tracked-ignored-paths-audit.test.ts` failed on `dev` and on the v5.1.17 release-state PR. A local `git add` of a fresh regen would also silently skip that file. Added the negation next to its sibling `gateway-store-worker.mjs`.
+
+## 2026-10-04 - A runtime advisory no longer makes a failed reflection child look like a provider outage (#9553)
+
+On Windows every failed memory reflection child was recorded as "refused by its provider", and automatic reflection parked for hours. `worker/model-miss.ts` `providerFailureDetail` took the first stderr line as the provider's answer. On a Bun host on win32 that line is Bun's `child reaper unavailable under Bun on win32: ...` advisory, printed once per terminated worker thread before anything the child says. The shared retryable-error classifier matches the bare word `unavailable`, so any failure became `provider_unavailable`, the real cause was hidden, and every candidate in the chain was marked as refused.
+
+The detail is now the first line that is not an advisory: a runtime reporting on its own host (`... under Bun/Node/Deno ...`), or a line that announces itself with a log-level prefix (`note:`, `info:`, `warning:`, ...). The first real line still decides, which matters because senpi prints the provider's answer first and a stack (`Error: ...`) may follow it.
+
+Tests (`model-miss.test.ts`, the exact advisory text):
+- advisory then an unrelated error: the child's own failure;
+- advisory then a real 429: a provider outage named by the provider's line;
+- advisory alone: no outage;
+- an unknown `note:` advisory saying "temporarily unavailable" then a real error: the error decides;
+- a provider sentence then a stack `Error:` line: the provider's sentence decides.
+
+**Known limit:** an advisory with neither a runtime marker nor a log-level prefix, and nothing after it, is still taken as the detail. There is no better line to report then.
+
 ## 2026-10-04 - Gateway operating-rules injection into lead and bound sessions (#9190)
 
 - New `components/gateway`: the scope lead and every session with an active binding get the scope's compiled behavioral rules as one `<operating-rules version="<rules sha>">` block in the system prompt through `before_agent_start`, rendered beside the memory block. The component lazily connects only when the `gateway.scopes` config is non-empty and the store database exists; every other session's prompt passes through byte-identical. Rules are computed by the gateway package; omo owns only the `gateway_rules` store extension (a `gateway_rules_blocks` table plus the `rulesCommitted`/`blockForSession` ops) and the exactly-once `rules_changed` fanout per session and version. `plugin/scripts/build-extension-core.mjs` emits the ops module as `extensions/gateway-rules-extension.mjs` beside `omo.js`, covered by the build freshness check.

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.17] - 2026-10-04
+
+**An idle engine host now exits after its idle window once its sessions are done.** 5.1.17 runs on senpi 2026.10.8. Before, a host counted a session busy on every `agent_start` but cleared it only once per run, so any run that retried, continued after compaction or took a follow-up left the host busy forever and it never exited; a session closed mid-run did the same. The host now tracks runs and drops a session when it closes. Thanks to @DevNewbie1826 for the report. ([senpi#2713](https://github.com/code-yeongyu/senpi/issues/2713), [senpi#2717](https://github.com/code-yeongyu/senpi/pull/2717))
+
+### Fixed
+
+**A workpool create that reuses a pool name no longer inherits that pool's tools.** A second `workpool` create with the same name from the same session got the first pool, and the tools it was granted, even when it asked for different tools or none. Now a pool is reused only when the tools asked for match its grant; any other grant is refused as a name conflict. ([#9548](https://github.com/code-yeongyu/oh-my-openagent/issues/9548))
+
+**Replies no longer come back formatted as a quote.** Several bundled prompts showed their reply-format examples (handoff templates, the routing line) as markdown quote lines, and the model copied the `>` into its answer, so whole replies rendered as blockquotes. The examples are now plain lines; the wording is unchanged. ([#9538](https://github.com/code-yeongyu/oh-my-openagent/issues/9538), [#9550](https://github.com/code-yeongyu/oh-my-openagent/pull/9550))
+
+**A cold Python start on a busy machine no longer fails as a hang.** The Python kernel counts CPU use and output during startup as progress, with an absolute ceiling, instead of failing after a fixed silent window. ([senpi#2718](https://github.com/code-yeongyu/senpi/issues/2718), [#9495](https://github.com/code-yeongyu/oh-my-openagent/issues/9495))
+
+**On Windows, memory reflection works again instead of parking itself.** A failed reflection on Windows was recorded as "refused by its provider", so automatic reflection parked after a few runs and stopped saving facts. A build with this fix un-parks on its next successful reflection; run `/reflect` to trigger one now, and use `/facts retry` for facts that were parked while it was stuck. ([#9553](https://github.com/code-yeongyu/oh-my-openagent/issues/9553), [#9554](https://github.com/code-yeongyu/oh-my-openagent/pull/9554))
+
+### Changed
+
+**omo runs on senpi 2026.10.8.** The bundled Claude Agent SDK moves to 0.3.289 (Claude Code 2.1.289); `continue_from_leaf` acknowledges when the continued turn starts, so a long desktop continuation no longer times out; code mode gets Python kernel tools beside a parked cell. Full list: [senpi 2026.10.8](https://github.com/code-yeongyu/senpi/releases/tag/v2026.10.8).
+
+**omo can now inject a chat gateway scope's operating rules into bound sessions** as one block in the system prompt; it takes effect once the gateway connector that pushes them ships. Every other session's prompt is unchanged. ([#9540](https://github.com/code-yeongyu/oh-my-openagent/pull/9540))
+
 ## [5.1.16] - 2026-10-04
 
 **After an upgrade, the first turn no longer fails with "No provider available" while an old engine host is still around.** 5.1.16 runs on senpi 2026.10.7, where `host handoff` (which the desktop runs when the engine changed) can replace an old host that still serves the client's own socket with no session open, instead of refusing it until the host is drained by hand. A host that holds a session is still refused, with the command that retires it. `host status` also names the right engine build for a generation started by a handoff. ([senpi#2701](https://github.com/code-yeongyu/senpi/issues/2701), [senpi#2698](https://github.com/code-yeongyu/senpi/issues/2698))
