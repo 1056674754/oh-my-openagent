@@ -1,3 +1,7 @@
+## 2026-10-04 - Adopt senpi 2026.10.9
+
+Every `@code-yeongyu/senpi` pin moves from 2026.10.8 to 2026.10.9: the root devDependency, `omo-native` and its provider map, the `omo-senpi` and `senpi-task` peer and dev pins (with their `senpi-tui` and `senpi-ai` aliases), the pin tests and the engine named in `senpi-task`'s coverage test. The engine names the tool call a permission prompt approves (senpi#2710), stops requiring a status block on a reply that only answers and drops quote-line reply templates (senpi#2723, senpi#2714), and carries 2026.10.9's code mode work; the generated plugin bundles are regenerated for it on Linux.
+
 ## 2026-10-04 - Test runs keep the engine's agent dir in their temp home (#9578)
 
 `test-setup.ts` pointed `HOME` at a per-process temp dir but DELETED the agent-dir variables (`OMO_CODING_AGENT_DIR`, `SENPI_CODING_AGENT_DIR`, `PI_CODING_AGENT_DIR`). The engine resolves its agent dir from those variables first and from `os.homedir()` otherwise. `os.homedir()` keeps the real home it read at process start, so any test that booted the packaged extension wrote into the developer's (or CI host's) real agent dir. `bun test ./packages/omo-senpi/` left a real task host running there, with its shard meta and daemon dir.
