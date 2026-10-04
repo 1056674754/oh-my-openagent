@@ -60,11 +60,12 @@ function armRevealDriver(): void {
       }
       // Per-word reveal: each word lights as its own bottom crosses the full line, with a small
       // left-to-right stagger within its line so words light one at a time (word-by-word), never
-      // a whole line at once. The stagger is local to the line (it wraps), so it never accumulates
-      // across a long paragraph.
-      const lineWidth = Math.max(1, body.getBoundingClientRect().width)
+      // a whole line at once. The stagger is measured from the text column's left edge (not the
+      // viewport), so reading order holds at any width.
+      const bodyRect = body.getBoundingClientRect()
+      const lineWidth = Math.max(1, bodyRect.width)
       for (const { node, bottom, height, left } of words) {
-        const withinLine = ((left % lineWidth) / lineWidth) * height * 2
+        const withinLine = (((left - bodyRect.left) % lineWidth) / lineWidth) * height * 2
         node.style.setProperty(
           "--lit-local",
           String(clamp01((endTop - bottom - withinLine) / (height * 1.6) + 1)),

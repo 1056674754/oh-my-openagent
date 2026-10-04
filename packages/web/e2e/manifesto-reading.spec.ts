@@ -197,6 +197,80 @@ for (const locale of ["en", "ko"]) {
         expect(state.allLit).toBe(true)
       })
 
+      // Per-word, never split: at any frame, every word's glyphs share ONE brightness — the reveal
+      // steps BETWEEN words, so no word is cut in half by a line-wide gradient. Assert no word
+      // renders a clipped text gradient (which is what split words before).
+      test("no word is ever split in half", async ({ page }) => {
+        await page.emulateMedia({ reducedMotion: "no-preference" })
+        await page.goto(`/${locale}/manifesto`)
+        await page.evaluate(waitForReadingBlocks)
+        const maxY = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)
+        for (const frac of [0.2, 0.4, 0.6, 0.8]) {
+          await page.evaluate(scrollSecret, Math.round(maxY * frac))
+          await page.evaluate(
+            () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+          )
+          const split = await page.evaluate(() => {
+            for (const word of Array.from(
+              document.querySelectorAll<HTMLElement>(".lit-read .lit-word"),
+            )) {
+              const css = getComputedStyle(word)
+              // A word rendered as a clipped text gradient can be split; a per-word opacity/colour
+              // fade cannot. The reveal must NOT use background-clip: text.
+              const clip = css.webkitBackgroundClip || css.backgroundClip
+              const hasGradient = css.backgroundImage.includes("gradient")
+              if (hasGradient && (clip === "text" || css.color === "rgba(0, 0, 0, 0)")) {
+                return (word.textContent ?? "").slice(0, 12)
+              }
+            }
+            return null
+          })
+          expect(split, `scrollY frac ${frac}`).toBeNull()
+        }
+      })
+
+      // Reading order: on any line, a word is never lit before the word to its left (the stagger
+      // runs left-to-right from the text column's left edge, not the viewport).
+      test("the reveal respects left-to-right reading order", async ({ page }) => {
+        await page.emulateMedia({ reducedMotion: "no-preference" })
+        await page.goto(`/${locale}/manifesto`)
+        await page.evaluate(waitForReadingBlocks)
+        const maxY = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)
+        for (const frac of [0.25, 0.45, 0.65]) {
+          await page.evaluate(scrollSecret, Math.round(maxY * frac))
+          await page.evaluate(
+            () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+          )
+          const violations = await page.evaluate(() => {
+            const words = Array.from(document.querySelectorAll<HTMLElement>(".lit-read .lit-word"))
+            const byLine = new Map<number, { left: number; lit: boolean }[]>()
+            for (const word of words) {
+              const rect = word.getBoundingClientRect()
+              const key = Math.round(rect.bottom)
+              const lit =
+                Number.parseFloat(getComputedStyle(word).getPropertyValue("--lit-local")) >= 1
+              if (!byLine.has(key)) byLine.set(key, [])
+              byLine.get(key)!.push({ left: rect.left, lit })
+            }
+            let count = 0
+            for (const line of byLine.values()) {
+              line.sort((a, b) => a.left - b.left)
+              // A violation is a lit word to the RIGHT of an unlit word (lit before its left
+              // neighbour). Scan for an unlit word that has a lit word anywhere to its right.
+              let litToRight = false
+              for (let i = line.length - 1; i >= 0; i -= 1) {
+                const word = line[i]
+                if (!word) continue
+                if (word.lit) litToRight = true
+                else if (litToRight) count += 1
+              }
+            }
+            return count
+          })
+          expect(violations, `scrollY frac ${frac}`).toBe(0)
+        }
+      })
+
       // The reveal travels word by word: across a scroll sweep, some line shows a gradient of
       // --lit-local values across its words, never one shared value for the whole line.
       test("the reveal lights words one at a time", async ({ page }) => {

@@ -938,13 +938,17 @@
     --lit-local: 1;
   }
   .lit-read .lit-word {
-    background-image: linear-gradient(
-      90deg,
-      var(--text-hi) 0%,
-      var(--text-hi) 45%,
-      var(--text-lo) 55%,
-      var(--text-lo) 100%
+    /* Per-word fade (not a line-wide background gradient): each word's brightness is ONE value, so
+       no word is ever split in half mid-transition. --lit-local (0..1) lerps the word between the
+       unread floor and full lit; the stagger steps BETWEEN words. */
+    background: none;
+    color: color-mix(
+      in oklab,
+      var(--text-hi) calc(var(--lit-local) * 100%),
+      var(--text-lo) calc((1 - var(--lit-local)) * 100%)
     );
+    opacity: calc(0.55 + var(--lit-local) * 0.45);
+    filter: blur(calc((1 - var(--lit-local)) * var(--lit-blur)));
   }
   .lit-link {
     text-decoration: underline;
