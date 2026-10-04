@@ -15,14 +15,16 @@ export interface HermeticHome {
 // os.homedir() keeps the OS home it read at process start and ignores a later HOME change, so the
 // engine's agent-dir lookup (these variables first, os.homedir() otherwise) would still land in the
 // user's real agent dir: a test that starts a session or a task host then writes there (#9578).
-// Every agent-dir variable is pinned to the hermetic home, which also replaces whatever agent dir a
-// run started inside a live omo session would inherit.
+// Every reader takes the first set name in OMO > SENPI > PI order. The two that a run inherited from
+// a live omo session are dropped and only the LAST is pinned to the hermetic home, so a test that sets
+// OMO_ or SENPI_CODING_AGENT_DIR for itself or a child still wins exactly as it did before.
 export function installHermeticHome(): HermeticHome {
   const home = mkdtempSync(join(tmpdir(), "omo-test-home-"))
   process.env.HOME = home
   process.env.USERPROFILE = home
   const agentDir = join(home, ".omo", "agent")
-  for (const name of AGENT_DIR_ENV_NAMES) process.env[name] = agentDir
+  for (const name of AGENT_DIR_ENV_NAMES) delete process.env[name]
+  process.env.PI_CODING_AGENT_DIR = agentDir
   afterAll(() => {
     stopHostsUnder(home)
     failOnShardsInRealAgentDir()
