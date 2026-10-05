@@ -138,7 +138,8 @@ QA 顺带发现的新缺口（非本次 commits 引入，列此为 backlog）：
 
 - **O1 seed 鉴权单点**：`buildConfigSeed` 只认 OpenChamber managed-auth 文件；裸 v2 宿主带密码时 `GET /api/config` 401 → seed 为空（boot 日志有记录，不静默）。OMO 自身 client 走 `OPENCODE_SERVER_PASSWORD` env 不受影响——**非 OpenChamber v2 部署会丢宿主侧 config 合并**。修法方向：seed fetch 复用 client 的同一鉴权注入。
 - **O2 idle 事件缺失**：v2 无 `session.idle` 事件，`execution.succeeded/failed` 原样透传——v1 侧 idle 挂钩（`dispatchIdleOnlyHooks`/monitor 空闲触发）在 v2 不触发。修法方向：由 `session.step.ended` + 无活跃 step 推导 idle 合成事件。
-- **O3 宿主 Code Mode 输出渲染为空**（**非 OMO，属 sscity-v2 宿主 bug，转 opencode-v2 线处理**）：该 v2.0.22-sscity 宿主把所有 Code Mode 工具执行输出渲染为空文本——包括 core 工具、甚至直接 `return "hello world"` 的探针（三轮 A/B 证据 `s4p3-codemode-sanity-messages.json`）。在宿主修复前，任何工具的拒绝/结果文本都无法经 Code Mode 传达给模型。
+
+**四轮终局（2026-10-05）**：全部场景 PASS。四轮双验证点：monitor_list 成功路径 `status: completed` + content 携带真实输出文本（无 output 键）；monitor_start 非白名单拒绝文本 `[ERROR] monitor_start denied: command not in allowed_commands` 双向存活（模型逐字引用），fail-closed 不变（零 monitor、零子进程）。**三轮"宿主 Code Mode 全工具空渲染"结论已撤回**——同宿主四轮渲染完全正常，根因是 OMO 旧 execute.after 无条件回写把宿主所有工具的 result 改写为 `{output:"",metadata}`（含 core 工具与探针），`c988d0ab3` 修复后消失；sscity-v2 宿主无此 bug，无需移交 opencode-v2 线。
 
 ---
 
