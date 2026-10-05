@@ -19,6 +19,12 @@ import { log } from "./logger"
  *    existing plugin core runs unchanged,
  * 3. bridges the legacy `Hooks` object onto v2 context registrations.
  *
+ * The v2 event stream is normalized before dispatch: the wire envelope's
+ * `data` fields become the legacy properties bag, and events without a v1
+ * namesake are synthesized from their v2 sources (step lifecycle ->
+ * `message.updated`, `session.execution.failed` -> `session.error`).
+ * `message.removed` has no v2 source and is never emitted.
+ *
  * Hooks without a faithful v2 equivalent are skipped and reported via `log`
  * rather than silently dropped.
  */
@@ -421,12 +427,67 @@ function bridgeToolResult(result: unknown): Record<string, unknown> {
   return output
 }
 
+// ---------------------------------------------------------------------------
+// v2 event stream -> legacy event normalization
+// ---------------------------------------------------------------------------
+
+type LegacyEvent = { type: string; properties: Record<string, unknown> }
+
+function assistantMessageInfo(data: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
+  const model = isRecord(data.model) ? data.model : {}
+  return {
+    id: data.assistantMessageID,
+    sessionID: data.sessionID,
+    role: "assistant",
+    ...(typeof data.agent === "string" ? { agent: data.agent } : {}),
+    ...(typeof model.providerID === "string" ? { providerID: model.providerID } : {}),
+    ...(typeof model.id === "string" ? { modelID: model.id } : {}),
+    ...(typeof model.variant === "string" ? { variant: model.variant } : {}),
+    ...patch,
+  }
+}
+
+/**
+ * Projects the native v2 event vocabulary onto the legacy (v1) event shapes
+ * OMO's handlers consume.
+ *
+ * v2 has no message-entity events: assistant message birth and finish are
+ * derived from the step lifecycle, and session errors surface through
+ * `session.execution.failed` (v1 `session.error`). `message.removed` has no
+ * v2 source at all and is never synthesized.
+ */
+export function mapV2EventToLegacyEvents(type: string, data: Record<string, unknown>): LegacyEvent[] {
+  if (type === "session.step.started") {
+    return [{ type: "message.updated", properties: { info: assistantMessageInfo(data, {}) } }]
+  }
+  if (type === "session.step.ended") {
+    return [{ type: "message.updated", properties: { info: assistantMessageInfo(data, { finish: data.finish }) } }]
+  }
+  if (type === "session.execution.failed") {
+    const error = isRecord(data.error) ? data.error : {}
+    const details: Record<string, unknown> = {}
+    if (error.status !== undefined) details.status = error.status
+    if (error.response !== undefined) details.response = error.response
+    return [{
+      type: "session.error",
+      properties: {
+        sessionID: data.sessionID,
+        error: {
+          name: typeof error.type === "string" ? error.type : "unknown",
+          message: typeof error.message === "string" ? error.message : "",
+          ...(Object.keys(details).length > 0 ? { data: details } : {}),
+        },
+      },
+    }]
+  }
+  return [{ type, properties: data }]
+}
+
 export async function registerV2Hooks(
   hooks: Hooks,
   hostContext: unknown,
   deps: { directory: string; logger: BasicLogger },
-): Promise<() => Promise<void>> {
-  const context = (isRecord(hostContext) ? hostContext : {}) as V2HostContext
+): Promise<() => Promise<void>> {  const context = (isRecord(hostContext) ? hostContext : {}) as V2HostContext
   // Legacy hook handlers validate their own inputs (createChatParamsHandler and
   // friends normalize unknown payloads), so the bridge calls them through the
   // untyped boundary and passes the defensively-shaped objects they expect.
@@ -553,14 +614,20 @@ export async function registerV2Hooks(
         try {
           for await (const raw of subscribe({ signal: controller.signal })) {
             if (!isRecord(raw)) continue
-            const { type, ...properties } = raw
-            try {
-              await handler({ event: { type: String(type), properties } })
-            } catch (error) {
-              deps.logger("[v2-host] event handler failed", {
-                type: String(type),
-                error: error instanceof Error ? error.message : String(error),
-              })
+            const type = typeof raw.type === "string" ? raw.type : ""
+            if (type.length === 0) continue
+            // v2 frames events as { id, type, created, data, ... }; legacy
+            // handlers expect the data fields as the properties bag.
+            const data = isRecord(raw.data) ? raw.data : raw
+            for (const event of mapV2EventToLegacyEvents(type, data)) {
+              try {
+                await handler({ event: { type: event.type, properties: event.properties } })
+              } catch (error) {
+                deps.logger("[v2-host] event handler failed", {
+                  type: event.type,
+                  error: error instanceof Error ? error.message : String(error),
+                })
+              }
             }
           }
         } catch (error) {
