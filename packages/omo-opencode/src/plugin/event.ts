@@ -101,6 +101,13 @@ export function createEventHandler(args: {
       sessionID,
     });
     await dispatchIdleOnlyHooks(syntheticIdle);
+    // Mirror the real-idle branch: hosts that only signal idle through
+    // session.status (and the v2 bridge, which appends a status companion to
+    // execution terminal states) must flush monitors here too.
+    await Promise.resolve().then(() => managers.monitorManager?.handleEvent({
+      type: "session.idle",
+      sessionId: sessionID,
+    }));
   };
 
   return async (input): Promise<void> => {

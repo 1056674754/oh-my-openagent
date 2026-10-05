@@ -61,6 +61,9 @@ describe("mapV2EventToLegacyEvents", () => {
         sessionID: "ses_1",
         error: { name: "provider_error", message: "boom", data: { status: 502 } },
       },
+    }, {
+      type: "session.status",
+      properties: { sessionID: "ses_1", status: { type: "idle" } },
     }])
   })
 
@@ -70,7 +73,42 @@ describe("mapV2EventToLegacyEvents", () => {
     expect(events).toEqual([{
       type: "session.error",
       properties: { sessionID: "ses_1", error: { name: "unknown", message: "" } },
+    }, {
+      type: "session.status",
+      properties: { sessionID: "ses_1", status: { type: "idle" } },
     }])
+  })
+
+  test("#given session.execution.succeeded #when mapped #then an idle status companion follows the raw event", () => {
+    const events = mapV2EventToLegacyEvents("session.execution.succeeded", { sessionID: "ses_1" })
+
+    expect(events).toEqual([
+      { type: "session.execution.succeeded", properties: { sessionID: "ses_1" } },
+      { type: "session.status", properties: { sessionID: "ses_1", status: { type: "idle" } } },
+    ])
+  })
+
+  test("#given session.execution.interrupted for shutdown #when mapped #then no idle companion is emitted", () => {
+    const events = mapV2EventToLegacyEvents("session.execution.interrupted", {
+      sessionID: "ses_1",
+      reason: "shutdown",
+    })
+
+    expect(events).toEqual([
+      { type: "session.execution.interrupted", properties: { sessionID: "ses_1", reason: "shutdown" } },
+    ])
+  })
+
+  test("#given session.execution.interrupted for a user abort #when mapped #then an idle status companion follows", () => {
+    const events = mapV2EventToLegacyEvents("session.execution.interrupted", {
+      sessionID: "ses_1",
+      reason: "user",
+    })
+
+    expect(events).toEqual([
+      { type: "session.execution.interrupted", properties: { sessionID: "ses_1", reason: "user" } },
+      { type: "session.status", properties: { sessionID: "ses_1", status: { type: "idle" } } },
+    ])
   })
 
   test("#given a v2 event without a v1 namesake #when mapped #then the data bag passes through unchanged", () => {
@@ -426,7 +464,7 @@ describe("registerV2Hooks event stream", () => {
     const hooks = {
       event: async (input: { event: { type: string; properties: unknown } }) => {
         received.push({ type: input.event.type, properties: input.event.properties })
-        if (received.length === 4) release()
+        if (received.length === 5) release()
       },
     } as unknown as Hooks
     const hostContext = {
@@ -447,9 +485,11 @@ describe("registerV2Hooks event stream", () => {
       "message.updated",
       "message.updated",
       "session.error",
+      "session.status",
     ])
     expect(received[0]?.properties).toEqual({ sessionID: "ses_1", title: "t" })
     expect((received[3]?.properties as { error: { name: string } }).error.name).toBe("api_error")
+    expect(received[4]?.properties).toEqual({ sessionID: "ses_1", status: { type: "idle" } })
 
     await dispose()
   })

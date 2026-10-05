@@ -1348,6 +1348,36 @@ describe("createEventHandler - event forwarding", () => {
 		})
 	})
 
+	it("flushes monitors for synthetic session.idle events", async () => {
+		const monitorEvents: Array<{ type: string; sessionId: string }> = []
+		const eventHandler = createEventHandler({
+			ctx: asEventHandlerContext({ directory: "/tmp/project-idle" }),
+			pluginConfig: asPluginConfig({}),
+			firstMessageVariantGate: {
+				markSessionCreated: () => {},
+				clear: () => {},
+			},
+			managers: createEventHandlerManagers({
+				monitorManager: {
+					handleEvent: (event: { type: string; sessionId: string }) => {
+						monitorEvents.push(event)
+					},
+				},
+			}),
+			hooks: createEventHandlerHooks({}),
+		})
+
+		await eventHandler(asEventHandlerInput({
+			event: {
+				type: "session.status",
+				properties: { sessionID: "ses_monitor_flush", status: { type: "idle" } },
+			},
+		}))
+		await wait(5)
+
+		expect(monitorEvents).toEqual([{ type: "session.idle", sessionId: "ses_monitor_flush" }])
+	})
+
 	it("clears stored prompt params on session.deleted", async () => {
 		const eventHandler = createEventHandler({
 			ctx: {} as never,

@@ -544,6 +544,11 @@ function assistantMessageInfo(data: Record<string, unknown>, patch: Record<strin
  * derived from the step lifecycle, and session errors surface through
  * `session.execution.failed` (v1 `session.error`). `message.removed` has no
  * v2 source at all and is never synthesized.
+ *
+ * v2 also has no `session.idle`: the host treats execution terminal states as
+ * the idle boundary (`message-updater.ts` maps succeeded/failed/interrupted to
+ * idle). The bridge emits a v1 `session.status {type:"idle"}` companion so the
+ * existing normalizer synthesizes the idle event with its full dedup pipeline.
  */
 export function mapV2EventToLegacyEvents(type: string, data: Record<string, unknown>): LegacyEvent[] {
   if (type === "session.step.started") {
@@ -551,6 +556,16 @@ export function mapV2EventToLegacyEvents(type: string, data: Record<string, unkn
   }
   if (type === "session.step.ended") {
     return [{ type: "message.updated", properties: { info: assistantMessageInfo(data, { finish: data.finish }) } }]
+  }
+  if (type === "session.execution.succeeded") {
+    return [{ type, properties: data }, idleStatusEvent(data)]
+  }
+  if (type === "session.execution.interrupted") {
+    // Shutdown keeps the execution claim for a resume drain; every other
+    // interruption (e.g. user abort) settles the run and must release
+    // idle-gated consumers.
+    if (data.reason === "shutdown") return [{ type, properties: data }]
+    return [{ type, properties: data }, idleStatusEvent(data)]
   }
   if (type === "session.execution.failed") {
     const error = isRecord(data.error) ? data.error : {}
@@ -567,9 +582,19 @@ export function mapV2EventToLegacyEvents(type: string, data: Record<string, unkn
           ...(Object.keys(details).length > 0 ? { data: details } : {}),
         },
       },
-    }]
+    }, idleStatusEvent(data)]
   }
   return [{ type, properties: data }]
+}
+
+function idleStatusEvent(data: Record<string, unknown>): LegacyEvent {
+  return {
+    type: "session.status",
+    properties: {
+      ...(typeof data.sessionID === "string" ? { sessionID: data.sessionID } : {}),
+      status: { type: "idle" },
+    },
+  }
 }
 
 export async function registerV2Hooks(
