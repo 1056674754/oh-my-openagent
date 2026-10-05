@@ -117,6 +117,29 @@ dev 分支 `packages/omo-opencode/src/v2` 至今（2026-10-04）不存在——*
 - **`command.execute.before` 无 v2 拦截点**（**2026-10-05 评估确认**）：v2 `command.transform` editor 是 **add-only**（`Map.set` by name，且 `Command.get` 只返回 Info 不含 execute，无法包装既有定义），命令执行路径不触发任何 pre-execute 事件；命令名在 `session.hook("prompt")` 时点已丢失，无法从渲染文本可靠重建。**移植路径存在但未实施**：仿照宿主自己的 config 命令加载器（`config/plugin/command.ts`：agent/model 切换 + `ctx.session.prompt`），OMO 用 `command.transform(add)` **自行注册** `goal` / `stop-continuation` / `ulw-execute` 三个命令，把 before 逻辑内联进自有 execute——对该三命令保真，对第三方命令仍无通用拦截。列入后续工作项。）
 - 对照参考：herjarsa 桥的 9 DIRECT / 4 ADAPT / 2 GAP 与 fazulfi 全量映射的 17 GAP（`docs/v2-api-mapping.md`）说明部分缺口是 **V2 宿主本身没有对应能力**（如 `command.execute.before`），不是适配层偷懒——这类缺口在"翻译式"路线里无解，只有 V2 原生重写或宿主补钩子能解决。
 
+#### 3.2.1 运行时 QA 记录（2026-10-05，事件桥 + ask stub 移除）
+
+被测 `b23dac4c5`（含 `060fdb991`），真实 fork v2 宿主（sscity-v2 源码直跑）+ 真实模型驱动，证据 `/tmp/omo-v2-qa/qa-evidence/`（00-summary.md + 每场景原始 SSE/日志）：
+
+| 场景 | 结果 | 要点 |
+| --- | --- | --- |
+| S1 Boot | PASS | plugin input projection / config hook applied {agents:18} / tools registered {count:13} 全齐 |
+| S2 Streaming | PASS | 单轮恰 1×step.started+1×step.ended，wire 字段与桥接输入精确匹配；event handler failed=0 |
+| S3 session.error | PASS | wire `error.type:"provider.no-route"` → OMO 收到 `error.name` 同值；单订阅无重复派发 |
+| S4 Restart | PASS | 两次重启后 step 1:1 配对，无残留双订阅 |
+| S4' ask stub | PASS（三轮） | 一轮配置放错层（monitor 须放 `.omo/omo.jsonc` 的 `[opencode]` 节）→ 二轮挖出工具全丢 bug（下）→ 三轮 17/17 工具落进宿主目录 + monitor_start 非白名单命令 fail-closed（error 状态、无 monitor 创建、无子进程） |
+
+S4' 过程中挖出并修复的 **两个真 bug**（子代理发现 + 主线复核）：
+
+- **v2 工具全量静默丢弃**（修复 `9ce671cf4`）：`normalizeToolArgSchemas` 给每个 arg 字段装的 v1 兼容 shim（`_zod.toJSONSchema`）使 v2 宿主 standard-interface 转换崩溃（flattenRef `seen.ref` TypeError），宿主只留 server-log ERROR、插件无感知——OMO 侧 "tools registered" 计数是自说自话。修法：v2 桥剥 shim + 本地 zod 转**纯 JSON Schema** 传入（宿主 `inputJsonSchema` verbatim 分支），宿主 zod 出局；转换失败降级为未校验 schema + 日志，不丢工具。**教训：v2 侧工具注册必须做宿主侧接受度验证（宿主日志 + 模型目录），插件侧计数无效。**
+- **v2 工具结果被 die 打死**（修复 `c988d0ab3`）：`bridgeToolResult` 恒返回 `{output}`，而 v2 对无 output schema 的工具把 `output` 键视为 defect（`Effect.die("Tool result declared output without an output schema")`）——连应成功的调用（monitor_list）也 error，拒绝文本也无法存活。修法：结果折入 `content`（字符串或 Content parts）；execute.after 回写同步改为仅 patch 实际改动字段、不写 output 键、无改动保持原引用（该 hook 覆盖宿主全部工具，原实现对外来带 schema 工具是破坏性改写）。
+
+QA 顺带发现的新缺口（非本次 commits 引入，列此为 backlog）：
+
+- **O1 seed 鉴权单点**：`buildConfigSeed` 只认 OpenChamber managed-auth 文件；裸 v2 宿主带密码时 `GET /api/config` 401 → seed 为空（boot 日志有记录，不静默）。OMO 自身 client 走 `OPENCODE_SERVER_PASSWORD` env 不受影响——**非 OpenChamber v2 部署会丢宿主侧 config 合并**。修法方向：seed fetch 复用 client 的同一鉴权注入。
+- **O2 idle 事件缺失**：v2 无 `session.idle` 事件，`execution.succeeded/failed` 原样透传——v1 侧 idle 挂钩（`dispatchIdleOnlyHooks`/monitor 空闲触发）在 v2 不触发。修法方向：由 `session.step.ended` + 无活跃 step 推导 idle 合成事件。
+- **O3 宿主 Code Mode 输出渲染为空**（**非 OMO，属 sscity-v2 宿主 bug，转 opencode-v2 线处理**）：该 v2.0.22-sscity 宿主把所有 Code Mode 工具执行输出渲染为空文本——包括 core 工具、甚至直接 `return "hello world"` 的探针（三轮 A/B 证据 `s4p3-codemode-sanity-messages.json`）。在宿主修复前，任何工具的拒绝/结果文本都无法经 Code Mode 传达给模型。
+
 ---
 
 ## 4. 路线建议（调研问题 4）
