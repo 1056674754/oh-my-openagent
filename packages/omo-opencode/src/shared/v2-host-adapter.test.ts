@@ -128,9 +128,10 @@ describe("registerV2Hooks tool registration", () => {
       messageID: "msg_1",
       id: "call_1",
       progress: async () => {},
-    })) as { output: string }
+    })) as { content: string }
 
-    expect(result.output).toBe("no-ask")
+    expect(result.content).toBe("no-ask")
+    expect("output" in result).toBe(false)
   })
 
   test("#given v1-shimmed arg fields #when bridged #then input is a plain JSON Schema without the shim", async () => {
@@ -180,6 +181,124 @@ describe("registerV2Hooks tool registration", () => {
     expect(properties.command?.description).toBe("Shell command to run in the background monitor")
     expect(properties.label?.type).toBe("string")
     expect((command as unknown as { _zod: { toJSONSchema?: unknown } })._zod.toJSONSchema).toBeUndefined()
+  })
+})
+
+describe("registerV2Hooks tool result bridging", () => {
+  function toolHost(captured: { added?: { execute: (input: unknown, ctx: unknown) => Promise<unknown> } }) {
+    return {
+      tool: {
+        transform: async (
+          callback: (editor: { add: (tool: unknown) => void; list: () => []; remove: (id: string) => void }) => void,
+        ) => {
+          callback({
+            add: (tool) => {
+              captured.added = tool as typeof captured.added
+            },
+            list: () => [],
+            remove: () => {},
+          })
+        },
+      },
+    }
+  }
+
+  test("#given a legacy record result with attachments #when bridged #then output folds into content parts and metadata", async () => {
+    const captured: { added?: { execute: (input: unknown, ctx: unknown) => Promise<unknown> } } = {}
+    const hooks = {
+      tool: {
+        demo: {
+          description: "demo",
+          args: {},
+          execute: async () => ({
+            output: "done",
+            title: "Demo",
+            metadata: { foo: 1 },
+            attachments: [
+              { type: "file", url: "file:///tmp/a.png", mime: "image/png", filename: "a.png" },
+            ],
+          }),
+        },
+      },
+    } as unknown as Hooks
+
+    await registerV2Hooks(hooks, toolHost(captured), { directory: "/tmp", logger: () => {} })
+    const result = (await captured.added!.execute({}, {})) as Record<string, unknown>
+
+    expect("output" in result).toBe(false)
+    expect(result.content).toEqual([
+      { type: "text", text: "done" },
+      { type: "file", uri: "file:///tmp/a.png", mime: "image/png", name: "a.png" },
+    ])
+    expect(result.metadata).toEqual({ foo: 1, title: "Demo" })
+  })
+
+  test("#given a legacy result with no output #when bridged #then content degrades to an empty string", async () => {
+    const captured: { added?: { execute: (input: unknown, ctx: unknown) => Promise<unknown> } } = {}
+    const hooks = {
+      tool: {
+        demo: { description: "demo", args: {}, execute: async () => undefined },
+      },
+    } as unknown as Hooks
+
+    await registerV2Hooks(hooks, toolHost(captured), { directory: "/tmp", logger: () => {} })
+    const result = (await captured.added!.execute({}, {})) as Record<string, unknown>
+
+    expect(result.content).toBe("")
+    expect("metadata" in result).toBe(false)
+  })
+})
+
+describe("registerV2Hooks tool.execute.after bridge", () => {
+  function afterHost(registrations: Map<string, (event: unknown) => Promise<void>>) {
+    return {
+      tool: {
+        hook: async (name: string, callback: (event: unknown) => Promise<void>) => {
+          registrations.set(name, callback)
+          return {}
+        },
+      },
+    }
+  }
+
+  test("#given a no-op legacy handler #when bridged #then the result reference stays untouched", async () => {
+    const registrations = new Map<string, (event: unknown) => Promise<void>>()
+    const hooks = {
+      "tool.execute.after": async (_input: unknown, _output: unknown) => {},
+    } as unknown as Hooks
+
+    await registerV2Hooks(hooks, afterHost(registrations), { directory: "/tmp", logger: () => {} })
+    const result = { content: [{ type: "text", text: "kept" }], metadata: { untouched: true } }
+    await registrations.get("execute.after")?.({ status: "completed", tool: "foreign", sessionID: "ses_1", id: "call_1", result })
+
+    expect((result as Record<string, unknown>).content).toEqual([{ type: "text", text: "kept" }])
+  })
+
+  test("#given a handler rewrite #when bridged #then content is patched without an output key", async () => {
+    const registrations = new Map<string, (event: unknown) => Promise<void>>()
+    const hooks = {
+      "tool.execute.after": async (
+        _input: unknown,
+        output: { output: string; title?: string; metadata: Record<string, unknown> },
+      ) => {
+        output.output = "rewritten"
+        output.metadata.recovered = true
+      },
+    } as unknown as Hooks
+
+    await registerV2Hooks(hooks, afterHost(registrations), { directory: "/tmp", logger: () => {} })
+    const event = {
+      status: "completed",
+      tool: "omo_tool",
+      sessionID: "ses_1",
+      id: "call_1",
+      result: { content: "original", metadata: { a: 1 } },
+    }
+    await registrations.get("execute.after")?.(event)
+
+    expect((event.result as Record<string, unknown>).content).toBe("rewritten")
+    expect((event.result as Record<string, unknown>).metadata).toEqual({ a: 1, recovered: true })
+    expect("output" in (event.result as Record<string, unknown>)).toBe(false)
   })
 })
 

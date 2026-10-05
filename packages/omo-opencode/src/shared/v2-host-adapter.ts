@@ -419,25 +419,60 @@ function wildcardToRegex(pattern: string): RegExp {
   return new RegExp(`^${pattern.split("*").map(escapeRegex).join(".*")}$`, "i")
 }
 
+/**
+ * Projects a legacy tool result onto a v2 Tool.Result for a tool registered
+ * without an output schema. `output` must stay absent - the host treats a
+ * result that "declares output without an output schema" as a defect and dies
+ * the whole call - so everything the legacy tool produced is folded into
+ * `content`, which the host accepts as a plain string or as Content parts.
+ */
 function bridgeToolResult(result: unknown): Record<string, unknown> {
-  if (typeof result === "string") return { output: result }
-  if (!isRecord(result)) return { output: "" }
+  if (typeof result === "string") return { content: result }
+  if (!isRecord(result)) return { content: "" }
   const metadata: Record<string, unknown> = { ...(isRecord(result.metadata) ? result.metadata : {}) }
   if (typeof result.title === "string") metadata.title = result.title
-  const output: Record<string, unknown> = { output: typeof result.output === "string" ? result.output : "" }
-  if (metadata && Object.keys(metadata).length > 0) output.metadata = metadata
-  if (Array.isArray(result.attachments) && result.attachments.length > 0) {
-    output.content = result.attachments.map((attachment) => {
-      if (!isRecord(attachment) || attachment.type !== "file") return attachment
-      return {
+
+  const parts: Array<Record<string, unknown>> = []
+  if (typeof result.output === "string") parts.push({ type: "text", text: result.output })
+  if (Array.isArray(result.attachments)) {
+    for (const attachment of result.attachments) {
+      if (!isRecord(attachment) || attachment.type !== "file") continue
+      parts.push({
         type: "file",
         uri: attachment.url,
         mime: attachment.mime,
         ...(typeof attachment.filename === "string" ? { name: attachment.filename } : {}),
-      }
-    })
+      })
+    }
   }
-  return output
+
+  return {
+    // An empty part list would stringify to the text "undefined" during host
+    // normalization; an empty string normalizes to an empty text part.
+    content: parts.length > 0 ? parts : "",
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+  }
+}
+
+/** The textual projection of a v2 tool result, wherever the text lives. */
+function resultText(result: Record<string, unknown>): string {
+  if (typeof result.output === "string") return result.output
+  if (typeof result.content === "string") return result.content
+  if (Array.isArray(result.content)) {
+    return result.content
+      .filter((part) => isRecord(part) && part.type === "text")
+      .map((part) => (isRecord(part) && typeof part.text === "string" ? part.text : ""))
+      .join("\n")
+  }
+  return ""
+}
+
+function shallowRecordEqual(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  if (Object.keys(a).length !== Object.keys(b).length) return false
+  for (const [key, value] of Object.entries(a)) {
+    if (!(key in b) || b[key] !== value) return false
+  }
+  return true
 }
 
 // ---------------------------------------------------------------------------
@@ -723,10 +758,12 @@ export async function registerV2Hooks(
       context.tool?.hook("execute.after", async (event) => {
         if (event.status !== "completed") return
         const result = isRecord(event.result) ? event.result : {}
+        const originalMetadata = isRecord(result.metadata) ? result.metadata : {}
+        const originalText = resultText(result)
         const output = {
           title: typeof result.title === "string" ? result.title : undefined,
-          output: typeof result.output === "string" ? result.output : "",
-          metadata: isRecord(result.metadata) ? result.metadata : {},
+          output: originalText,
+          metadata: { ...originalMetadata },
         }
         await handler(
           {
@@ -739,7 +776,15 @@ export async function registerV2Hooks(
         )
         const metadata = { ...output.metadata }
         if (output.title !== undefined) metadata.title = output.title
-        event.result = { output: output.output, metadata }
+        // Write back only what the legacy handler changed, and never through
+        // an `output` key: this hook fires for every tool on the host, and a
+        // v2 result must not declare output for a tool without an output
+        // schema. Untouched results keep their reference so foreign tools
+        // preserve typed output and content.
+        const patch: Record<string, unknown> = {}
+        if (output.output !== originalText) patch.content = output.output
+        if (!shallowRecordEqual(metadata, originalMetadata)) patch.metadata = metadata
+        if (Object.keys(patch).length > 0) event.result = { ...result, ...patch }
       }),
     )
   }
