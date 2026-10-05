@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import type { Hooks } from "@opencode-ai/plugin"
 
-import { mapV2EventToLegacyEvents, registerV2Hooks } from "./v2-host-adapter"
+import { consumeNativeGoalCommandMarker } from "../plugin/command-execute-before"
+import { mapV2EventToLegacyEvents, registerV2Hooks, renderCommandTemplate } from "./v2-host-adapter"
 
 function envelope(type: string, data: Record<string, unknown>): Record<string, unknown> {
   return { id: "evt_test", type, created: 1, data }
@@ -493,4 +494,248 @@ describe("registerV2Hooks event stream", () => {
 
     await dispose()
   })
+})
+
+describe("renderCommandTemplate", () => {
+  test("#given $ARGUMENTS #when rendered #then the raw input is substituted", async () => {
+    expect(await renderCommandTemplate("goal: $ARGUMENTS", "ship the release", "/tmp")).toBe("goal: ship the release")
+  })
+
+  test("#given positional placeholders #when rendered #then the highest placeholder absorbs the remaining args", async () => {
+    expect(await renderCommandTemplate("a=$1 b=$2", "x y z w", "/tmp")).toBe("a=x b=y z w")
+  })
+
+  test("#given more placeholders than args #when rendered #then missing positions render empty", async () => {
+    expect(await renderCommandTemplate("a=$1 b=$2 c=$3", "x", "/tmp")).toBe("a=x b= c=")
+  })
+
+  test("#given a template with no substitution #when input is non-empty #then the input is appended", async () => {
+    expect(await renderCommandTemplate("fixed template", "extra input", "/tmp")).toBe("fixed template\n\nextra input")
+  })
+
+  test("#given a template with no substitution #when input is empty #then nothing is appended", async () => {
+    expect(await renderCommandTemplate("fixed template", "", "/tmp")).toBe("fixed template")
+  })
+
+  test("#given quoted arguments #when rendered #then quotes are stripped for positional substitution", async () => {
+    expect(await renderCommandTemplate("a=$1 b=$2", '"x y" z', "/tmp")).toBe("a=x y b=z")
+  })
+
+  test("#given shell interpolation #when rendered #then the command runs with the workspace cwd and keeps raw output", async () => {
+    // The host's own evaluation keeps stdout verbatim (no trim), trailing
+    // newline included; the port matches that behavior.
+    expect(await renderCommandTemplate("value=!`echo hero`", "", "/tmp")).toBe("value=hero\n")
+  })
+
+  test("#given a failing shell interpolation #when rendered #then the render rejects", async () => {
+    await expect(renderCommandTemplate("value=!`exit 3`", "", "/tmp")).rejects.toThrow("Shell interpolation failed")
+  })
+})
+
+describe("registerV2Hooks command transform", () => {
+  type CommandDefinition = { name: string; description?: string; execute: (invocation: Record<string, unknown>) => Promise<void> }
+
+  function commandHost(options?: { switchAgent?: (input: Record<string, unknown>) => Promise<void> }) {
+    const definitions = new Map<string, CommandDefinition>()
+    const callOrder: string[] = []
+    const switchAgentCalls: Array<Record<string, unknown>> = []
+    const switchModelCalls: Array<Record<string, unknown>> = []
+    const promptCalls: Array<Record<string, unknown>> = []
+    const hostContext = {
+      command: {
+        transform: async (callback: (editor: { add: (definition: CommandDefinition) => void }) => void) => {
+          await callback({
+            add: (definition) => {
+              definitions.set(definition.name, definition)
+            },
+          })
+          return {}
+        },
+      },
+      session: {
+        prompt: async (input: Record<string, unknown>) => {
+          callOrder.push("prompt")
+          promptCalls.push(input)
+        },
+        switchAgent: async (input: Record<string, unknown>) => {
+          callOrder.push("switchAgent")
+          switchAgentCalls.push(input)
+          await options?.switchAgent?.(input)
+        },
+        switchModel: async (input: Record<string, unknown>) => {
+          callOrder.push("switchModel")
+          switchModelCalls.push(input)
+        },
+      },
+    }
+    return { definitions, callOrder, switchAgentCalls, switchModelCalls, promptCalls, hostContext }
+  }
+
+  async function setupCommandBridge(
+    hooks: Hooks,
+    hostContext: Record<string, unknown>,
+    logger: (message: string, data?: Record<string, unknown>) => void = () => {},
+  ) {
+    // The command bridge lives inside the config hook, which seeds from the
+    // host's /api/config endpoint; stub the fetch so no real network happens.
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => new Response("[]")) as typeof fetch
+    try {
+      return await registerV2Hooks(hooks, hostContext, { directory: "/tmp", logger })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  }
+
+  test("#given seed command entries #when bridged #then the host editor receives the template commands and the subtask entry is counted", async () => {
+    const { definitions, hostContext } = commandHost()
+    const logs: Array<{ message: string; data?: Record<string, unknown> }> = []
+    const hooks = {
+      config: async (seed: Record<string, unknown>) => {
+        seed.command = {
+          goal: { template: "goal: $ARGUMENTS", description: "manage the session goal" },
+          subtasky: { template: "x", subtask: true },
+          broken: "not-a-record",
+          noTemplate: { description: "no template" },
+        }
+      },
+    } as unknown as Hooks
+
+    await setupCommandBridge(hooks, hostContext, (message, data) => logs.push({ message, data }))
+
+    expect([...definitions.keys()].sort()).toEqual(["goal"])
+    expect(definitions.get("goal")?.description).toBe("manage the session goal")
+    const summary = logs.find((entry) => entry.message.includes("commands registered"))
+    expect(summary?.data).toEqual({ registered: 1, subtaskSkipped: 1 })
+  })
+
+  test("#given a registered command execute #when invoked #then the template is rendered, the legacy before hook runs, and the session is prompted", async () => {
+    const { definitions, promptCalls, hostContext } = commandHost()
+    const beforeCalls: Array<{ input: Record<string, unknown>; partTexts: string[] }> = []
+    const hooks = {
+      config: async (seed: Record<string, unknown>) => {
+        seed.command = { goal: { template: "goal: $ARGUMENTS" } }
+      },
+      "command.execute.before": async (input: Record<string, unknown>, output: { parts: Array<Record<string, unknown>> }) => {
+        beforeCalls.push({
+          input: { ...input },
+          partTexts: output.parts.map((part) => String(part.text)),
+        })
+        if (input.command === "goal") {
+          output.parts.push({ type: "text", text: "<omo-native-goal-command>", synthetic: true })
+        }
+      },
+    } as unknown as Hooks
+
+    await setupCommandBridge(hooks, hostContext)
+    await definitions.get("goal")?.execute({
+      sessionID: "ses_1",
+      prompt: { text: "ship it", model: "keep-me" },
+      delivery: "steer",
+    })
+
+    expect(beforeCalls).toEqual([
+      { input: { command: "goal", sessionID: "ses_1", arguments: "ship it" }, partTexts: ["goal: ship it"] },
+    ])
+    expect(promptCalls[0]).toMatchObject({
+      sessionID: "ses_1",
+      text: "goal: ship it\n<omo-native-goal-command>",
+      delivery: "steer",
+      model: "keep-me",
+    })
+  })
+
+  test("#given an entry with agent and model #when the command executes #then both switches run before the prompt", async () => {
+    const { definitions, callOrder, switchAgentCalls, switchModelCalls, promptCalls, hostContext } = commandHost()
+    const hooks = {
+      config: async (seed: Record<string, unknown>) => {
+        seed.command = { deep: { template: "dig", agent: "atlas", model: "moonshotai/kimi-k3" } }
+      },
+    } as unknown as Hooks
+
+    await setupCommandBridge(hooks, hostContext)
+    await definitions.get("deep")?.execute({
+      sessionID: "ses_2",
+      prompt: { text: "" },
+      delivery: undefined,
+    })
+
+    expect(callOrder).toEqual(["switchAgent", "switchModel", "prompt"])
+    expect(switchAgentCalls).toEqual([{ sessionID: "ses_2", agent: "atlas" }])
+    expect(switchModelCalls).toEqual([{ sessionID: "ses_2", model: { providerID: "moonshotai", id: "kimi-k3" } }])
+    expect(promptCalls[0]).toMatchObject({ sessionID: "ses_2", text: "dig" })
+  })
+
+  test("#given a failing agent switch #when the command executes #then the failure is logged and the prompt still runs", async () => {
+    const { definitions, promptCalls, hostContext } = commandHost({
+      switchAgent: async () => {
+        throw new Error("no such agent")
+      },
+    })
+    const logs: string[] = []
+    const hooks = {
+      config: async (seed: Record<string, unknown>) => {
+        seed.command = { deep: { template: "dig", agent: "atlas" } }
+      },
+    } as unknown as Hooks
+
+    await setupCommandBridge(hooks, hostContext, (message) => logs.push(message))
+    await definitions.get("deep")?.execute({ sessionID: "ses_3", prompt: { text: "" } })
+
+    expect(logs.some((line) => line.includes("command agent switch failed"))).toBe(true)
+    expect(promptCalls).toHaveLength(1)
+  })
+})
+
+describe("registerV2Hooks goal marker round-trip", () => {
+  test("#given a prompt carrying the goal marker line #when bridged #then it is split into a synthetic part and stripped on write-back after consumption", async () => {
+    const { registrations, hostContext } = promptHostForMarker()
+    const seenParts: Array<Array<Record<string, unknown>>> = []
+    const hooks = {
+      "chat.message": async (_input: unknown, output: { message: Record<string, unknown>; parts: Array<Record<string, unknown>> }) => {
+        seenParts.push(output.parts.map((part) => ({ ...part })))
+        consumeNativeGoalCommandMarker(output.parts)
+      },
+    } as unknown as Hooks
+
+    await registerV2Hooks(hooks, hostContext, { directory: "/tmp", logger: () => {} })
+    const prompt = { text: "goal: ship it\n<omo-native-goal-command>" }
+    await registrations.get("prompt")?.({ sessionID: "ses_1", messageID: "msg_1", prompt })
+
+    expect(seenParts[0]).toEqual([
+      { type: "text", text: "goal: ship it\n" },
+      { type: "text", text: "<omo-native-goal-command>", synthetic: true },
+    ])
+    expect(prompt.text).toBe("goal: ship it\n")
+  })
+
+  test("#given the marker survives the legacy handler unconsumed #when bridged #then the marker is still filtered from the model-bound text", async () => {
+    const { registrations, hostContext } = promptHostForMarker()
+    const hooks = {
+      "chat.message": async () => {
+        // Handler never consumes the marker.
+      },
+    } as unknown as Hooks
+
+    await registerV2Hooks(hooks, hostContext, { directory: "/tmp", logger: () => {} })
+    const prompt = { text: "<omo-native-goal-command>goal: ship it" }
+    await registrations.get("prompt")?.({ sessionID: "ses_1", messageID: "msg_1", prompt })
+
+    expect(prompt.text).toBe("goal: ship it")
+  })
+
+  function promptHostForMarker() {
+    const registrations = new Map<string, (event: unknown) => Promise<void>>()
+    const hostContext = {
+      session: {
+        hook: async (name: string, callback: (event: unknown) => Promise<void>) => {
+          registrations.set(name, callback)
+          return {}
+        },
+        get: async () => ({ agent: "sisyphus", model: { providerID: "moonshotai", id: "kimi-k3" } }),
+        switchModel: async () => {},
+      },
+    }
+    return { registrations, hostContext }
+  }
 })

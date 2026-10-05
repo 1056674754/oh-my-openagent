@@ -52,6 +52,10 @@ const RAW_PROMPT_ALLOWLIST = new Map<string, string>([
     path.join(WORKSPACE_ROOT, "packages", "senpi-task", "src", "runners", "in-process", "child-handle.ts"),
     "drives a senpi CHILD AgentSession.prompt for spawned subagent turns; senpi-task cannot reach OpenCode session APIs (opencode-coupling audit) so the main-session injection invariant does not apply",
   ],
+  [
+    path.join(SOURCE_ROOT, "shared", "v2-host-adapter.ts"),
+    "bridged v2 command execute calls the IN-PROCESS host-context session.prompt — the same API the v2 host's own config commands dispatch through (config/plugin/command.ts); the SDK-client gate has no jurisdiction over the in-process transport",
+  ],
 ])
 
 async function listSourceFiles(directory: string): Promise<string[]> {

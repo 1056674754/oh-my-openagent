@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { createOpencodeClient } from "@opencode-ai/sdk"
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
@@ -5,6 +6,7 @@ import { z } from "zod"
 import { isRecord } from "@oh-my-opencode/utils"
 import { log } from "./logger"
 import { getServerBasicAuthHeader } from "./opencode-server-auth"
+import { NATIVE_GOAL_COMMAND_MARKER } from "../plugin/command-execute-before"
 
 /**
  * OpenCode 2.0.x (v2) plugin-host compatibility adapter.
@@ -95,6 +97,79 @@ function createAuthedFetch(authHeader: string): (request: Request) => Promise<Re
     headers.set("Authorization", authHeader)
     return fetch(new Request(request, { headers }))
   }
+}
+
+// ---------------------------------------------------------------------------
+// Command template rendering (ports the v2 host's evaluateTemplate semantics)
+// ---------------------------------------------------------------------------
+
+const commandArgsRegex = /(?:\[Image\s+\d+\]|"[^"]*"|'[^']*'|[^\s"']+)/gi
+const commandPlaceholderRegex = /\$(\d+)/g
+const commandQuoteTrimRegex = /^["']|["']$/g
+const commandShellRegex = /!`([^`]+)`/g
+
+/**
+ * Renders a v1 command template against the user's typed arguments, matching
+ * the host's own config-command evaluation: `$1`-`$N` positional substitution
+ * (the highest placeholder absorbs the remaining arguments), `$ARGUMENTS` for
+ * the raw input, the input appended when the template references neither, and
+ * `!`cmd`` shell interpolation run with the workspace directory as cwd.
+ */
+export async function renderCommandTemplate(template: string, input: string, directory: string): Promise<string> {
+  const args = (input.match(commandArgsRegex) ?? []).map((arg) => arg.replace(commandQuoteTrimRegex, ""))
+  const placeholders = template.match(commandPlaceholderRegex) ?? []
+  const last = Math.max(0, ...placeholders.map((item) => Number(item.slice(1))))
+  const expanded = template.replaceAll(commandPlaceholderRegex, (_, index: string) => {
+    const position = Number(index)
+    const argIndex = position - 1
+    if (argIndex >= args.length) return ""
+    if (position === last) return args.slice(argIndex).join(" ")
+    return args[argIndex] ?? ""
+  })
+  const withArguments = expanded.replaceAll("$ARGUMENTS", input)
+  const text =
+    placeholders.length === 0 && !template.includes("$ARGUMENTS") && input.trim()
+      ? `${withArguments}\n\n${input}`.trim()
+      : withArguments.trim()
+  const matches = Array.from(text.matchAll(commandShellRegex))
+  if (matches.length === 0) return text
+  const outputs: string[] = []
+  for (const match of matches) {
+    outputs.push(await runShellInterpolation(match[1] ?? "", directory))
+  }
+  const iterator = outputs[Symbol.iterator]()
+  return text.replace(commandShellRegex, () => iterator.next().value ?? "")
+}
+
+function runShellInterpolation(source: string, directory: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(process.env.SHELL ?? "/bin/sh", ["-c", source], { cwd: directory }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(`Shell interpolation failed for ${JSON.stringify(source)}: ${error.message}`))
+        return
+      }
+      resolve(`${stdout}${stderr}`)
+    })
+  })
+}
+
+/**
+ * Projects prompt text onto legacy chat.message parts. The native goal
+ * command marker travels as a text line on v2 (commands execute through
+ * session.prompt), so it is split back into its own synthetic part for the
+ * legacy marker-consumption protocol; every other line stays one real part.
+ */
+function projectPromptTextParts(text: string): Array<Record<string, unknown>> {
+  if (!text.includes(NATIVE_GOAL_COMMAND_MARKER)) return [{ type: "text", text }]
+  const segments = text.split(NATIVE_GOAL_COMMAND_MARKER)
+  const parts: Array<Record<string, unknown>> = []
+  segments.forEach((segment, index) => {
+    if (segment.length > 0) parts.push({ type: "text", text: segment })
+    if (index < segments.length - 1) {
+      parts.push({ type: "text", text: NATIVE_GOAL_COMMAND_MARKER, synthetic: true })
+    }
+  })
+  return parts
 }
 
 // ---------------------------------------------------------------------------
@@ -189,6 +264,11 @@ export type V2HostContext = {
     ) => Promise<V2Registration>
   }
   event?: { subscribe: (options?: { signal?: AbortSignal }) => AsyncIterable<unknown> }
+  command?: {
+    transform: (
+      callback: (editor: { add: (definition: V2CommandDefinition) => void }) => void,
+    ) => Promise<V2Registration>
+  }
   session?: {
     hook: (
       name: string,
@@ -199,7 +279,21 @@ export type V2HostContext = {
       sessionID: string
       model: { providerID: string; id: string; variant?: string }
     }) => Promise<unknown>
+    switchAgent?: (input: { sessionID: string; agent: string }) => Promise<unknown>
+    prompt?: (input: Record<string, unknown>) => Promise<unknown>
   }
+}
+
+type V2CommandDefinition = {
+  name: string
+  description?: string
+  execute: (invocation: V2CommandInvocation) => Promise<void>
+}
+
+type V2CommandInvocation = {
+  sessionID: string
+  prompt: Record<string, unknown>
+  delivery: unknown
 }
 
 // ---------------------------------------------------------------------------
@@ -677,6 +771,97 @@ export async function registerV2Hooks(
           })
         })
       }
+
+      // v1 surfaces the merged command set (builtins, skills-as-commands,
+      // user/project commands) through the config; v2 commands are
+      // add-only definitions with custom execute, so each template entry is
+      // registered as a native command whose execute renders the template,
+      // runs the legacy command.execute.before handler on the rendered parts
+      // (goal marker, ulw-execute plan context, stop-state clearing), applies
+      // the entry's agent/model selection, and prompts.
+      if (isRecord(seed.command) && context.command) {
+        await register("command transform", async () => {
+          const definitions = seed.command as Record<string, unknown>
+          const beforeHook = hooks["command.execute.before"]
+          const hasBeforeHook = typeof beforeHook === "function"
+          let registered = 0
+          let subtaskSkipped = 0
+          await context.command?.transform((editor) => {
+            for (const [name, entry] of Object.entries(definitions)) {
+              if (!isRecord(entry) || typeof entry.template !== "string") continue
+              if (entry.subtask === true) {
+                subtaskSkipped += 1
+                continue
+              }
+              const template = entry.template
+              const description = typeof entry.description === "string" ? entry.description : undefined
+              const agent = typeof entry.agent === "string" ? entry.agent : undefined
+              const model = typeof entry.model === "string" ? entry.model : undefined
+              registered += 1
+              editor.add({
+                name,
+                description,
+                execute: async (invocation) => {
+                  const typedArgs =
+                    isRecord(invocation.prompt) && typeof invocation.prompt.text === "string"
+                      ? invocation.prompt.text
+                      : ""
+                  const text = await renderCommandTemplate(template, typedArgs, deps.directory)
+                  const parts: Array<Record<string, unknown>> = [{ type: "text", text }]
+                  if (hasBeforeHook) {
+                    await asHandler(beforeHook)(
+                      { command: name, sessionID: invocation.sessionID, arguments: typedArgs },
+                      { parts },
+                    )
+                  }
+                  const finalText = parts
+                    .filter((part) => isRecord(part) && part.type === "text" && typeof part.text === "string")
+                    .map((part) => part.text)
+                    .join("\n")
+                  if (agent !== undefined) {
+                    try {
+                      await context.session?.switchAgent?.({ sessionID: invocation.sessionID, agent })
+                    } catch (error) {
+                      deps.logger("[v2-host] command agent switch failed", {
+                        command: name,
+                        error: error instanceof Error ? error.message : String(error),
+                      })
+                    }
+                  }
+                  if (model !== undefined) {
+                    const separator = model.lastIndexOf("/")
+                    if (separator > 0) {
+                      try {
+                        await context.session?.switchModel?.({
+                          sessionID: invocation.sessionID,
+                          model: { providerID: model.slice(0, separator), id: model.slice(separator + 1) },
+                        })
+                      } catch (error) {
+                        deps.logger("[v2-host] command model switch failed", {
+                          command: name,
+                          error: error instanceof Error ? error.message : String(error),
+                        })
+                      }
+                    }
+                  }
+                  await context.session?.prompt?.({
+                    ...invocation.prompt,
+                    sessionID: invocation.sessionID,
+                    text: finalText,
+                    delivery: invocation.delivery,
+                  })
+                },
+              })
+            }
+          })
+          deps.logger("[v2-host] commands registered", { registered, subtaskSkipped })
+          if (subtaskSkipped > 0) {
+            log("[v2-host] subtask commands were not bridged: v2 subagent command execution is not bridged", {
+              count: subtaskSkipped,
+            })
+          }
+        })
+      }
     })
   }
 
@@ -913,7 +1098,7 @@ export async function registerV2Hooks(
 
         const output: Record<string, unknown> = {
           message: {},
-          parts: [{ type: "text", text: originalText }],
+          parts: projectPromptTextParts(originalText),
         }
         await handler({ sessionID: event.sessionID, agent, model }, output)
 
@@ -925,7 +1110,12 @@ export async function registerV2Hooks(
             dropped: parts.length - textParts.length,
           })
         }
-        const nextText = textParts.map((part) => (typeof part.text === "string" ? part.text : "")).join("\n")
+        const nextText = textParts
+          // The goal marker part is internal-only protocol; it must never
+          // reach the model even if the legacy handler failed to consume it.
+          .filter((part) => part.text !== NATIVE_GOAL_COMMAND_MARKER)
+          .map((part) => (typeof part.text === "string" ? part.text : ""))
+          .join("\n")
         if (nextText !== originalText) event.prompt.text = nextText
 
         const override = isRecord(output.message) ? output.message.model : undefined
@@ -993,9 +1183,19 @@ export async function registerV2Hooks(
   }
 
   // --- hooks without a v2 equivalent ------------------------------------------
-  const skipped = (["command.execute.before", "experimental.chat.messages.transform", "tool.definition", "experimental.compaction.autocontinue", "auth", "provider"] as const).filter(
-    (key) => hooks[key] !== undefined,
-  )
+  // command.execute.before IS bridged when the host exposes the command
+  // editor (each registered command's execute runs the legacy handler); only
+  // hosts without that domain leave it skipped.
+  const skipped = (
+    [
+      ...(context.command ? [] : (["command.execute.before"] as const)),
+      "experimental.chat.messages.transform",
+      "tool.definition",
+      "experimental.compaction.autocontinue",
+      "auth",
+      "provider",
+    ] as const
+  ).filter((key) => hooks[key] !== undefined)
   if (skipped.length > 0) {
     log("[v2-host] hooks without a v2 equivalent were skipped", { hooks: skipped })
   }

@@ -13,7 +13,10 @@ type CommandExecuteBeforeOutput = {
   parts: Array<{ type: string; text?: string; [key: string]: unknown }>
 }
 
-const NATIVE_GOAL_COMMAND_MARKER = "<omo-native-goal-command>"
+// Exported for the v2 host adapter: command execution on v2 travels through
+// prompt text, so the marker is embedded as a text line and re-split into a
+// synthetic part by the chat.message bridge before consumption.
+export const NATIVE_GOAL_COMMAND_MARKER = "<omo-native-goal-command>"
 
 export function markNativeGoalCommand(
   parts: CommandExecuteBeforeOutput["parts"],
