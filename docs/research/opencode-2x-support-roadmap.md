@@ -110,9 +110,11 @@ dev 分支 `packages/omo-opencode/src/v2` 至今（2026-10-04）不存在——*
 
 ### 3.2 现有适配层的已知缺口（来自 `83777cde5` + `packages/omo-opencode/src/shared/v2-host-adapter.ts`）
 
-- **显式跳过的钩子**（v2-host-adapter.ts:730，跳过时经 `log` 报告而非静默）：`chat.message`（variant 门控）、`command.execute.before`（斜杠命令拦截）、`experimental.chat.messages.transform`、`tool.definition`、`experimental.compaction.autocontinue`、`auth`、`provider`。
+- **显式跳过的钩子**（v2-host-adapter.ts，跳过时经 `log` 报告而非静默）：`command.execute.before`（斜杠命令拦截）、`experimental.chat.messages.transform`、`tool.definition`、`experimental.compaction.autocontinue`、`auth`、`provider`。
 - **事件流桥接不全**：v2 event 以 V1 properties 形状桥接，缺 `message.updated` / `message.removed` / `session.error` 映射 → 依赖这些事件刷新的 UI/状态特性不工作。（**2026-10-05 已修** `060fdb991`：实测 v2 事件为 `{id,type,created,data}` 信封且**完全删除**了消息实体事件——现已解包 `data` 为 properties、由 `session.step.started/ended` 合成 `message.updated`、`session.execution.failed` 映射为 `session.error`；`message.removed` 在 v2 无任何事件源，结构性不可合成。）
 - **`permission.ask` 走 stub** → 权限询问交互降级。（**2026-10-05 已处置**：v2 `Tool.Context` 仅 `{sessionID,agent,messageID,id,progress}`，工具无法发起权限请求，`permission.reply` 只能应答宿主创建的请求——工具级 ask 在翻译式路线**结构性无解**。原静默放行 stub 已移除：monitor_start 落回 allowlist fail-closed，skill 显式跳过提示并记日志、由宿主权限规则接管。运行时 QA 由子代理验证中。）
+- **`chat.message` 无 v2 同名钩子** → variant 门/首消息模型覆盖/十几个注入器失效。（**2026-10-05 评估后已桥接**：v2 `session.hook("prompt")` 的 `prompt` 字段是 DeepMutable，且**斜杠命令渲染结果也汇入同一点**（v2 内建/MCP/config 命令的 execute 都调 `ctx.session.prompt`）——已实现桥接：prompt.text 投影为 legacy parts（纯文本投影）、agent/model 经 `session.get` best-effort 解析（`SessionPrompt` 不携带 agent）、首消息模型覆盖经 `session.switchModel` 落为会话级选择（v2 无单消息模型覆盖）。已知降级：OMO 自身的续跑/自动提示在 v2 上无 synthetic 标记，会过 chat.message 处理器（关键词检测可能对续跑文本重复触发）；handler 注入的非文本 parts 无 v2 prompt 落点，丢弃并记日志。）
+- **`command.execute.before` 无 v2 拦截点**（**2026-10-05 评估确认**）：v2 `command.transform` editor 是 **add-only**（`Map.set` by name，且 `Command.get` 只返回 Info 不含 execute，无法包装既有定义），命令执行路径不触发任何 pre-execute 事件；命令名在 `session.hook("prompt")` 时点已丢失，无法从渲染文本可靠重建。**移植路径存在但未实施**：仿照宿主自己的 config 命令加载器（`config/plugin/command.ts`：agent/model 切换 + `ctx.session.prompt`），OMO 用 `command.transform(add)` **自行注册** `goal` / `stop-continuation` / `ulw-execute` 三个命令，把 before 逻辑内联进自有 execute——对该三命令保真，对第三方命令仍无通用拦截。列入后续工作项。）
 - 对照参考：herjarsa 桥的 9 DIRECT / 4 ADAPT / 2 GAP 与 fazulfi 全量映射的 17 GAP（`docs/v2-api-mapping.md`）说明部分缺口是 **V2 宿主本身没有对应能力**（如 `command.execute.before`），不是适配层偷懒——这类缺口在"翻译式"路线里无解，只有 V2 原生重写或宿主补钩子能解决。
 
 ---
@@ -122,12 +124,12 @@ dev 分支 `packages/omo-opencode/src/v2` 至今（2026-10-04）不存在——*
 ### (a) 维持并补齐 v2-host-adapter —— **推荐主路线（短期）**
 
 - **利**：全链路（OpenChamber → fork opencode 2.0.21-sscity → OMO agents）已通；改动局部（748 行适配器 + 入口探测）；与上游已认可的社区桥法同构，上游 dual-host 落地后可整体替换；不受上游 5.1.x 二进制转向影响。
-- **弊**：跟随 V2 host API 演进维护 shim（目前 v2.0.21→v2.0.22 插件面变化极小，风险低）；"翻译式"路线的硬缺口（`command.execute.before`、`chat.message` variant 门）无宿主钩子可用，只能降级或另寻入口。
-- **工作量粗估**：
-  - 补事件映射 `message.updated` / `message.removed` / `session.error`（对照 v1 properties 形状）：2-4 天 + 流式/重启 QA；
-  - `permission.ask`：经 V2 `permission.hook` / `permission.reply` 桥接真实实现：1-2 天；
-  - `command.execute.before` / `chat.message` variant 门：先评估 V2 `command` 注册与 `chat.params` 是否可承载（1-2 天评估，可能结论是"宿主无钩子，记录为已知限制"）；
-  - 合计 **约 1-2 周**（含 QA）。
+- **弊**：跟随 V2 host API 演进维护 shim（目前 v2.0.21→v2.0.22 插件面变化极小，风险低）；"翻译式"路线的剩余硬缺口（`command.execute.before` 通用拦截）无宿主钩子可用——评估确认 v2 command editor add-only、无 pre-execute 事件；`chat.message` 已非缺口（经 `session.hook("prompt")` 桥接，2026-10-05）。
+- **工作量粗估**（2026-10-05 更新）：
+  - ~~补事件映射 `message.updated` / `message.removed` / `session.error`~~（✅ `060fdb991`，2026-10-05）；
+  - ~~`permission.ask`~~（✅ `b23dac4c5` 结构性处置：删静默放行 stub，落回 allowlist fail-closed，2026-10-05）；
+  - ~~`chat.message` variant 门评估~~（✅ 评估推翻"宿主无钩子"预设：`session.hook("prompt")` DeepMutable，已实现桥接，2026-10-05）；
+  - `command.execute.before`：评估完成（无拦截钩子，add-only）；如需保真，按"自有注册"路径移植 `goal`/`stop-continuation`/`ulw-execute` 三命令（~1 天）；否则维持已知限制。
 
 ### (b) 把 sscity 定制移植到上游 5.1.x 二进制架构（OmO Native）—— **不推荐（对本产品语境）**
 

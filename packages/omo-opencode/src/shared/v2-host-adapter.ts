@@ -167,6 +167,14 @@ type V2ModelRequestEvent = {
   headers: Record<string, string>
 }
 
+type V2SessionPromptEvent = {
+  sessionID: string
+  messageID: string
+  prompt: { text?: string; files?: unknown; agents?: unknown; skills?: unknown }
+  metadata?: Record<string, unknown>
+  delivery?: string
+}
+
 export type V2HostContext = {
   location?: { directory?: unknown }
   options?: Record<string, unknown>
@@ -185,6 +193,11 @@ export type V2HostContext = {
       name: string,
       callback: (event: unknown) => Promise<void> | void,
     ) => Promise<V2Registration>
+    get?: (input: { sessionID: string }) => Promise<unknown>
+    switchModel?: (input: {
+      sessionID: string
+      model: { providerID: string; id: string; variant?: string }
+    }) => Promise<unknown>
   }
 }
 
@@ -750,6 +763,75 @@ export async function registerV2Hooks(
     )
   }
 
+  // --- chat.message -> session.hook("prompt") --------------------------------
+  //
+  // v2 has no chat.message namesake. The user prompt's mutable pre-generation
+  // projection is `session.hook("prompt")`, which fires for typed prompts and
+  // rendered command prompts alike. The prompt text is projected onto the
+  // legacy parts array (one text part); the session agent/model are fetched
+  // best-effort because SessionPrompt carries neither. A model override set on
+  // output.message.model is applied through session.switchModel, i.e. as a
+  // session-level selection effective from this prompt onward — v2 has no
+  // single-message model override.
+  if (typeof hooks["chat.message"] === "function" && context.session) {
+    const handler = asHandler(hooks["chat.message"])
+    await register("chat.message hook", async () =>
+      context.session?.hook("prompt", async (raw) => {
+        const event = raw as V2SessionPromptEvent
+        if (!event || typeof event.sessionID !== "string" || !isRecord(event.prompt)) return
+        const originalText = typeof event.prompt.text === "string" ? event.prompt.text : ""
+
+        let agent: string | undefined
+        let model: { providerID: string; modelID: string } | undefined
+        try {
+          const info = await context.session?.get?.({ sessionID: event.sessionID })
+          if (isRecord(info)) {
+            if (typeof info.agent === "string") agent = info.agent
+            const ref = isRecord(info.model) ? info.model : undefined
+            const refModel = ref ? (typeof ref.model === "string" ? ref.model : typeof ref.id === "string" ? ref.id : undefined) : undefined
+            if (ref && typeof ref.providerID === "string" && refModel !== undefined) {
+              model = { providerID: ref.providerID, modelID: refModel }
+            }
+          }
+        } catch {
+          // agent/model stay undefined; legacy handlers treat both as optional
+        }
+
+        const output: Record<string, unknown> = {
+          message: {},
+          parts: [{ type: "text", text: originalText }],
+        }
+        await handler({ sessionID: event.sessionID, agent, model }, output)
+
+        const parts = Array.isArray(output.parts) ? output.parts : []
+        const textParts = parts.filter((part) => isRecord(part) && part.type === "text")
+        if (parts.length !== textParts.length) {
+          deps.logger("[v2-host] chat.message injected non-text parts with no v2 prompt sink", {
+            sessionID: event.sessionID,
+            dropped: parts.length - textParts.length,
+          })
+        }
+        const nextText = textParts.map((part) => (typeof part.text === "string" ? part.text : "")).join("\n")
+        if (nextText !== originalText) event.prompt.text = nextText
+
+        const override = isRecord(output.message) ? output.message.model : undefined
+        if (isRecord(override) && typeof override.providerID === "string" && typeof override.modelID === "string") {
+          try {
+            await context.session?.switchModel?.({
+              sessionID: event.sessionID,
+              model: { providerID: override.providerID, id: override.modelID },
+            })
+          } catch (error) {
+            deps.logger("[v2-host] chat.message model override failed", {
+              sessionID: event.sessionID,
+              error: error instanceof Error ? error.message : String(error),
+            })
+          }
+        }
+      }),
+    )
+  }
+
   // --- experimental.chat.system.transform -> session.hook("context") ---------
   if (typeof hooks["experimental.chat.system.transform"] === "function" && context.session) {
     const handler = asHandler(hooks["experimental.chat.system.transform"])
@@ -797,7 +879,7 @@ export async function registerV2Hooks(
   }
 
   // --- hooks without a v2 equivalent ------------------------------------------
-  const skipped = (["chat.message", "command.execute.before", "experimental.chat.messages.transform", "tool.definition", "experimental.compaction.autocontinue", "auth", "provider"] as const).filter(
+  const skipped = (["command.execute.before", "experimental.chat.messages.transform", "tool.definition", "experimental.compaction.autocontinue", "auth", "provider"] as const).filter(
     (key) => hooks[key] !== undefined,
   )
   if (skipped.length > 0) {

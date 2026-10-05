@@ -134,6 +134,108 @@ describe("registerV2Hooks tool registration", () => {
   })
 })
 
+describe("registerV2Hooks chat.message bridge", () => {
+  function promptHost(options?: {
+    getSession?: (input: { sessionID: string }) => Promise<unknown>
+  }) {
+    const registrations = new Map<string, (event: unknown) => Promise<void>>()
+    const switchCalls: Array<Record<string, unknown>> = []
+    const hostContext = {
+      session: {
+        hook: async (name: string, callback: (event: unknown) => Promise<void>) => {
+          registrations.set(name, callback)
+          return {}
+        },
+        get: options?.getSession ?? (async () => ({
+          agent: "sisyphus",
+          model: { providerID: "moonshotai", id: "kimi-k3" },
+        })),
+        switchModel: async (input: Record<string, unknown>) => {
+          switchCalls.push(input)
+        },
+      },
+    }
+    return { registrations, switchCalls, hostContext }
+  }
+
+  test("#given a prompt event #when bridged #then text mutations round-trip and agent/model come from session.get", async () => {
+    const { registrations, switchCalls, hostContext } = promptHost()
+    const seenInputs: Array<Record<string, unknown>> = []
+    const hooks = {
+      "chat.message": async (input: Record<string, unknown>, output: { message: Record<string, unknown>; parts: Array<{ type: string; text?: string }> }) => {
+        seenInputs.push(input)
+        output.parts.push({ type: "text", text: "[omo]" })
+      },
+    } as unknown as Hooks
+
+    await registerV2Hooks(hooks, hostContext, { directory: "/tmp", logger: () => {} })
+    const prompt = { text: "hello" }
+    await registrations.get("prompt")?.({ sessionID: "ses_1", messageID: "msg_1", prompt, delivery: "steer" })
+
+    expect(prompt.text).toBe("hello\n[omo]")
+    expect(seenInputs[0]?.sessionID).toBe("ses_1")
+    expect(seenInputs[0]?.agent).toBe("sisyphus")
+    expect(seenInputs[0]?.model).toEqual({ providerID: "moonshotai", modelID: "kimi-k3" })
+    expect(switchCalls).toEqual([])
+  })
+
+  test("#given a model override on output.message #when bridged #then switchModel receives the v2 object shape", async () => {
+    const { registrations, switchCalls, hostContext } = promptHost()
+    const hooks = {
+      "chat.message": async (_input: unknown, output: { message: Record<string, unknown>; parts: unknown[] }) => {
+        output.message.model = { providerID: "anthropic", modelID: "claude-x" }
+      },
+    } as unknown as Hooks
+
+    await registerV2Hooks(hooks, hostContext, { directory: "/tmp", logger: () => {} })
+    await registrations.get("prompt")?.({ sessionID: "ses_1", messageID: "msg_1", prompt: { text: "hi" } })
+
+    expect(switchCalls).toEqual([
+      { sessionID: "ses_1", model: { providerID: "anthropic", id: "claude-x" } },
+    ])
+  })
+
+  test("#given handler-injected non-text parts #when bridged #then they are dropped and the text still round-trips", async () => {
+    const { registrations, hostContext } = promptHost()
+    const logs: string[] = []
+    const hooks = {
+      "chat.message": async (_input: unknown, output: { message: Record<string, unknown>; parts: Array<{ type: string; text?: string }> }) => {
+        output.parts.push({ type: "file", uri: "file:///tmp/x" })
+        output.parts.push({ type: "text", text: "extra" })
+      },
+    } as unknown as Hooks
+
+    await registerV2Hooks(hooks, hostContext, { directory: "/tmp", logger: (message) => logs.push(message) })
+    const prompt = { text: "base" }
+    await registrations.get("prompt")?.({ sessionID: "ses_1", messageID: "msg_1", prompt })
+
+    expect(prompt.text).toBe("base\nextra")
+    expect(logs.some((line) => line.includes("non-text parts"))).toBe(true)
+  })
+
+  test("#given a failing session.get #when bridged #then the handler still runs with agent/model undefined", async () => {
+    const { registrations, hostContext } = promptHost({
+      getSession: async () => {
+        throw new Error("boom")
+      },
+    })
+    const seenInputs: Array<Record<string, unknown>> = []
+    const hooks = {
+      "chat.message": async (input: Record<string, unknown>, _output: unknown) => {
+        seenInputs.push(input)
+      },
+    } as unknown as Hooks
+
+    await registerV2Hooks(hooks, hostContext, { directory: "/tmp", logger: () => {} })
+    const prompt = { text: "hello" }
+    await registrations.get("prompt")?.({ sessionID: "ses_1", messageID: "msg_1", prompt })
+
+    expect(seenInputs[0]?.agent).toBeUndefined()
+    expect(seenInputs[0]?.model).toBeUndefined()
+    expect(prompt.text).toBe("hello")
+  })
+})
+
 describe("registerV2Hooks event stream", () => {
   test("#given a v2 envelope stream #when bridged #then the legacy handler receives normalized events", async () => {
     const stream = [
