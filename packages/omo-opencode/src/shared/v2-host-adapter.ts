@@ -592,7 +592,10 @@ export async function registerV2Hooks(
                     ...(update.title !== undefined ? { title: update.title } : {}),
                     ...(update.metadata ?? {}),
                   }),
-                ask: async () => {},
+                // v2 Tool.Context has no ask: tools cannot create permission
+                // requests. Leaving it absent makes monitor_start fall back to
+                // its allowlist and skill skip its prompt, instead of the
+                // silent-approve stub this bridge used to install.
               }
               return bridgeToolResult(await execute(input, legacyContext))
             },

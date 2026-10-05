@@ -87,6 +87,53 @@ describe("mapV2EventToLegacyEvents", () => {
   })
 })
 
+describe("registerV2Hooks tool registration", () => {
+  test("#given a tool hook #when bridged #then the legacy tool context carries no ask", async () => {
+    let added: { name: string; execute: (input: unknown, ctx: Record<string, unknown>) => Promise<unknown> } | undefined
+    const hostContext = {
+      tool: {
+        transform: async (
+          callback: (editor: {
+            add: (tool: unknown) => void
+            list: () => readonly { readonly id: string }[]
+            remove: (id: string) => void
+          }) => void,
+        ) => {
+          callback({
+            add: (tool) => {
+              added = tool as typeof added
+            },
+            list: () => [],
+            remove: () => {},
+          })
+        },
+      },
+    }
+    const hooks = {
+      tool: {
+        demo: {
+          description: "demo",
+          args: {},
+          execute: async (_args: unknown, ctx: Record<string, unknown>) => ("ask" in ctx ? "has-ask" : "no-ask"),
+        },
+      },
+    } as unknown as Hooks
+
+    await registerV2Hooks(hooks, hostContext, { directory: "/tmp", logger: () => {} })
+
+    expect(added).toBeDefined()
+    const result = (await added!.execute({}, {
+      sessionID: "ses_1",
+      agent: "sisyphus",
+      messageID: "msg_1",
+      id: "call_1",
+      progress: async () => {},
+    })) as { output: string }
+
+    expect(result.output).toBe("no-ask")
+  })
+})
+
 describe("registerV2Hooks event stream", () => {
   test("#given a v2 envelope stream #when bridged #then the legacy handler receives normalized events", async () => {
     const stream = [

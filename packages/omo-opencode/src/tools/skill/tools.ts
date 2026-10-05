@@ -1,6 +1,7 @@
 import { dirname } from "node:path"
 import { tool, type ToolDefinition } from "@opencode-ai/plugin"
 import type { ToolContext } from "@opencode-ai/plugin/tool"
+import { log } from "../../shared/logger"
 import { TOOL_DESCRIPTION_PREFIX } from "./constants"
 import { shouldInvalidateSkillCacheForSession } from "./session-skill-cache"
 import type { SkillArgs, SkillLoadOptions } from "./types"
@@ -24,6 +25,8 @@ import {
   mergeNativeSkillInfos,
   mergeNativeSkills,
 } from "./native-skills"
+
+let skillPromptFallbackLogged = false
 
 export function createSkillTool(options: SkillLoadOptions): ToolDefinition {
   let cachedDescription: string | null = null
@@ -150,14 +153,21 @@ export function createSkillTool(options: SkillLoadOptions): ToolDefinition {
       })
 
       if (matchedSkill) {
-        await ctx?.ask({
-          permission: "skill",
-          patterns: [matchedSkill.name],
-          always: [matchedSkill.name],
-          metadata: {
+        if (ctx?.ask) {
+          await ctx.ask({
+            permission: "skill",
+            patterns: [matchedSkill.name],
+            always: [matchedSkill.name],
+            metadata: {
+              skill: matchedSkill.name,
+            },
+          })
+        } else if (!skillPromptFallbackLogged) {
+          skillPromptFallbackLogged = true
+          log("skill permission prompting unavailable on this host; enforcement falls back to host permission rules", {
             skill: matchedSkill.name,
-          },
-        })
+          })
+        }
 
         if (matchedSkill.definition.agent && (!ctx?.agent || matchedSkill.definition.agent !== ctx.agent)) {
           throw new Error(`Skill "${matchedSkill.name}" is restricted to agent "${matchedSkill.definition.agent}"`)

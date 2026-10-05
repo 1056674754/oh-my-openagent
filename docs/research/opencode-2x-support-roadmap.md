@@ -111,8 +111,8 @@ dev 分支 `packages/omo-opencode/src/v2` 至今（2026-10-04）不存在——*
 ### 3.2 现有适配层的已知缺口（来自 `83777cde5` + `packages/omo-opencode/src/shared/v2-host-adapter.ts`）
 
 - **显式跳过的钩子**（v2-host-adapter.ts:730，跳过时经 `log` 报告而非静默）：`chat.message`（variant 门控）、`command.execute.before`（斜杠命令拦截）、`experimental.chat.messages.transform`、`tool.definition`、`experimental.compaction.autocontinue`、`auth`、`provider`。
-- **事件流桥接不全**：v2 event 以 V1 properties 形状桥接，缺 `message.updated` / `message.removed` / `session.error` 映射 → 依赖这些事件刷新的 UI/状态特性不工作。
-- **`permission.ask` 走 stub** → 权限询问交互降级。
+- **事件流桥接不全**：v2 event 以 V1 properties 形状桥接，缺 `message.updated` / `message.removed` / `session.error` 映射 → 依赖这些事件刷新的 UI/状态特性不工作。（**2026-10-05 已修** `060fdb991`：实测 v2 事件为 `{id,type,created,data}` 信封且**完全删除**了消息实体事件——现已解包 `data` 为 properties、由 `session.step.started/ended` 合成 `message.updated`、`session.execution.failed` 映射为 `session.error`；`message.removed` 在 v2 无任何事件源，结构性不可合成。）
+- **`permission.ask` 走 stub** → 权限询问交互降级。（**2026-10-05 已处置**：v2 `Tool.Context` 仅 `{sessionID,agent,messageID,id,progress}`，工具无法发起权限请求，`permission.reply` 只能应答宿主创建的请求——工具级 ask 在翻译式路线**结构性无解**。原静默放行 stub 已移除：monitor_start 落回 allowlist fail-closed，skill 显式跳过提示并记日志、由宿主权限规则接管。运行时 QA 由子代理验证中。）
 - 对照参考：herjarsa 桥的 9 DIRECT / 4 ADAPT / 2 GAP 与 fazulfi 全量映射的 17 GAP（`docs/v2-api-mapping.md`）说明部分缺口是 **V2 宿主本身没有对应能力**（如 `command.execute.before`），不是适配层偷懒——这类缺口在"翻译式"路线里无解，只有 V2 原生重写或宿主补钩子能解决。
 
 ---
