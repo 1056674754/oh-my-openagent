@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.19] - 2026-10-05
+
 **Code mode can install JavaScript packages per session.** 5.1.19 runs on senpi 2026.10.10. A cell that is only `%bun add <package ...>` or `%npm add <package ...>` installs packages into the session's own managed environment without restarting the kernel, and the next cell imports them. The project's `package.json` and `node_modules` are untouched and package scripts never run. ([senpi 2026.10.10](https://github.com/code-yeongyu/senpi/releases/tag/v2026.10.10))
 
 ### Added
