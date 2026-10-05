@@ -4,6 +4,7 @@ import type { Hooks, PluginInput } from "@opencode-ai/plugin"
 import { z } from "zod"
 import { isRecord } from "@oh-my-opencode/utils"
 import { log } from "./logger"
+import { getServerBasicAuthHeader } from "./opencode-server-auth"
 
 /**
  * OpenCode 2.0.x (v2) plugin-host compatibility adapter.
@@ -597,7 +598,10 @@ export async function registerV2Hooks(
   if (typeof hooks.config === "function") {
     await register("config hook", async () => {
       const baseUrl = resolveServerBaseUrl()
-      const seed = await buildConfigSeed(baseUrl, readManagedAuthHeader())
+      // Managed auth first (OpenChamber embedded); bare password-protected v2
+      // hosts fall back to the same env-based header the plugin client uses,
+      // so the host config seed survives outside OpenChamber deployments.
+      const seed = await buildConfigSeed(baseUrl, readManagedAuthHeader() ?? getServerBasicAuthHeader())
       await hooks.config?.(seed as Parameters<NonNullable<Hooks["config"]>>[0])
       deps.logger("[v2-host] config hook applied", {
         agents: isRecord(seed.agent) ? Object.keys(seed.agent).length : 0,
