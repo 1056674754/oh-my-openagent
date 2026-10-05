@@ -136,8 +136,8 @@ S4' 过程中挖出并修复的 **两个真 bug**（子代理发现 + 主线复�
 
 QA 顺带发现的新缺口（非本次 commits 引入，列此为 backlog）：
 
-- **O1 seed 鉴权单点**：`buildConfigSeed` 只认 OpenChamber managed-auth 文件；裸 v2 宿主带密码时 `GET /api/config` 401 → seed 为空（boot 日志有记录，不静默）。OMO 自身 client 走 `OPENCODE_SERVER_PASSWORD` env 不受影响——**非 OpenChamber v2 部署会丢宿主侧 config 合并**。修法方向：seed fetch 复用 client 的同一鉴权注入。
-- **O2 idle 事件缺失**：v2 无 `session.idle` 事件，`execution.succeeded/failed` 原样透传——v1 侧 idle 挂钩（`dispatchIdleOnlyHooks`/monitor 空闲触发）在 v2 不触发。修法方向：由 `session.step.ended` + 无活跃 step 推导 idle 合成事件。
+- **O1 seed 鉴权单点** ✅ 已修（`c47d79eb7`，2026-10-05）：`buildConfigSeed` 只认 OpenChamber managed-auth 文件；裸 v2 宿主带密码时 `GET /api/config` 401 → seed 为空（boot 日志有记录，不静默）。OMO 自身 client 走 `OPENCODE_SERVER_PASSWORD` env 不受影响——**非 OpenChamber v2 部署会丢宿主侧 config 合并**。修法：seed fetch 回退到 client 同款 env Basic header（`getServerBasicAuthHeader`）。
+- **O2 idle 事件缺失** ✅ 已修（`7b5e5d26e`，2026-10-05）：v2 无 `session.idle` 事件，`execution.succeeded/failed` 原样透传——v1 侧 idle 挂钩（`dispatchIdleOnlyHooks`/monitor 空闲触发）在 v2 不触发。修法：以 v2 宿主自身语义为准（`message-updater.ts` 把 succeeded/failed/非 shutdown interrupted 当 idle 边界），桥接为 succeeded/failed/interrupted(非 shutdown) 追加 v1 `session.status {type:"idle"}` 伴随事件，交由现成 normalizer→合成 idle 全套去重管道；shutdown 中断保留 claim 不发 idle。附带修复：`dispatchSyntheticIdle` 补上真实 idle 分支已有的 monitor flush（此前凡只经 status 信号空闲的宿主——含本桥——monitor 永不触发）。
 
 **四轮终局（2026-10-05）**：全部场景 PASS。四轮双验证点：monitor_list 成功路径 `status: completed` + content 携带真实输出文本（无 output 键）；monitor_start 非白名单拒绝文本 `[ERROR] monitor_start denied: command not in allowed_commands` 双向存活（模型逐字引用），fail-closed 不变（零 monitor、零子进程）。**三轮"宿主 Code Mode 全工具空渲染"结论已撤回**——同宿主四轮渲染完全正常，根因是 OMO 旧 execute.after 无条件回写把宿主所有工具的 result 改写为 `{output:"",metadata}`（含 core 工具与探针），`c988d0ab3` 修复后消失；sscity-v2 宿主无此 bug，无需移交 opencode-v2 线。
 
