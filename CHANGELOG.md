@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**Code mode can install JavaScript packages per session.** 5.1.19 runs on senpi 2026.10.10. A cell that is only `%bun add <package ...>` or `%npm add <package ...>` installs packages into the session's own managed environment without restarting the kernel, and the next cell imports them. The project's `package.json` and `node_modules` are untouched and package scripts never run. ([senpi 2026.10.10](https://github.com/code-yeongyu/senpi/releases/tag/v2026.10.10))
+
+### Added
+
+**A Python cell's `@tool` functions can be granted to a task child**, the same way JavaScript `tool(fn)` tools already were. ([#9529](https://github.com/code-yeongyu/oh-my-openagent/pull/9529))
+
+### Changed
+
+**An idle gateway store gives back its worker thread.** After 60 seconds with no store call in flight, the worker is retired, and the next call starts a fresh one with its registrations restored. That frees about 2.9 MB per terminal control endpoint. ([#9592](https://github.com/code-yeongyu/oh-my-openagent/pull/9592))
+
+**omo runs on senpi 2026.10.10.** It warns when a requested thinking level isn't available instead of dropping it, keeps project rule discovery inside the project on Windows, and keeps the resident Claude subscription session receiving only new messages when `compaction.model` is set. Code mode also gets opt-in isolated cells (`isolate: true` with `sandbox.enabled`). Full list: [senpi 2026.10.10](https://github.com/code-yeongyu/senpi/releases/tag/v2026.10.10).
+
+Thanks to @Dante-dan for the manifesto reveal fixes on the site ([#9586](https://github.com/code-yeongyu/oh-my-openagent/pull/9586)) and a test-fixture fix ([#9599](https://github.com/code-yeongyu/oh-my-openagent/pull/9599)).
+
 ## [5.1.18] - 2026-10-04
 
 **`omo models discover`, `omo schedule` and the other one-shot engine commands run again instead of opening the TUI.** 5.1.18 runs on senpi 2026.10.9. The launcher passed only a fixed list of commands straight to the engine and put `--extension <plugin>` in front of everything else, so the engine never saw its own command and started an interactive session with the arguments. Every engine command is now handed over unchanged. Thanks to @ushion0a for the report and the repro. ([#9572](https://github.com/code-yeongyu/oh-my-openagent/issues/9572), [#9573](https://github.com/code-yeongyu/oh-my-openagent/pull/9573))

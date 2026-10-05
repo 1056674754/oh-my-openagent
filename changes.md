@@ -1,3 +1,7 @@
+## 2026-10-05 - Adopt senpi 2026.10.10
+
+Every `@code-yeongyu/senpi` pin moves from 2026.10.9 to 2026.10.10: the root devDependency, `omo-native` and its provider map, the `omo-senpi` and `senpi-task` peer and dev pins (with their `senpi-tui` and `senpi-ai` aliases), the pin tests and the engine named in `senpi-task`'s coverage test. The engine adds code mode's `%bun add` / `%npm add` and opt-in isolated cells and the fixes listed in its release; omo's codemode prompt surface is unchanged (the default eval description renders from the same senpi source in both versions, and omo sets neither `prompt.advertiseHelpers` nor `sandbox.enabled`). The generated plugin bundles are regenerated for it on Linux.
+
 ## 2026-10-05 - The reply-listener success test no longer races a 500 ms budget on a slow runner (#9607)
 
 `reply-listener-startup.test.ts` ran its success-path test under the production 500 ms startup budget. When a starved Windows runner delayed the fake child's ready write past that deadline, the test failed with `result.success` false. The success path returns as soon as the child reports ready, so the test now sets a 30 s budget. The never-ready test keeps the short budget.
