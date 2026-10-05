@@ -132,6 +132,55 @@ describe("registerV2Hooks tool registration", () => {
 
     expect(result.output).toBe("no-ask")
   })
+
+  test("#given v1-shimmed arg fields #when bridged #then input is a plain JSON Schema without the shim", async () => {
+    let added: { input: unknown } | undefined
+    const hostContext = {
+      tool: {
+        transform: async (
+          callback: (editor: { add: (tool: unknown) => void; list: () => []; remove: (id: string) => void }) => void,
+        ) => {
+          callback({
+            add: (tool) => {
+              added = tool as typeof added
+            },
+            list: () => [],
+            remove: () => {},
+          })
+        },
+      },
+    }
+    const { z } = await import("zod")
+    const command = z.string().describe("Shell command to run in the background monitor")
+    const label = z.string().optional().describe("Safe human-facing label")
+    // Reproduce normalizeToolArgSchemas' v1-host compat shim, which crashes
+    // the v2 host's standard-interface conversion ("seen.ref" TypeError).
+    for (const schema of [command, label]) {
+      ;(schema as unknown as { _zod: { toJSONSchema: () => unknown } })._zod.toJSONSchema = () => ({})
+    }
+    const hooks = {
+      tool: {
+        monitor_start: {
+          description: "start a monitor",
+          args: { command, label },
+          execute: async () => "",
+        },
+      },
+    } as unknown as Hooks
+
+    await registerV2Hooks(hooks, hostContext, { directory: "/tmp", logger: () => {} })
+
+    expect(added).toBeDefined()
+    const input = added!.input as Record<string, unknown>
+    expect("~standard" in input).toBe(false)
+    expect("$schema" in input).toBe(false)
+    expect(input.type).toBe("object")
+    const properties = input.properties as Record<string, { type: string; description?: string }>
+    expect(properties.command?.type).toBe("string")
+    expect(properties.command?.description).toBe("Shell command to run in the background monitor")
+    expect(properties.label?.type).toBe("string")
+    expect((command as unknown as { _zod: { toJSONSchema?: unknown } })._zod.toJSONSchema).toBeUndefined()
+  })
 })
 
 describe("registerV2Hooks chat.message bridge", () => {

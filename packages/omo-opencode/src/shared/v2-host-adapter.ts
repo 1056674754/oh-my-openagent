@@ -441,6 +441,46 @@ function bridgeToolResult(result: unknown): Record<string, unknown> {
 }
 
 // ---------------------------------------------------------------------------
+// Tool args -> plain JSON Schema
+// ---------------------------------------------------------------------------
+
+/**
+ * v1 hosts consume the per-field `_zod.toJSONSchema` compat shim that
+ * `normalizeToolArgSchemas` installs on every registered tool. The v2 host
+ * converts tool input through zod's standard interface instead, which crashes
+ * on that override ("seen.ref" TypeError in flattenRef) — and the host then
+ * drops the whole registration with only a server-log ERROR, invisible to the
+ * plugin. The shim is v1-only dead weight in a v2 process, so it is removed
+ * before conversion, and the args are handed over as a plain JSON Schema
+ * (the branch of v2 `inputJsonSchema` that returns the object verbatim) to
+ * keep the host's own zod out of the path entirely.
+ */
+function toolInputJsonSchema(args: unknown): Record<string, unknown> {
+  const fields: Record<string, z.ZodType> = {}
+  for (const [key, field] of Object.entries(isRecord(args) ? args : {})) {
+    const schema = field as z.ZodType & { _zod?: { toJSONSchema?: unknown } }
+    if (
+      schema !== null &&
+      typeof schema === "object" &&
+      schema._zod !== undefined &&
+      typeof schema._zod.toJSONSchema === "function"
+    ) {
+      delete schema._zod.toJSONSchema
+    }
+    fields[key] = schema
+  }
+  try {
+    const { $schema: _root, ...rest } = z.toJSONSchema(z.object(fields)) as Record<string, unknown>
+    return rest
+  } catch (error) {
+    log("[v2-host] tool arg conversion failed; registering with an unvalidated input schema", {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return {}
+  }
+}
+
+// ---------------------------------------------------------------------------
 // v2 event stream -> legacy event normalization
 // ---------------------------------------------------------------------------
 
@@ -590,7 +630,7 @@ export async function registerV2Hooks(
           editor.add({
             name,
             description: typeof definition.description === "string" ? definition.description : "",
-            input: z.object((definition.args ?? {}) as z.ZodRawShape),
+            input: toolInputJsonSchema(definition.args),
             execute: async (input: unknown, toolContext: V2ToolExecuteContext) => {
               const directory = deps.directory
               const legacyContext = {
