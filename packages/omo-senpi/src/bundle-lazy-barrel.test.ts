@@ -13,9 +13,11 @@ const BUNDLE_FILES = [
   "omo.js",
   "omo-task.js",
   "omo-member.js",
-  "omo-memory-mcp.js",
   "memory-run-supervisor.mjs",
   "omo-init-deep-advisor.js",
+  "omo-computer-use.js",
+  "omo-memory-doctor.js",
+  "omo-memory-memfs.js",
 ] as const
 
 type LazyBarrel = {
@@ -39,6 +41,12 @@ const LAZY_BARRELS: readonly LazyBarrel[] = [
 ]
 
 describe("built bundles keep their lazy barrels loadable", () => {
+  it("keeps omo-task's pi-tui warm-up in the published artifact (#7355)", () => {
+    const taskBundle = readBundle("omo-task.js")
+    expect(countDynamicImports(taskBundle, "@earendil-works/pi-tui")).toBeGreaterThan(0)
+    expect(findUnconditionalGuard(taskBundle, LAZY_BARRELS[0].guardMessage)).toBeUndefined()
+  })
+
   for (const barrel of LAZY_BARRELS) {
     it(`#given a built bundle reaching the ${barrel.label} barrel #when the artifact is inspected #then its dynamic import survived minification`, () => {
       const reaching = readBundlesReaching(barrel.guardMessage)
@@ -65,14 +73,22 @@ describe("built bundles keep their lazy barrels loadable", () => {
   }
 })
 
+function readBundle(file: string): string {
+  const path = join(extensionsDir, file)
+  expect(existsSync(path), `missing built bundle at ${path}; run build:senpi-plugin first`).toBe(true)
+  return readFileSync(path, "utf8")
+}
+
 function readBundlesReaching(guardMessage: string): readonly { file: string; source: string }[] {
   const reaching: { file: string; source: string }[] = []
   for (const file of BUNDLE_FILES) {
-    const path = join(extensionsDir, file)
-    expect(existsSync(path), `missing built bundle at ${path}; run build:senpi-plugin first`).toBe(true)
-    const source = readFileSync(path, "utf8")
+    const source = readBundle(file)
     if (source.includes(guardMessage)) reaching.push({ file, source })
   }
+  const sdkPath = join(packageRoot, "plugin", "runtime", "agent-toolkit-sdk", "sdk.js")
+  expect(existsSync(sdkPath), `missing SDK bundle at ${sdkPath}`).toBe(true)
+  const sdkSource = readFileSync(sdkPath, "utf8")
+  if (sdkSource.includes(guardMessage)) reaching.push({ file: sdkPath, source: sdkSource })
   return reaching
 }
 

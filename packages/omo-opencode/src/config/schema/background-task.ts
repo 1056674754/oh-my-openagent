@@ -38,6 +38,7 @@ export const BackgroundTaskConfigSchema = z.object({
   modelConcurrency: z.record(z.string(), z.number().min(0)).optional(),
   quotaRouting: z.record(z.string(), QuotaRoutingRuleSchema).optional(),
   maxDepth: z.number().int().min(1).optional(),
+  maxLiveDescendantsPerRoot: z.number().int().min(0).optional(),
   /** Stale timeout in milliseconds - interrupt tasks with no activity for this duration (default: 180000 = 3 minutes, minimum: 60000 = 1 minute) */
   staleTimeoutMs: z.number().min(60000).optional(),
   /** Timeout for tasks that never received any progress update, falling back to startedAt (default: 1800000 = 30 minutes, minimum: 60000 = 1 minute) */

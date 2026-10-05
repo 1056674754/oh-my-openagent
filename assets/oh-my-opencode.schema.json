@@ -90,7 +90,7 @@
       "type": "boolean"
     },
     "telemetry": {
-      "description": "Enable or disable anonymous telemetry. Default: enabled when omitted. Set to false to disable. Independent of codegraph.telemetry.",
+      "description": "Enable or disable anonymous telemetry. Default: enabled when omitted. Set to false to disable.",
       "type": "boolean"
     },
     "model_fallback": {
@@ -8898,10 +8898,6 @@
                   "maximum": 10
                 }
               },
-              "required": [
-                "enabled",
-                "turns"
-              ],
               "additionalProperties": false
             },
             "protected_tools": {
@@ -8930,9 +8926,6 @@
                       "type": "boolean"
                     }
                   },
-                  "required": [
-                    "enabled"
-                  ],
                   "additionalProperties": false
                 },
                 "supersede_writes": {
@@ -8947,10 +8940,6 @@
                       "type": "boolean"
                     }
                   },
-                  "required": [
-                    "enabled",
-                    "aggressive"
-                  ],
                   "additionalProperties": false
                 },
                 "purge_errors": {
@@ -8967,21 +8956,12 @@
                       "maximum": 20
                     }
                   },
-                  "required": [
-                    "enabled",
-                    "turns"
-                  ],
                   "additionalProperties": false
                 }
               },
               "additionalProperties": false
             }
           },
-          "required": [
-            "enabled",
-            "notification",
-            "protected_tools"
-          ],
           "additionalProperties": false
         },
         "task_system": {
@@ -9146,11 +9126,6 @@
           "maximum": 1000
         }
       },
-      "required": [
-        "enabled",
-        "auto_start",
-        "default_max_iterations"
-      ],
       "additionalProperties": false
     },
     "ralph_loop": {
@@ -9195,42 +9170,6 @@
             },
             "restore_primary_after_cooldown": {
               "type": "boolean"
-            },
-            "same_model_retries_before_swap": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 15
-            },
-            "immediate_swap_on_errors": {
-              "type": "array",
-              "items": {
-                "type": "string",
-                "enum": [
-                  "quota_exceeded",
-                  "missing_api_key",
-                  "invalid_api_key",
-                  "model_not_found",
-                  "context_overflow",
-                  "abort"
-                ]
-              }
-            },
-            "provider_overrides": {
-              "type": "object",
-              "propertyNames": {
-                "type": "string"
-              },
-              "additionalProperties": {
-                "type": "object",
-                "properties": {
-                  "same_model_retries_before_swap": {
-                    "type": "number",
-                    "minimum": 0,
-                    "maximum": 15
-                  }
-                },
-                "additionalProperties": false
-              }
             }
           },
           "additionalProperties": false
@@ -9264,175 +9203,14 @@
             "minimum": 0
           }
         },
-        "quotaRouting": {
-          "type": "object",
-          "propertyNames": {
-            "type": "string"
-          },
-          "additionalProperties": {
-            "type": "object",
-            "properties": {
-              "enabled": {
-                "default": true,
-                "type": "boolean"
-              },
-              "quotaProvider": {
-                "type": "string",
-                "enum": [
-                  "zai-coding-plan",
-                  "zhipuai-coding-plan",
-                  "kimi-for-coding"
-                ]
-              },
-              "windows": {
-                "minItems": 1,
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "windowSeconds": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "gracePeriodSeconds": {
-                      "default": 3600,
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "paceThresholdRatio": {
-                      "default": 0.95,
-                      "type": "number",
-                      "exclusiveMinimum": 0,
-                      "maximum": 1
-                    }
-                  },
-                  "required": [
-                    "windowSeconds",
-                    "gracePeriodSeconds",
-                    "paceThresholdRatio"
-                  ],
-                  "additionalProperties": false
-                }
-              },
-              "refreshIntervalSeconds": {
-                "default": 60,
-                "type": "integer",
-                "exclusiveMinimum": 0,
-                "maximum": 9007199254740991
-              },
-              "requestTimeoutMs": {
-                "default": 5000,
-                "type": "integer",
-                "minimum": 1000,
-                "maximum": 9007199254740991
-              },
-              "fallbackModels": {
-                "minItems": 1,
-                "type": "array",
-                "items": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "model": {
-                          "type": "string"
-                        },
-                        "reasoning": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "enum": [
-                                "off",
-                                "minimal",
-                                "low",
-                                "medium",
-                                "high",
-                                "xhigh",
-                                "max",
-                                "auto"
-                              ]
-                            },
-                            {
-                              "type": "string"
-                            }
-                          ]
-                        },
-                        "variant": {
-                          "type": "string"
-                        },
-                        "reasoningEffort": {
-                          "type": "string",
-                          "enum": [
-                            "none",
-                            "minimal",
-                            "low",
-                            "medium",
-                            "high",
-                            "xhigh",
-                            "max"
-                          ]
-                        },
-                        "temperature": {
-                          "type": "number",
-                          "minimum": 0,
-                          "maximum": 2
-                        },
-                        "top_p": {
-                          "type": "number",
-                          "minimum": 0,
-                          "maximum": 1
-                        },
-                        "maxTokens": {
-                          "type": "number"
-                        },
-                        "thinking": {
-                          "type": "object",
-                          "properties": {
-                            "type": {
-                              "type": "string",
-                              "enum": [
-                                "enabled",
-                                "disabled"
-                              ]
-                            },
-                            "budgetTokens": {
-                              "type": "number"
-                            }
-                          },
-                          "required": [
-                            "type"
-                          ],
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "model"
-                      ],
-                      "additionalProperties": false
-                    }
-                  ]
-                }
-              }
-            },
-            "required": [
-              "enabled",
-              "quotaProvider",
-              "windows",
-              "refreshIntervalSeconds",
-              "requestTimeoutMs",
-              "fallbackModels"
-            ],
-            "additionalProperties": false
-          }
-        },
         "maxDepth": {
           "type": "integer",
           "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "maxLiveDescendantsPerRoot": {
+          "type": "integer",
+          "minimum": 0,
           "maximum": 9007199254740991
         },
         "staleTimeoutMs": {
@@ -9563,10 +9341,6 @@
                 "type": "number"
               }
             },
-            "required": [
-              "type",
-              "method"
-            ],
             "additionalProperties": false
           }
         },
@@ -9591,7 +9365,6 @@
               }
             },
             "required": [
-              "enabled",
               "gateway",
               "instruction"
             ],
@@ -9640,21 +9413,9 @@
               "type": "boolean"
             }
           },
-          "required": [
-            "authorizedDiscordUserIds",
-            "pollIntervalMs",
-            "rateLimitPerMinute",
-            "maxMessageLength",
-            "includePrefix"
-          ],
           "additionalProperties": false
         }
       },
-      "required": [
-        "enabled",
-        "gateways",
-        "hooks"
-      ],
       "additionalProperties": false
     },
     "i18n": {
@@ -9732,77 +9493,6 @@
           "maximum": 9007199254740991
         }
       },
-      "required": [
-        "enabled",
-        "live_mode_enabled",
-        "max_monitors_per_session",
-        "max_runtime_ms",
-        "batch_max_lines",
-        "batch_max_bytes",
-        "flush_interval_ms",
-        "ring_max_lines",
-        "line_max_bytes",
-        "pattern_max_length"
-      ],
-      "additionalProperties": false
-    },
-    "codegraph": {
-      "type": "object",
-      "properties": {
-        "auto_init": {
-          "default": "safe",
-          "anyOf": [
-            {
-              "type": "string",
-              "const": "safe"
-            },
-            {
-              "type": "boolean"
-            }
-          ]
-        },
-        "auto_provision": {
-          "default": true,
-          "type": "boolean"
-        },
-        "daemon": {
-          "default": true,
-          "type": "boolean"
-        },
-        "enabled": {
-          "default": true,
-          "type": "boolean"
-        },
-        "excluded_roots": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "install_dir": {
-          "type": "string"
-        },
-        "max_index_db_bytes": {
-          "default": 2147483648,
-          "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
-        },
-        "telemetry": {
-          "type": "boolean"
-        },
-        "watch_debounce_ms": {
-          "type": "number",
-          "minimum": 0
-        }
-      },
-      "required": [
-        "auto_init",
-        "auto_provision",
-        "daemon",
-        "enabled",
-        "max_index_db_bytes"
-      ],
       "additionalProperties": false
     },
     "team_mode": {
@@ -9868,18 +9558,6 @@
           "maximum": 9007199254740991
         }
       },
-      "required": [
-        "enabled",
-        "tmux_visualization",
-        "max_parallel_members",
-        "max_members",
-        "max_messages_per_run",
-        "max_wall_clock_minutes",
-        "max_member_turns",
-        "message_payload_max_bytes",
-        "recipient_unread_max_bytes",
-        "mailbox_poll_interval_ms"
-      ],
       "additionalProperties": false
     },
     "keyword_detector": {
@@ -9920,32 +9598,25 @@
           "type": "number"
         }
       },
-      "required": [
-        "timeout_ms"
-      ],
       "additionalProperties": false
     },
     "git_master": {
       "default": {
-        "commit_footer": true,
-        "include_co_authored_by": true,
+        "commit_footer": false,
+        "include_co_authored_by": false,
         "git_env_prefix": "GIT_MASTER=1"
       },
       "type": "object",
       "properties": {
         "commit_footer": {
-          "default": true,
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "string"
-            }
+          "default": false,
+          "type": [
+            "boolean",
+            "string"
           ]
         },
         "include_co_authored_by": {
-          "default": true,
+          "default": false,
           "type": "boolean"
         },
         "git_env_prefix": {
@@ -9953,11 +9624,6 @@
           "type": "string"
         }
       },
-      "required": [
-        "commit_footer",
-        "include_co_authored_by",
-        "git_env_prefix"
-      ],
       "additionalProperties": false
     },
     "browser_automation_engine": {
@@ -9968,7 +9634,6 @@
           "type": "string",
           "enum": [
             "playwright",
-            "agent-browser",
             "dev-browser",
             "playwright-cli"
           ]
@@ -9980,9 +9645,6 @@
           }
         }
       },
-      "required": [
-        "provider"
-      ],
       "additionalProperties": false
     },
     "websearch": {
@@ -10042,14 +9704,6 @@
           ]
         }
       },
-      "required": [
-        "enabled",
-        "layout",
-        "main_pane_size",
-        "main_pane_min_width",
-        "agent_pane_min_width",
-        "isolation"
-      ],
       "additionalProperties": false
     },
     "tui": {
@@ -10071,15 +9725,9 @@
               "type": "boolean"
             }
           },
-          "required": [
-            "enabled"
-          ],
           "additionalProperties": false
         }
       },
-      "required": [
-        "sidebar"
-      ],
       "additionalProperties": false
     },
     "sisyphus": {
@@ -10099,9 +9747,6 @@
               "type": "boolean"
             }
           },
-          "required": [
-            "claude_code_compat"
-          ],
           "additionalProperties": false
         }
       },
@@ -10115,9 +9760,6 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "auto_commit"
-      ],
       "additionalProperties": false
     },
     "start_work": {
@@ -10128,9 +9770,6 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "auto_commit"
-      ],
       "additionalProperties": false
     },
     "default_mode": {
@@ -10145,10 +9784,6 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "ultrawork",
-        "goal"
-      ],
       "additionalProperties": false
     },
     "_migrations": {
@@ -10158,8 +9793,5 @@
       }
     }
   },
-  "required": [
-    "git_master"
-  ],
   "additionalProperties": false
 }
